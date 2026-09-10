@@ -206,3 +206,116 @@ function checkExpiringContractsAndNotify() {
     Logger.log("Tidak ada STNK unit yang expiring pada target hari ini.");
   }
 }
+
+/**
+ * ============================================================================
+ * GOOGLE FORM SUBMIT TRIGGER (WHATSAPP NOTIFICATION)
+ * ============================================================================
+ */
+
+/**
+ * Fungsi ini dipanggil secara otomatis setiap kali ada form yang di-submit
+ * @param {Object} e Event object dari onFormSubmit
+ */
+function onFormSubmit(e) {
+  try {
+    const data = e.namedValues;
+    if (!data) return; 
+    
+    const TARGET_GROUP_ID = '120363430348999097@g.us';
+    
+    // Ambil kolom keperluan. Biasanya e.namedValues mengembalikan array, jadi kita ambil index 0
+    let keperluan = data['Keperluan'] ? data['Keperluan'][0] : '';
+    if (!keperluan) {
+      const keys = Object.keys(data);
+      const kepKey = keys.find(k => k.toLowerCase().includes('keperluan'));
+      if (kepKey) keperluan = data[kepKey][0];
+    }
+    
+    let message = '';
+    
+    // Helper function untuk mengambil nilai dengan aman
+    const getVal = (colName) => {
+      const keys = Object.keys(data);
+      const exactKey = keys.find(k => k.trim().toLowerCase() === colName.trim().toLowerCase());
+      if (exactKey) return data[exactKey][0] || '-';
+      
+      const partialKey = keys.find(k => k.toLowerCase().includes(colName.toLowerCase()));
+      if (partialKey) return data[partialKey][0] || '-';
+      
+      return '-';
+    };
+
+    if (keperluan.toLowerCase().includes('order tiket')) {
+      message = `🎫 *PERMINTAAN ORDER TIKET BARU* 🎫\n\n` +
+                `*Nama:* ${getVal('Nama')}\n` +
+                `*NIK:* ${getVal('NIK')}\n` +
+                `*No HP:* ${getVal('Nomor Handphone')}\n` +
+                `*Status:* ${getVal('Status')}\n` +
+                `*Site:* ${getVal('Site')}\n` +
+                `*Departemen:* ${getVal('Departemen')}\n\n` +
+                `*Tgl Keberangkatan:* ${getVal('Tanggal Keberangkatan')}\n` +
+                `*Rute Keberangkatan:* ${getVal('Rute Keberangkatan')}\n` +
+                `*Maskapai Berangkat:* ${getVal('Maskapai')}\n\n` +
+                `*Tgl Kepulangan:* ${getVal('Tanggal Kepulangan')}\n` +
+                `*Rute Kepulangan:* ${getVal('Rute Kepulangan')}\n` +
+                `*Maskapai Pulang:* ${getVal('Maskapai')}\n\n` + 
+                `*Lokasi Penjemputan:* ${getVal('Lokasi Penjemputan')}\n` +
+                `*Catatan:* ${getVal('Catatan')}\n`;
+                
+    } else if (keperluan.toLowerCase().includes('reimbursement')) {
+      message = `💰 *INFO REIMBURSEMENT BARU* 💰\n\n` +
+                `*Nama:* ${getVal('Nama')}\n` +
+                `*NIK:* ${getVal('NIK')}\n` +
+                `*No HP:* ${getVal('Nomor Handphone')}\n` +
+                `*Status:* ${getVal('Status')}\n` +
+                `*Departemen:* ${getVal('Departement')}\n`;
+                
+    } else if (keperluan.toLowerCase().includes('unit service')) {
+      message = `🔧 *PERMINTAAN UNIT SERVICE BARU* 🔧\n\n` +
+                `*Nama:* ${getVal('Nama')}\n` +
+                `*NIK:* ${getVal('NIK')}\n` +
+                `*No Lambung:* ${getVal('No Lambung')}\n` +
+                `*No Polisi:* ${getVal('No Polisi')}\n` +
+                `*Departemen:* ${getVal('Departement')}\n` +
+                `*COA Dept:* ${getVal('COA Dept')}\n` +
+                `*Sisa Budget:* ${getVal('Sisa Budget')}\n` +
+                `*Site:* ${getVal('SITE')}\n` +
+                `*Catatan:* ${getVal('Catatan')}\n`;
+    } else {
+      message = `📝 *FORM BARU MASUK* 📝\n\n` +
+                `Keperluan: ${keperluan}\n` +
+                `Dikirim oleh: ${getVal('Nama')} (${getVal('NIK')})`;
+    }
+
+    const timestamp = e.namedValues['Timestamp'] ? e.namedValues['Timestamp'][0] : new Date().toLocaleString('id-ID');
+    message += `\n_Waktu Submit: ${timestamp}_`;
+
+    // Gunakan fungsi sendWhatsAppMessage yang sudah ada di atas
+    sendWhatsAppMessage(TARGET_GROUP_ID, message);
+    
+  } catch (error) {
+    Logger.log("Error onFormSubmit: " + error.toString());
+  }
+}
+
+/**
+ * JALANKAN FUNGSI INI SEKALI SAJA UNTUK MEMASANG TRIGGER
+ */
+function setupFormTrigger() {
+  const sheet = SpreadsheetApp.getActiveSpreadsheet();
+  
+  const triggers = ScriptApp.getProjectTriggers();
+  for (let i = 0; i < triggers.length; i++) {
+    if (triggers[i].getHandlerFunction() === 'onFormSubmit') {
+      ScriptApp.deleteTrigger(triggers[i]);
+    }
+  }
+  
+  ScriptApp.newTrigger("onFormSubmit")
+    .forSpreadsheet(sheet)
+    .onFormSubmit()
+    .create();
+    
+  Logger.log("Trigger Form WhatsApp berhasil dibuat!");
+}
