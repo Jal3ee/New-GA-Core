@@ -20,6 +20,7 @@ const VendorContractsPage = lazy(() => import('./pages/assets/VendorContractsPag
 const UnitContractsPage   = lazy(() => import('./pages/assets/UnitContractsPage'));
 const InvoicePage         = lazy(() => import('./pages/docs/InvoicePage'));
 const InvoiceDetailPage   = lazy(() => import('./pages/docs/InvoiceDetailPage'));
+const InvoiceDashboardPage= lazy(() => import('./pages/docs/InvoiceDashboardPage'));
 const FinancePortal       = lazy(() => import('./pages/portal/FinancePortal'));
 
 function App() {
@@ -48,6 +49,7 @@ function App() {
                 <Route path="/assets/unit" element={<UnitContractsPage />} />
                 
                 {/* Docs */}
+                <Route path="/invoice/dashboard" element={<InvoiceDashboardPage />} />
                 <Route path="/invoice" element={<InvoicePage />} />
                 <Route path="/invoice/:id" element={<InvoiceDetailPage />} />
                 

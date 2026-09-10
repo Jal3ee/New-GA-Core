@@ -73,6 +73,7 @@ export function MainLayout() {
         label: 'Docs',
         icon: FileText,
         subItems: [
+          { label: 'Dashboard Invoice', path: '/invoice/dashboard' },
           { label: 'All Documents', path: '/docs' },
           { label: 'Invoice', path: '/invoice' },
         ]
