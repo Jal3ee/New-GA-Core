@@ -109,6 +109,27 @@ export default function PdfOrganizerModal({ isOpen, onClose, invoice, pdfDataUri
     setPages(newPages);
   };
 
+  const handleDragStart = (e, index) => {
+    e.dataTransfer.effectAllowed = 'move';
+    e.dataTransfer.setData('pageIndex', index);
+  };
+
+  const handleDrop = (e, targetIndex) => {
+    e.preventDefault();
+    const sourceIndex = parseInt(e.dataTransfer.getData('pageIndex'), 10);
+    if (sourceIndex === targetIndex || isNaN(sourceIndex)) return;
+    
+    const newPages = [...pages];
+    const [draggedItem] = newPages.splice(sourceIndex, 1);
+    newPages.splice(targetIndex, 0, draggedItem);
+    setPages(newPages);
+  };
+
+  const handleDragOver = (e) => {
+    e.preventDefault();
+    e.dataTransfer.dropEffect = 'move';
+  };
+
   const handleSave = async () => {
     if (pages.length === 0) {
       toast.error('PDF tidak boleh kosong');
@@ -209,61 +230,70 @@ export default function PdfOrganizerModal({ isOpen, onClose, invoice, pdfDataUri
                   <strong>Peringatan:</strong> Menyimpan perubahan akan mereset semua tanda tangan / anotasi yang sudah ada di dokumen ini.
                 </div>
 
-                <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-4">
-                  {pages.map((p, index) => {
-                    const sourceFile = files.find(f => f.id === p.fileId);
-                    return (
-                      <div key={p.id} className="bg-white border border-[var(--border)] rounded-lg shadow-sm p-3 flex flex-col items-center relative group hover:ring-2 hover:ring-sky-400 transition-all">
-                        <div className="w-full aspect-[1/1.4] bg-gray-100 border border-gray-200 shadow-inner flex items-center justify-center mb-3">
-                          <FileText className="w-10 h-10 text-gray-400" />
-                          <span className="absolute text-3xl font-bold text-gray-300 pointer-events-none opacity-50">{index + 1}</span>
-                        </div>
-                        <div className="text-center w-full">
-                          <p className="text-xs font-bold text-[var(--foreground)]">Hal {index + 1}</p>
-                          <p className="text-[10px] text-[var(--muted-foreground)] truncate px-1" title={sourceFile?.name}>
-                            {p.fileId === 'original' ? 'Original' : sourceFile?.name} (Hal {p.pageIndex + 1})
-                          </p>
-                        </div>
-
-                        {/* Action Overlay */}
-                        <div className="absolute top-0 right-0 left-0 bottom-0 bg-white/90 backdrop-blur-[1px] rounded-lg opacity-0 group-hover:opacity-100 transition-opacity flex flex-col items-center justify-center space-y-2">
-                          <div className="flex space-x-2">
-                            <button 
-                              onClick={() => movePageUp(index)} 
-                              disabled={index === 0}
-                              className="p-2 bg-sky-100 text-sky-700 rounded-full hover:bg-sky-200 disabled:opacity-30 disabled:cursor-not-allowed shadow-sm"
-                              title="Pindah ke Atas"
-                            >
-                              <ArrowUp className="w-4 h-4" />
-                            </button>
-                            <button 
-                              onClick={() => movePageDown(index)} 
-                              disabled={index === pages.length - 1}
-                              className="p-2 bg-sky-100 text-sky-700 rounded-full hover:bg-sky-200 disabled:opacity-30 disabled:cursor-not-allowed shadow-sm"
-                              title="Pindah ke Bawah"
-                            >
-                              <ArrowDown className="w-4 h-4" />
-                            </button>
+                  <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-4">
+                    {pages.map((p, index) => {
+                      const sourceFile = files.find(f => f.id === p.fileId);
+                      return (
+                        <motion.div 
+                          layout
+                          key={p.id} 
+                          draggable
+                          onDragStart={(e) => handleDragStart(e, index)}
+                          onDrop={(e) => handleDrop(e, index)}
+                          onDragOver={handleDragOver}
+                          className="bg-white border border-[var(--border)] rounded-lg shadow-sm p-3 flex flex-col items-center relative group hover:ring-2 hover:ring-sky-400 transition-all cursor-grab active:cursor-grabbing"
+                        >
+                          <div className="w-full aspect-[1/1.4] bg-gray-100 border border-gray-200 shadow-inner flex items-center justify-center mb-3">
+                            <FileText className="w-10 h-10 text-gray-400" />
+                            <span className="absolute text-3xl font-bold text-gray-300 pointer-events-none opacity-50">{index + 1}</span>
                           </div>
-                          <button 
-                            onClick={() => removePage(index)} 
-                            className="p-2 bg-ruby-100 text-ruby-700 rounded-full hover:bg-ruby-200 shadow-sm"
-                            title="Hapus Halaman"
-                          >
-                            <Trash2 className="w-4 h-4" />
-                          </button>
-                        </div>
-                      </div>
-                    );
-                  })}
-                  
-                  {/* Add New PDF Button */}
-                  <label className="border-2 border-dashed border-gray-300 rounded-lg flex flex-col items-center justify-center p-4 cursor-pointer hover:bg-gray-100 hover:border-sky-400 hover:text-sky-600 transition-colors aspect-[1/1.4]">
-                    <Plus className="w-8 h-8 text-gray-400 mb-2 group-hover:text-sky-600" />
-                    <span className="text-xs font-bold text-gray-600 text-center group-hover:text-sky-600">Tambah<br/>PDF Baru</span>
-                    <input type="file" className="hidden" accept=".pdf" onChange={handleAddPdf} multiple={false} />
-                  </label>
-                </div>
+                          <div className="text-center w-full">
+                            <p className="text-xs font-bold text-[var(--foreground)]">Hal {index + 1}</p>
+                            <p className="text-[10px] text-[var(--muted-foreground)] truncate px-1" title={sourceFile?.name}>
+                              {p.fileId === 'original' ? 'Original' : sourceFile?.name} (Hal {p.pageIndex + 1})
+                            </p>
+                          </div>
+
+                          {/* Action Overlay */}
+                          <div className="absolute top-0 right-0 left-0 bottom-0 bg-white/90 backdrop-blur-[1px] rounded-lg opacity-0 group-hover:opacity-100 transition-opacity flex flex-col items-center justify-center space-y-2">
+                            <div className="flex space-x-2">
+                              <button 
+                                onClick={() => movePageUp(index)} 
+                                disabled={index === 0}
+                                className="p-2 bg-sky-100 text-sky-700 rounded-full hover:bg-sky-200 disabled:opacity-30 disabled:cursor-not-allowed shadow-sm cursor-pointer"
+                                title="Pindah ke Atas"
+                              >
+                                <ArrowUp className="w-4 h-4" />
+                              </button>
+                              <button 
+                                onClick={() => movePageDown(index)} 
+                                disabled={index === pages.length - 1}
+                                className="p-2 bg-sky-100 text-sky-700 rounded-full hover:bg-sky-200 disabled:opacity-30 disabled:cursor-not-allowed shadow-sm cursor-pointer"
+                                title="Pindah ke Bawah"
+                              >
+                                <ArrowDown className="w-4 h-4" />
+                              </button>
+                            </div>
+                            <button 
+                              onClick={() => removePage(index)} 
+                              className="p-2 bg-ruby-100 text-ruby-700 rounded-full hover:bg-ruby-200 shadow-sm cursor-pointer"
+                              title="Hapus Halaman"
+                            >
+                              <Trash2 className="w-4 h-4" />
+                            </button>
+                            <p className="text-[10px] font-medium text-[var(--muted-foreground)] pt-2 select-none pointer-events-none">Tahan & Geser (Drag)</p>
+                          </div>
+                        </motion.div>
+                      );
+                    })}
+                    
+                    {/* Add New PDF Button */}
+                    <label className="border-2 border-dashed border-gray-300 rounded-lg flex flex-col items-center justify-center p-4 cursor-pointer hover:bg-gray-100 hover:border-sky-400 hover:text-sky-600 transition-colors aspect-[1/1.4]">
+                      <Plus className="w-8 h-8 text-gray-400 mb-2 group-hover:text-sky-600" />
+                      <span className="text-xs font-bold text-gray-600 text-center group-hover:text-sky-600">Tambah<br/>PDF Baru</span>
+                      <input type="file" className="hidden" accept=".pdf" onChange={handleAddPdf} multiple={false} />
+                    </label>
+                  </div>
               </div>
             )}
           </div>
