@@ -219,76 +219,60 @@ function checkExpiringContractsAndNotify() {
  */
 function onFormSubmit(e) {
   try {
-    const data = e.namedValues;
-    if (!data) return; 
+    const values = e.values;
+    if (!values || values.length < 2) return; 
     
     const TARGET_GROUP_ID = '120363430348999097@g.us';
     
-    // Ambil kolom keperluan. Biasanya e.namedValues mengembalikan array, jadi kita ambil index 0
-    let keperluan = data['Keperluan'] ? data['Keperluan'][0] : '';
-    if (!keperluan) {
-      const keys = Object.keys(data);
-      const kepKey = keys.find(k => k.toLowerCase().includes('keperluan'));
-      if (kepKey) keperluan = data[kepKey][0];
-    }
-    
+    // Index 1: "Silahkan pilih kebutuhan yang diperlukan"
+    const keperluan = values[1] || '';
     let message = '';
     
-    // Helper function untuk mengambil nilai dengan aman
-    const getVal = (colName) => {
-      const keys = Object.keys(data);
-      const exactKey = keys.find(k => k.trim().toLowerCase() === colName.trim().toLowerCase());
-      if (exactKey) return data[exactKey][0] || '-';
-      
-      const partialKey = keys.find(k => k.toLowerCase().includes(colName.toLowerCase()));
-      if (partialKey) return data[partialKey][0] || '-';
-      
-      return '-';
-    };
+    const val = (index) => values[index] ? values[index].trim() : '-';
 
     if (keperluan.toLowerCase().includes('order tiket')) {
       message = `🎫 *PERMINTAAN ORDER TIKET BARU* 🎫\n\n` +
-                `*Nama:* ${getVal('Nama')}\n` +
-                `*NIK:* ${getVal('NIK')}\n` +
-                `*No HP:* ${getVal('Nomor Handphone')}\n` +
-                `*Status:* ${getVal('Status')}\n` +
-                `*Site:* ${getVal('Site')}\n` +
-                `*Departemen:* ${getVal('Departemen')}\n\n` +
-                `*Tgl Keberangkatan:* ${getVal('Tanggal Keberangkatan')}\n` +
-                `*Rute Keberangkatan:* ${getVal('Rute Keberangkatan')}\n` +
-                `*Maskapai Berangkat:* ${getVal('Maskapai')}\n\n` +
-                `*Tgl Kepulangan:* ${getVal('Tanggal Kepulangan')}\n` +
-                `*Rute Kepulangan:* ${getVal('Rute Kepulangan')}\n` +
-                `*Maskapai Pulang:* ${getVal('Maskapai')}\n\n` + 
-                `*Lokasi Penjemputan:* ${getVal('Lokasi Penjemputan')}\n` +
-                `*Catatan:* ${getVal('Catatan')}\n`;
+                `*Nama:* ${val(2)}\n` +
+                `*NIK:* ${val(3)}\n` +
+                `*No HP:* ${val(4)}\n` +
+                `*Status:* ${val(5)}\n` +
+                `*Site:* ${val(6)}\n` +
+                `*Departemen:* ${val(7)}\n\n` +
+                `*Tgl Keberangkatan:* ${val(10)}\n` +
+                `*Rute Keberangkatan:* ${val(11)}\n` +
+                `*Maskapai Berangkat:* ${val(12)}\n\n` +
+                `*Tgl Kepulangan:* ${val(13)}\n` +
+                `*Rute Kepulangan:* ${val(14)}\n` +
+                `*Maskapai Pulang:* ${val(15)}\n\n` + 
+                `*Lokasi Penjemputan:* ${val(16)}\n` +
+                `*Catatan:* ${val(17)}\n`;
                 
     } else if (keperluan.toLowerCase().includes('reimbursement')) {
       message = `💰 *INFO REIMBURSEMENT BARU* 💰\n\n` +
-                `*Nama:* ${getVal('Nama')}\n` +
-                `*NIK:* ${getVal('NIK')}\n` +
-                `*No HP:* ${getVal('Nomor Handphone')}\n` +
-                `*Status:* ${getVal('Status')}\n` +
-                `*Departemen:* ${getVal('Departement')}\n`;
+                `*Nama:* ${val(18)}\n` +
+                `*NIK:* ${val(19)}\n` +
+                `*No HP:* ${val(20)}\n` +
+                `*Status:* ${val(21)}\n` +
+                `*Departemen:* ${val(22)}\n`;
                 
     } else if (keperluan.toLowerCase().includes('unit service')) {
       message = `🔧 *PERMINTAAN UNIT SERVICE BARU* 🔧\n\n` +
-                `*Nama:* ${getVal('Nama')}\n` +
-                `*NIK:* ${getVal('NIK')}\n` +
-                `*No Lambung:* ${getVal('No Lambung')}\n` +
-                `*No Polisi:* ${getVal('No Polisi')}\n` +
-                `*Departemen:* ${getVal('Departement')}\n` +
-                `*COA Dept:* ${getVal('COA Dept')}\n` +
-                `*Sisa Budget:* ${getVal('Sisa Budget')}\n` +
-                `*Site:* ${getVal('SITE')}\n` +
-                `*Catatan:* ${getVal('Catatan')}\n`;
+                `*Nama:* ${val(27)}\n` +
+                `*NIK:* ${val(28)}\n` +
+                `*No Lambung:* ${val(29)}\n` +
+                `*No Polisi:* ${val(30)}\n` +
+                `*Departemen:* ${val(31)}\n` +
+                `*COA Dept:* ${val(32)}\n` +
+                `*Sisa Budget:* ${val(33)}\n` +
+                `*Site:* ${val(39)}\n` +
+                `*Catatan:* ${val(34)}\n`;
     } else {
       message = `📝 *FORM BARU MASUK* 📝\n\n` +
                 `Keperluan: ${keperluan}\n` +
-                `Dikirim oleh: ${getVal('Nama')} (${getVal('NIK')})`;
+                `Dikirim oleh: ${val(2) || val(18) || val(27)} (${val(3) || val(19) || val(28)})`;
     }
 
-    const timestamp = e.namedValues['Timestamp'] ? e.namedValues['Timestamp'][0] : new Date().toLocaleString('id-ID');
+    const timestamp = values[0] || new Date().toLocaleString('id-ID');
     message += `\n_Waktu Submit: ${timestamp}_`;
 
     // Gunakan fungsi sendWhatsAppMessage yang sudah ada di atas
