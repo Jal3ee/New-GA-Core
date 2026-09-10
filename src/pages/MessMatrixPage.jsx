@@ -3,6 +3,7 @@ import { useGlobalLoading } from '../context/LoadingContext';
 import { api } from '../lib/gasClient';
 import { toast } from 'sonner';
 import { CalendarDays, ChevronLeft, ChevronRight } from 'lucide-react';
+import CustomSelect from '../components/ui/CustomSelect';
 
 export default function MessMatrixPage() {
   const { showLoading, hideLoading } = useGlobalLoading();
@@ -137,20 +138,18 @@ export default function MessMatrixPage() {
               <CalendarDays className="w-5 h-5 mr-2 text-[var(--primary)]" />
               Matriks Kamar - {site}
             </h2>
-            <div className="relative">
-              <select
-                className="text-sm bg-[var(--background)] border border-[var(--border)] text-[var(--foreground)] rounded-lg pl-3 pr-8 py-1.5 outline-none focus:ring-2 focus:ring-[var(--ring)] appearance-none font-medium cursor-pointer"
+            <div className="w-56">
+              <CustomSelect 
                 value={filterBuilding}
-                onChange={(e) => setFilterBuilding(e.target.value)}
-              >
-                <option value="All">Semua Bangunan</option>
-                {buildings.filter(b => b.site === site).map(b => (
-                  <option key={b.id} value={b.id}>{b.name}</option>
-                ))}
-              </select>
-              <div className="pointer-events-none absolute inset-y-0 right-0 flex items-center px-2 text-[var(--muted-foreground)]">
-                <svg className="fill-current h-4 w-4" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20"><path d="M9.293 12.95l.707.707L15.657 8l-1.414-1.414L10 10.828 5.757 6.586 4.343 8z"/></svg>
-              </div>
+                onChange={setFilterBuilding}
+                options={[
+                  { value: 'All', label: 'Semua Bangunan' },
+                  ...buildings.filter(b => b.site === site).map(b => ({
+                    value: b.id,
+                    label: b.name
+                  }))
+                ]}
+              />
             </div>
           </div>
           <div className="flex items-center gap-3">
