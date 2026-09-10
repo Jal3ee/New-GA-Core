@@ -100,16 +100,18 @@ export async function gasFetch(action, payload = {}, options = {}) {
         
         bodyObj.payload = bodyObj.payload || {};
         if (bodyObj.payload.data) {
-          bodyObj.payload.data.fileData = base64Data;
           bodyObj.payload.data.fileName = fileName;
         } else {
-          bodyObj.payload.fileData = base64Data;
           bodyObj.payload.fileName = fileName;
         }
-      }
 
-      fetchOptions.headers = { 'Content-Type': 'text/plain;charset=utf-8' };
-      fetchOptions.body = JSON.stringify(bodyObj);
+        const metaStr = JSON.stringify(bodyObj);
+        fetchOptions.headers = { 'Content-Type': 'text/plain;charset=utf-8' };
+        fetchOptions.body = metaStr + '-----FILE_DELIMITER_PONYTAIL_V2-----' + base64Data;
+      } else {
+        fetchOptions.headers = { 'Content-Type': 'text/plain;charset=utf-8' };
+        fetchOptions.body = JSON.stringify(bodyObj);
+      }
 
       res = await fetch(GAS_URL, fetchOptions);
       clearTimeout(timeoutId);

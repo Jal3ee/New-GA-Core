@@ -39,24 +39,36 @@ function checkRateLimit(identifier) {
 function doPost(e) {
   try {
     let body;
-    // Ponytail Hack: Bypass GAS 10MB limit and JSON.parse OOM
-    // If action is passed in URL query parameter, it means file is sent as RAW postData contents
-    if (e.parameter && e.parameter.action) {
-      body = {
-        action: e.parameter.action,
-        payload: e.parameter.payload ? JSON.parse(e.parameter.payload) : {},
-        userEmail: e.parameter.userEmail || 'anonymous',
-        secret: e.parameter.secret
-      };
-      // Extract file if uploaded as raw POST body
-      if (e.postData && e.postData.contents) {
+    // Ponytail Hack V2: Bypass GAS 10MB limit and JSON.parse OOM
+    // Payload contains Metadata JSON and Base64 File separated by delimiter
+    if (e.postData && e.postData.contents) {
+      if (e.postData.contents.indexOf('-----FILE_DELIMITER_PONYTAIL_V2-----') !== -1) {
+        const parts = e.postData.contents.split('-----FILE_DELIMITER_PONYTAIL_V2-----');
+        body = JSON.parse(parts[0]);
+        const fileBase64 = parts[1];
+        if (fileBase64 && fileBase64.length > 0) {
+          body.payload = body.payload || {};
+          body.payload.data = body.payload.data || {};
+          body.payload.data.fileData = fileBase64;
+          // fileName is already parsed from JSON metadata
+        }
+      } else if (e.parameter && e.parameter.action) {
+        // Fallback for V1 Ponytail Hack (URL params + raw body)
+        body = {
+          action: e.parameter.action,
+          payload: e.parameter.payload ? JSON.parse(e.parameter.payload) : {},
+          userEmail: e.parameter.userEmail || 'anonymous',
+          secret: e.parameter.secret
+        };
         body.payload.data = body.payload.data || {};
-        body.payload.data.fileData = e.postData.contents; // This is the pure Base64 string
+        body.payload.data.fileData = e.postData.contents;
         body.payload.data.fileName = e.parameter.fileName || 'uploaded_file';
+      } else if (e.postData.type && (e.postData.type.includes('application/json') || e.postData.type.includes('text/plain'))) {
+        // Standard JSON request without large files
+        body = JSON.parse(e.postData.contents);
+      } else {
+        throw new Error("No valid post data or parameters found");
       }
-    } else if (e.postData && e.postData.type && (e.postData.type.includes('application/json') || e.postData.type.includes('text/plain'))) {
-      // Standard JSON request without large files
-      body = JSON.parse(e.postData.contents);
     } else {
       throw new Error("No valid post data or parameters found");
     }
