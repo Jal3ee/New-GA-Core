@@ -140,6 +140,20 @@ export default function UnitContractsPage() {
     setEditingContract(null);
   };
 
+  const handleBudgetChange = (e) => {
+    let rawValue = e.target.value.replace(/[^0-9]/g, '');
+    if (!rawValue) {
+      setFormData({ ...formData, budget_tahunan: '' });
+      return;
+    }
+    const formatted = new Intl.NumberFormat('id-ID', {
+      style: 'currency',
+      currency: 'IDR',
+      minimumFractionDigits: 0
+    }).format(rawValue);
+    setFormData({ ...formData, budget_tahunan: formatted });
+  };
+
   const handleFileChange = (e) => {
     const file = e.target.files[0];
     if (file) {
@@ -524,7 +538,7 @@ export default function UnitContractsPage() {
                     <div className="grid grid-cols-2 gap-2">
                       <div>
                         <label className="block text-xs font-medium text-[var(--muted-foreground)] mb-1">Budget Tahunan</label>
-                        <input type="text" value={formData.budget_tahunan} onChange={(e) => setFormData({...formData, budget_tahunan: e.target.value})} placeholder="Rp..." className="w-full px-3 py-2 border border-[var(--border)] rounded-lg bg-[var(--card)] focus:ring-2 focus:ring-[var(--ring)] outline-none text-sm" />
+                        <input type="text" value={formData.budget_tahunan} onChange={handleBudgetChange} placeholder="Rp..." className="w-full px-3 py-2 border border-[var(--border)] rounded-lg bg-[var(--card)] focus:ring-2 focus:ring-[var(--ring)] outline-none text-sm" />
                       </div>
                       <div>
                         <label className="block text-xs font-medium text-[var(--foreground)] mb-1">Status Keaktifan</label>

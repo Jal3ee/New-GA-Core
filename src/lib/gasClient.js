@@ -90,16 +90,6 @@ export async function gasFetch(action, payload = {}, options = {}) {
       let text;
       
       if (hasFile) {
-        // Ponytail Hack: Bypass GAS 10MB limit and JSON.parse OOM by sending metadata in URL and file as raw body
-        const urlParams = new URLSearchParams();
-        urlParams.append('action', bodyObj.action);
-        urlParams.append('secret', bodyObj.secret);
-        urlParams.append('userEmail', bodyObj.userEmail || '');
-        
-        // Ensure payload is small (fileData is removed)
-        urlParams.append('payload', JSON.stringify(bodyObj.payload || {}));
-        urlParams.append('fileName', fileName);
-
         // Convert File to Base64
         const base64Data = await new Promise((resolve, reject) => {
           const reader = new FileReader();
@@ -108,22 +98,22 @@ export async function gasFetch(action, payload = {}, options = {}) {
           reader.readAsDataURL(fileObj);
         });
         
-        fetchOptions.headers = { 'Content-Type': 'text/plain;charset=utf-8' };
-        fetchOptions.body = base64Data;
-        
-        const finalUrl = GAS_URL + (GAS_URL.includes('?') ? '&' : '?') + urlParams.toString();
-        res = await fetch(finalUrl, fetchOptions);
-        
-        clearTimeout(timeoutId);
-        text = await res.text();
-      } else {
-        fetchOptions.headers = { 'Content-Type': 'text/plain;charset=utf-8' };
-        fetchOptions.body = JSON.stringify(bodyObj);
-
-        res = await fetch(GAS_URL, fetchOptions);
-        clearTimeout(timeoutId);
-        text = await res.text();
+        bodyObj.payload = bodyObj.payload || {};
+        if (bodyObj.payload.data) {
+          bodyObj.payload.data.fileData = base64Data;
+          bodyObj.payload.data.fileName = fileName;
+        } else {
+          bodyObj.payload.fileData = base64Data;
+          bodyObj.payload.fileName = fileName;
+        }
       }
+
+      fetchOptions.headers = { 'Content-Type': 'text/plain;charset=utf-8' };
+      fetchOptions.body = JSON.stringify(bodyObj);
+
+      res = await fetch(GAS_URL, fetchOptions);
+      clearTimeout(timeoutId);
+      text = await res.text();
       
       if (text.startsWith('<')) {
         throw new GASError('HTML_RESPONSE', 'Google server returned HTML', attempt);
