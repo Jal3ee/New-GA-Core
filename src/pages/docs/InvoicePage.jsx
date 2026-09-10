@@ -153,6 +153,24 @@ export default function InvoicePage() {
     }
   };
 
+  // Helper function to safely format dates avoiding timezone shifts
+  const formatDateSafe = (dateString, options = {}) => {
+    if (!dateString) return '-';
+    // If it's an ISO string from GAS, it might be in UTC. 
+    // To safely display it, we just slice the YYYY-MM-DD part if it matches
+    if (dateString.includes('T')) {
+      const parts = dateString.split('T')[0].split('-');
+      if (parts.length === 3) {
+        if (options.month === 'short') {
+          const d = new Date(parts[0], parts[1] - 1, parts[2]);
+          return d.toLocaleDateString('id-ID', options);
+        }
+        return `${parts[2]}/${parts[1]}/${parts[0]}`; // DD/MM/YYYY
+      }
+    }
+    return new Date(dateString).toLocaleDateString('id-ID', options);
+  };
+
   const filteredInvoices = invoices.filter(c => {
     const matchesSearch = String(c.vendor).toLowerCase().includes(searchTerm.toLowerCase());
     
@@ -177,24 +195,6 @@ export default function InvoicePage() {
 
     return matchesSearch && matchesStatus && matchesMonth;
   });
-
-  // Helper function to safely format dates avoiding timezone shifts
-  const formatDateSafe = (dateString, options = {}) => {
-    if (!dateString) return '-';
-    // If it's an ISO string from GAS, it might be in UTC. 
-    // To safely display it, we just slice the YYYY-MM-DD part if it matches
-    if (dateString.includes('T')) {
-      const parts = dateString.split('T')[0].split('-');
-      if (parts.length === 3) {
-        if (options.month === 'short') {
-          const d = new Date(parts[0], parts[1] - 1, parts[2]);
-          return d.toLocaleDateString('id-ID', options);
-        }
-        return `${parts[2]}/${parts[1]}/${parts[0]}`; // DD/MM/YYYY
-      }
-    }
-    return new Date(dateString).toLocaleDateString('id-ID', options);
-  };
 
   return (
     <div className="w-full space-y-6">
