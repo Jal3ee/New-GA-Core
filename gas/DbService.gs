@@ -200,7 +200,9 @@ function createUser(payload, actorEmail) {
   const headers = data[0];
   const nikIdx = headers.indexOf('nik');
   for (let i = 1; i < data.length; i++) {
-    if (String(data[i][nikIdx]) === String(payload.nik)) {
+    const storedNik = String(data[i][nikIdx]).replace(/^0+/, '');
+    const inputNik = String(payload.nik).replace(/^0+/, '');
+    if (storedNik === inputNik) {
       return jsonResponse({ ok: false, error: 'BAD_REQUEST', message: 'NIK sudah terdaftar' });
     }
   }
@@ -295,7 +297,9 @@ function updatePassword(nik, oldPassword, newPassword, actorEmail) {
   const idIdx = headers.indexOf('id');
   
   for (let i = 1; i < data.length; i++) {
-    if (String(data[i][nikIdx]) === String(nik)) {
+    const storedNik = String(data[i][nikIdx]).replace(/^0+/, '');
+    const inputNik = String(nik).replace(/^0+/, '');
+    if (storedNik === inputNik) {
       const storedHash = data[i][passIdx];
       
       if (!verifyPassword(oldPassword, storedHash)) {

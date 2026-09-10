@@ -198,7 +198,11 @@ function loginUser(nik, password) {
   }
 
   for (let i = 1; i < data.length; i++) {
-    if (String(data[i][nikIdx]) === String(nik)) {
+    // Strip leading zeros for robust comparison since spreadsheets might drop them
+    const storedNik = String(data[i][nikIdx]).replace(/^0+/, '');
+    const inputNik = String(nik).replace(/^0+/, '');
+    
+    if (storedNik === inputNik) {
       const storedHash = data[i][passIdx];
       const status = statusIdx > -1 ? data[i][statusIdx] : 'Active';
       
