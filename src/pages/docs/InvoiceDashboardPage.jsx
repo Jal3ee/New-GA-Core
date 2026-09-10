@@ -3,7 +3,7 @@ import { api as gasClient } from '../../lib/gasClient';
 import { useGlobalLoading } from '../../context/LoadingContext';
 import { toast } from 'sonner';
 import { motion } from 'framer-motion';
-import { Activity, Clock, FileText, DollarSign, ArrowRight, BarChart3, AlertCircle } from 'lucide-react';
+import { Activity, Clock, FileText, DollarSign, ArrowRight, BarChart3, AlertCircle, Building2, Store } from 'lucide-react';
 import { differenceInHours } from 'date-fns';
 
 export default function InvoiceDashboardPage() {
@@ -73,6 +73,9 @@ export default function InvoiceDashboardPage() {
       'FA GL': []
     };
 
+    const vendorsMap = {};
+    const sitesMap = {};
+
     const trackingKeys = [
       { key: 'tgl_berkas', label: 'Diserahkan' },
       { key: 'tracking_admin_ga', label: 'Admin GA' },
@@ -98,6 +101,17 @@ export default function InvoiceDashboardPage() {
       } else {
         openCount++;
       }
+
+      const v = inv.vendor || 'Unknown Vendor';
+      const s = inv.site || 'Unknown Site';
+
+      if (!vendorsMap[v]) vendorsMap[v] = { vendor: v, count: 0, totalValue: 0 };
+      vendorsMap[v].count += 1;
+      vendorsMap[v].totalValue += val;
+
+      if (!sitesMap[s]) sitesMap[s] = { site: s, count: 0, totalValue: 0 };
+      sitesMap[s].count += 1;
+      sitesMap[s].totalValue += val;
 
       // Calculate Lead Times per stage
       let lastValidDate = parseDate(inv.tgl_berkas);
@@ -134,8 +148,13 @@ export default function InvoiceDashboardPage() {
 
     // Find the max avg for scaling the bar chart
     const maxAvg = Math.max(...avgLeadTimes.map(l => l.avg), 1);
-
     const overallAvgLeadTime = completedLeadTimes ? Math.round(totalTotalHours / completedLeadTimes) : 0;
+
+    const topVendors = Object.values(vendorsMap).sort((a, b) => b.totalValue - a.totalValue);
+    const topSites = Object.values(sitesMap).sort((a, b) => b.totalValue - a.totalValue);
+
+    const maxVendorVal = Math.max(...topVendors.map(v => v.totalValue), 1);
+    const maxSiteVal = Math.max(...topSites.map(s => s.totalValue), 1);
 
     return {
       totalNilai,
@@ -146,7 +165,11 @@ export default function InvoiceDashboardPage() {
       avgLeadTimes,
       maxAvg,
       overallAvgLeadTime,
-      overSLA
+      overSLA,
+      topVendors,
+      topSites,
+      maxVendorVal,
+      maxSiteVal
     };
   }, [invoices]);
 
@@ -288,6 +311,63 @@ export default function InvoiceDashboardPage() {
                 <strong>{((metrics.paidCount / (metrics.totalInvoices || 1)) * 100).toFixed(1)}%</strong> invoice telah terbayarkan.
               </li>
             </ul>
+          </div>
+        </motion.div>
+
+      </div>
+
+      {/* Vendors and Sites Grid */}
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 pb-10">
+        
+        {/* Top Vendors */}
+        <motion.div initial={{ opacity: 0, y: 15 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.7 }}
+          className="bg-[var(--card)] p-6 rounded-2xl border border-[var(--border)] shadow-sm">
+          <div className="flex items-center space-x-2 mb-6">
+            <Store className="w-5 h-5 text-indigo-600" />
+            <h2 className="text-lg font-bold text-[var(--foreground)]">Sebaran Tagihan per Vendor</h2>
+          </div>
+          <div className="space-y-4 max-h-80 overflow-y-auto pr-2 custom-scrollbar">
+            {metrics.topVendors.map((v, i) => {
+              const perc = Math.max((v.totalValue / metrics.maxVendorVal) * 100, 2);
+              return (
+                <div key={i} className="relative">
+                  <div className="flex justify-between mb-1">
+                    <span className="text-sm font-medium text-gray-800 truncate pr-4">{v.vendor} <span className="text-gray-400 font-normal ml-1">({v.count} inv)</span></span>
+                    <span className="text-sm font-semibold text-gray-700 whitespace-nowrap">{formatCurrency(v.totalValue)}</span>
+                  </div>
+                  <div className="h-2.5 w-full bg-gray-100 rounded-full overflow-hidden">
+                    <motion.div initial={{ width: 0 }} animate={{ width: \`\${perc}%\` }} transition={{ duration: 1, delay: 0.2 + (i * 0.1) }}
+                      className="h-full bg-indigo-500 rounded-full" />
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        </motion.div>
+
+        {/* Top Sites */}
+        <motion.div initial={{ opacity: 0, y: 15 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.8 }}
+          className="bg-[var(--card)] p-6 rounded-2xl border border-[var(--border)] shadow-sm">
+          <div className="flex items-center space-x-2 mb-6">
+            <Building2 className="w-5 h-5 text-sky-600" />
+            <h2 className="text-lg font-bold text-[var(--foreground)]">Distribusi Tagihan per Site</h2>
+          </div>
+          <div className="space-y-4">
+            {metrics.topSites.map((s, i) => {
+              const perc = Math.max((s.totalValue / metrics.maxSiteVal) * 100, 2);
+              return (
+                <div key={i} className="relative">
+                  <div className="flex justify-between mb-1">
+                    <span className="text-sm font-medium text-gray-800">{s.site} <span className="text-gray-400 font-normal ml-1">({s.count} inv)</span></span>
+                    <span className="text-sm font-semibold text-gray-700 whitespace-nowrap">{formatCurrency(s.totalValue)}</span>
+                  </div>
+                  <div className="h-2.5 w-full bg-gray-100 rounded-full overflow-hidden">
+                    <motion.div initial={{ width: 0 }} animate={{ width: \`\${perc}%\` }} transition={{ duration: 1, delay: 0.3 + (i * 0.1) }}
+                      className="h-full bg-sky-500 rounded-full" />
+                  </div>
+                </div>
+              );
+            })}
           </div>
         </motion.div>
 
