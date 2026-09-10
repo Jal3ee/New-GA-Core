@@ -10,7 +10,7 @@
  * Untuk sementara menggunakan token dummy jika tidak diset.
  */
 const GET_FONNTE_TOKEN = () => {
-  return PropertiesService.getScriptProperties().getProperty('FONNTE_TOKEN') || 'DUMMY_TOKEN';
+  return PropertiesService.getScriptProperties().getProperty('FONNTE_TOKEN') || '5CRBjxu7tyN4t2cM31vd';
 };
 
 const GET_TARGET_WA_NUMBERS = () => {
@@ -23,7 +23,7 @@ const GET_TARGET_WA_NUMBERS = () => {
  */
 function sendWhatsAppMessage(target, message) {
   const token = GET_FONNTE_TOKEN();
-  if (token === 'DUMMY_TOKEN') {
+  if (!token || token === 'DUMMY_TOKEN') {
     Logger.log(`[DUMMY WA] To: ${target} | Msg: ${message}`);
     return;
   }
