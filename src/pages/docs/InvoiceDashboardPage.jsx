@@ -4,8 +4,6 @@ import { useGlobalLoading } from '../../context/LoadingContext';
 import { toast } from 'sonner';
 import { motion } from 'framer-motion';
 import { Activity, Clock, FileText, DollarSign, ArrowRight, BarChart3, AlertCircle, Building2, Store } from 'lucide-react';
-import { differenceInHours } from 'date-fns';
-
 import { differenceInHours, subDays } from 'date-fns';
 
 const MOCK_INVOICES = Array.from({ length: 45 }).map((_, i) => {
@@ -382,7 +380,7 @@ export default function InvoiceDashboardPage() {
                     <span className="text-sm font-semibold text-gray-700 whitespace-nowrap">{formatCurrency(v.totalValue)}</span>
                   </div>
                   <div className="h-2.5 w-full bg-gray-100 rounded-full overflow-hidden">
-                    <motion.div initial={{ width: 0 }} animate={{ width: \`\${perc}%\` }} transition={{ duration: 1, delay: 0.2 + (i * 0.1) }}
+                    <motion.div initial={{ width: 0 }} animate={{ width: `${perc}%` }} transition={{ duration: 1, delay: 0.2 + (i * 0.1) }}
                       className="h-full bg-indigo-500 rounded-full" />
                   </div>
                 </div>
@@ -410,7 +408,7 @@ export default function InvoiceDashboardPage() {
                     <span className="text-sm font-semibold text-gray-700 whitespace-nowrap">{formatCurrency(s.totalValue)}</span>
                   </div>
                   <div className="h-2.5 w-full bg-gray-100 rounded-full overflow-hidden">
-                    <motion.div initial={{ width: 0 }} animate={{ width: \`\${perc}%\` }} transition={{ duration: 1, delay: 0.3 + (i * 0.1) }}
+                    <motion.div initial={{ width: 0 }} animate={{ width: `${perc}%` }} transition={{ duration: 1, delay: 0.3 + (i * 0.1) }}
                       className="h-full bg-sky-500 rounded-full" />
                   </div>
                 </div>
