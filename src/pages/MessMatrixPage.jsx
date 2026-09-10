@@ -10,9 +10,14 @@ export default function MessMatrixPage() {
   const [stays, setStays] = useState([]);
   
   const [site, setSite] = useState('LBCT');
+  const [filterBuilding, setFilterBuilding] = useState('All');
   const [currentDate, setCurrentDate] = useState(new Date());
   
   const sites = ['LBCT', 'IDMG', 'SPCT'];
+
+  useEffect(() => {
+    setFilterBuilding('All');
+  }, [site]);
 
   const loadData = async () => {
     try {
@@ -35,8 +40,14 @@ export default function MessMatrixPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  // Filter for current site
-  const siteBuildings = useMemo(() => buildings.filter(b => b.site === site), [buildings, site]);
+  // Filter for current site and building
+  const siteBuildings = useMemo(() => {
+    let list = buildings.filter(b => b.site === site);
+    if (filterBuilding !== 'All') {
+      list = list.filter(b => b.id === filterBuilding);
+    }
+    return list;
+  }, [buildings, site, filterBuilding]);
   const siteStays = useMemo(() => stays.filter(s => s.site === site), [stays, site]);
 
   // Generate all beds flat list
@@ -120,11 +131,28 @@ export default function MessMatrixPage() {
       <div className="bg-[var(--card)] rounded-[var(--radius-lg)] border border-[var(--border)] shadow-sm flex flex-col flex-1 overflow-hidden animate-in slide-in-from-bottom-4 duration-700 relative">
         
         {/* Calendar Header */}
-        <div className="p-4 border-b border-[var(--border)] flex items-center justify-between bg-[var(--muted)]/20 shrink-0">
-          <h2 className="font-bold text-[var(--foreground)] flex items-center">
-            <CalendarDays className="w-5 h-5 mr-2 text-[var(--primary)]" />
-            Matriks Kamar - {site}
-          </h2>
+        <div className="p-4 border-b border-[var(--border)] flex flex-wrap items-center justify-between bg-[var(--muted)]/20 shrink-0 gap-4">
+          <div className="flex items-center gap-4 flex-wrap">
+            <h2 className="font-bold text-[var(--foreground)] flex items-center">
+              <CalendarDays className="w-5 h-5 mr-2 text-[var(--primary)]" />
+              Matriks Kamar - {site}
+            </h2>
+            <div className="relative">
+              <select
+                className="text-sm bg-[var(--background)] border border-[var(--border)] text-[var(--foreground)] rounded-lg pl-3 pr-8 py-1.5 outline-none focus:ring-2 focus:ring-[var(--ring)] appearance-none font-medium cursor-pointer"
+                value={filterBuilding}
+                onChange={(e) => setFilterBuilding(e.target.value)}
+              >
+                <option value="All">Semua Bangunan</option>
+                {buildings.filter(b => b.site === site).map(b => (
+                  <option key={b.id} value={b.id}>{b.name}</option>
+                ))}
+              </select>
+              <div className="pointer-events-none absolute inset-y-0 right-0 flex items-center px-2 text-[var(--muted-foreground)]">
+                <svg className="fill-current h-4 w-4" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20"><path d="M9.293 12.95l.707.707L15.657 8l-1.414-1.414L10 10.828 5.757 6.586 4.343 8z"/></svg>
+              </div>
+            </div>
+          </div>
           <div className="flex items-center gap-3">
             <button onClick={prevMonth} className="p-1.5 hover:bg-[var(--muted)] rounded-md transition-colors"><ChevronLeft className="w-4 h-4" /></button>
             <span className="font-medium text-sm w-32 text-center bg-[var(--background)] py-1 rounded-md border border-[var(--border)]">
