@@ -1,0 +1,93 @@
+@import "tailwindcss";
+
+/* 1. Palet dasar — tidak berubah antar tema */
+:root {
+  --teal-50:  #F0F7F6; --teal-400: #3E9992; --teal-500: #14746C;
+  --teal-600: #0F5C56; --teal-700: #0C4A45;
+
+  --brass-50: #FBF3E5; --brass-400: #E0A83E; --brass-500: #C4841F;
+  --brass-600: #A6690E;
+
+  --ruby-400: #E5564A; --ruby-500: #D6483D;
+  --emerald-400: #34B57F; --emerald-500: #1F9463;
+  --sky-400: #5C9AD1; --sky-500: #3D7DBF;
+
+  --ledger-50: #F7F9F8; --ledger-100: #EEF2F1; --ledger-200: #DDE4E2;
+  --ledger-300: #C3CDCA; --ledger-400: #9AA8A4; --ledger-500: #71827D;
+  --ledger-600: #566461; --ledger-700: #434E4B; --ledger-800: #2E3634;
+  --ledger-900: #1B211F; --ledger-950: #101514;
+}
+
+/* 2. Token semantik — mode terang (default) */
+:root {
+  --background: var(--ledger-50);
+  --foreground: var(--ledger-900);
+  --card: #FFFFFF;
+  --muted: var(--ledger-100);
+  --muted-foreground: var(--ledger-500);
+  --border: var(--ledger-200);
+  --ring: var(--teal-500);
+  --primary: var(--teal-600);
+  --primary-foreground: #FFFFFF;
+  --accent: var(--brass-500);
+  --accent-foreground: #2B1D06;
+  --destructive: var(--ruby-500);
+  --success: var(--emerald-500);
+  --info: var(--sky-500);
+}
+
+/* 3. Token semantik — mode gelap */
+.dark {
+  --background: var(--ledger-950);
+  --foreground: #E7ECEA;
+  --card: var(--ledger-900);
+  --muted: var(--ledger-800);
+  --muted-foreground: var(--ledger-400);
+  --border: var(--ledger-700);
+  --ring: var(--teal-400);
+  --primary: var(--teal-400);
+  --primary-foreground: #06201C;
+  --accent: var(--brass-400);
+  --accent-foreground: #241A08;
+  --destructive: var(--ruby-400);
+  --success: var(--emerald-400);
+  --info: var(--sky-400);
+}
+
+/* 4. Daftarkan ke Tailwind v4 */
+@theme inline {
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --color-card: var(--card);
+  --color-muted: var(--muted);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-border: var(--border);
+  --color-ring: var(--ring);
+  --color-primary: var(--primary);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-accent: var(--accent);
+  --color-accent-foreground: var(--accent-foreground);
+  --color-destructive: var(--destructive);
+  --color-success: var(--success);
+  --color-info: var(--info);
+
+  --font-display: "Plus Jakarta Sans", ui-sans-serif, sans-serif;
+  --font-sans: "Inter", ui-sans-serif, sans-serif;
+  --font-mono: "JetBrains Mono", ui-monospace, monospace;
+
+  --radius-sm: 8px;
+  --radius-md: 10px;
+  --radius-lg: 14px;
+  --radius-xl: 20px;
+}
+
+@custom-variant dark (&:where(.dark, .dark *));
+
+/* Base layer overrides */
+@layer base {
+  body {
+    background-color: var(--background);
+    color: var(--foreground);
+    font-family: var(--font-sans);
+  }
+}
