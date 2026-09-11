@@ -16,13 +16,28 @@ function hashPassword(plainPassword) {
  * Verifikasi password
  */
 function verifyPassword(plainPassword, storedHash) {
-  const inputHash = hashPassword(plainPassword);
-  if (inputHash.length !== storedHash.length) return false;
-  let diff = 0;
-  for (let i = 0; i < inputHash.length; i++) {
-    diff |= inputHash.charCodeAt(i) ^ storedHash.charCodeAt(i);
+  const plainStr = String(plainPassword);
+  const strippedStr = plainStr.replace(/^0+/, '');
+  const storedStr = String(storedHash);
+
+  // 1. Plaintext direct match (in case admin manually typed password in spreadsheet)
+  if (plainStr === storedStr || strippedStr === storedStr.replace(/^0+/, '')) {
+    return true;
   }
-  return diff === 0;
+
+  // 2. Hash check (exact password)
+  const inputHash = hashPassword(plainStr);
+  if (inputHash === storedStr) return true;
+
+  // 3. Hash check (stripped password, in case default NIK lost zero)
+  if (strippedStr !== plainStr) {
+    const strippedHash = hashPassword(strippedStr);
+    if (strippedHash === storedStr) return true;
+  }
+
+  // 4. Hash check (padded password, in case input lost zero but hash has zero)
+  // Wait, if strippedStr !== plainStr, we already check both.
+  return false;
 }
 
 /**
