@@ -92,7 +92,7 @@ function setupAssetsSheets() {
   let vendorSheet = ss.getSheetByName('tbl_assets_vendor_contracts');
   if (!vendorSheet) {
     vendorSheet = ss.insertSheet('tbl_assets_vendor_contracts');
-    vendorSheet.appendRow(['id', 'nomor', 'nama_vendor', 'site', 'jenis_kontrak', 'start_kontrak', 'end_kontrak', 'no_kontrak', 'coa', 'file_url', 'created_at', 'updated_at']);
+    vendorSheet.appendRow(['id', 'nomor', 'nama_vendor', 'dept', 'site', 'jenis_kontrak', 'start_kontrak', 'end_kontrak', 'no_kontrak', 'coa', 'file_url', 'created_at', 'updated_at']);
   }
   
   // 2. Unit Internal

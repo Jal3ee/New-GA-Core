@@ -15,9 +15,27 @@ export default function VendorContractsPage() {
   const [editingContract, setEditingContract] = useState(null);
   const { showLoading, hideLoading } = useLoading();
 
+  const DEPARTMENTS = [
+    { label: 'CCI', value: 'CCI' },
+    { label: 'CHRM', value: 'CHRM' },
+    { label: 'Civil & Infra', value: 'Civil & Infra' },
+    { label: 'Engineering', value: 'Engineering' },
+    { label: 'Finance', value: 'Finance' },
+    { label: 'HCGA', value: 'HCGA' },
+    { label: 'HSE&C', value: 'HSE&C' },
+    { label: 'IT', value: 'IT' },
+    { label: 'LLG', value: 'LLG' },
+    { label: 'Marine', value: 'Marine' },
+    { label: 'Mining Production', value: 'Mining Production' },
+    { label: 'Operation', value: 'Operation' },
+    { label: 'P&M', value: 'P&M' },
+    { label: 'Supply Chain', value: 'Supply Chain' }
+  ];
+
   const [formData, setFormData] = useState({
     nama_vendor: '',
     site: 'LBCT',
+    dept: 'Operation',
     jenis_kontrak: 'Catering',
     start_kontrak: '',
     end_kontrak: '',
@@ -54,6 +72,7 @@ export default function VendorContractsPage() {
       setFormData({
         nama_vendor: contract.nama_vendor || '',
         site: contract.site || 'LBCT',
+        dept: contract.dept || 'Operation',
         jenis_kontrak: contract.jenis_kontrak || 'Catering',
         start_kontrak: contract.start_kontrak ? contract.start_kontrak.split('T')[0] : '',
         end_kontrak: contract.end_kontrak ? contract.end_kontrak.split('T')[0] : '',
@@ -68,6 +87,7 @@ export default function VendorContractsPage() {
       setFormData({
         nama_vendor: '',
         site: 'LBCT',
+        dept: 'Operation',
         jenis_kontrak: 'Catering',
         start_kontrak: '',
         end_kontrak: '',
@@ -244,6 +264,7 @@ export default function VendorContractsPage() {
                       </td>
                       <td className="px-6 py-4">
                         <div className="font-semibold text-[var(--foreground)]">{contract.nama_vendor}</div>
+                        <div className="text-[var(--muted-foreground)] text-xs mt-0.5">{contract.dept || '-'}</div>
                       </td>
                       <td className="px-6 py-4">
                         <span className="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-[var(--muted)] text-[var(--foreground)]">
@@ -353,6 +374,17 @@ export default function VendorContractsPage() {
                     />
                   </div>
                   <div>
+                    <label className="block text-sm font-medium text-[var(--foreground)] mb-1">Departement</label>
+                    <CustomSelect
+                      value={formData.dept}
+                      onChange={(val) => setFormData({...formData, dept: val})}
+                      options={DEPARTMENTS}
+                    />
+                  </div>
+                </div>
+
+                <div className="grid grid-cols-2 gap-4">
+                  <div>
                     <label className="block text-sm font-medium text-[var(--foreground)] mb-1">Jenis Kontrak</label>
                     <CustomSelect
                       value={formData.jenis_kontrak}
@@ -366,6 +398,7 @@ export default function VendorContractsPage() {
                       ]}
                     />
                   </div>
+                  <div className="hidden sm:block"></div>
                 </div>
 
                 <div className="grid grid-cols-2 gap-4">
