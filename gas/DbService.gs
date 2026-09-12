@@ -99,7 +99,7 @@ function setupAssetsSheets() {
   let unitSheet = ss.getSheetByName('tbl_assets_unit_contracts');
   if (!unitSheet) {
     unitSheet = ss.insertSheet('tbl_assets_unit_contracts');
-    unitSheet.appendRow(['id', 'no_lambung', 'no_polisi', 'unit_asset', 'site', 'dept', 'user_pengguna', 'merk', 'warna', 'type', 'tahun_unit', 'no_rangka', 'no_mesin', 'bahan_bakar', 'stnk_start', 'stnk_end', 'file_url', 'budget_tahunan', 'status_unit', 'created_at', 'updated_at']);
+    unitSheet.appendRow(['id', 'no_lambung', 'no_polisi', 'unit_asset', 'site', 'dept', 'user_pengguna', 'merk', 'warna', 'type', 'tahun_unit', 'no_rangka', 'no_mesin', 'bahan_bakar', 'stnk_start', 'stnk_end', 'file_url', 'coa', 'budget_tahunan', 'status_unit', 'created_at', 'updated_at']);
   }
   
   Logger.log('Assets sheets initialized!');

@@ -58,6 +58,7 @@ export default function UnitContractsPage() {
     budget_tahunan: '',
     status_unit: 'Aktif',
     tahun_unit: '',
+    coa: '',
     fileData: null,
     fileName: '',
     file_url: ''
@@ -105,6 +106,7 @@ export default function UnitContractsPage() {
         budget_tahunan: contract.budget_tahunan || '',
         status_unit: contract.status_unit || 'Aktif',
         tahun_unit: contract.tahun_unit || '',
+        coa: contract.coa || '',
         fileData: null,
         fileName: '',
         file_url: contract.file_url || ''
@@ -129,6 +131,7 @@ export default function UnitContractsPage() {
         budget_tahunan: '',
         status_unit: 'Aktif',
         tahun_unit: '',
+        coa: '',
         fileData: null,
         fileName: '',
         file_url: ''
@@ -315,7 +318,7 @@ export default function UnitContractsPage() {
                       <td className="px-6 py-4">
                         <div className="text-[var(--foreground)] font-medium">{contract.dept || '-'}</div>
                         <div className="text-[var(--muted-foreground)] text-xs mt-0.5">{contract.user_pengguna || '-'}</div>
-                        <div className="text-[var(--muted-foreground)] text-[10px] mt-0.5">{contract.site || '-'}</div>
+                        <div className="text-[var(--muted-foreground)] text-[10px] mt-0.5">{contract.site || '-'}{contract.coa ? ` | CoA: ${contract.coa}` : ''}</div>
                       </td>
                       <td className="px-6 py-4">
                         <div className="text-[var(--foreground)]">{contract.merk} {contract.type}</div>
@@ -547,9 +550,16 @@ export default function UnitContractsPage() {
 
                     <div className="grid grid-cols-2 gap-2">
                       <div>
+                        <label className="block text-xs font-medium text-[var(--muted-foreground)] mb-1">CoA Dept</label>
+                        <input type="text" value={formData.coa} onChange={(e) => setFormData({...formData, coa: e.target.value})} className="w-full px-3 py-2 border border-[var(--border)] rounded-lg bg-[var(--card)] focus:ring-2 focus:ring-[var(--ring)] outline-none text-sm" placeholder="Misal: 6010-001" />
+                      </div>
+                      <div>
                         <label className="block text-xs font-medium text-[var(--muted-foreground)] mb-1">Budget Tahunan</label>
                         <input type="text" value={formData.budget_tahunan} onChange={handleBudgetChange} placeholder="Rp..." className="w-full px-3 py-2 border border-[var(--border)] rounded-lg bg-[var(--card)] focus:ring-2 focus:ring-[var(--ring)] outline-none text-sm" />
                       </div>
+                    </div>
+
+                    <div className="grid grid-cols-2 gap-2">
                       <div>
                         <label className="block text-xs font-medium text-[var(--foreground)] mb-1">Status Keaktifan</label>
                         <CustomSelect 
@@ -562,6 +572,7 @@ export default function UnitContractsPage() {
                           ]}
                         />
                       </div>
+                      <div className="hidden sm:block"></div>
                     </div>
 
                   </div>
