@@ -1,70 +1,120 @@
-import { useState, useRef, useEffect } from 'react';
+import React, { useState, useRef, useEffect } from 'react';
 import { ChevronDown, Check } from 'lucide-react';
 
-export default function CustomSelect({ 
-  value, 
-  onChange, 
-  options = [], 
+/**
+ * CustomSelect - Minimalist Modern Dropdown replacing native ugly select
+ * Follows @skill/design.md with smooth transitions, clean typography, and accessible keyboard navigation.
+ */
+export default function CustomSelect({
+  value,
+  onChange,
+  options = [],
+  placeholder = 'Pilih...',
+  icon: Icon,
   className = '',
-  placeholder = 'Pilih salah satu...'
+  buttonClassName = '',
+  disabled = false,
+  label = null
 }) {
   const [isOpen, setIsOpen] = useState(false);
   const containerRef = useRef(null);
 
-  // Close when clicking outside
+  // Close on click outside
   useEffect(() => {
     function handleClickOutside(event) {
       if (containerRef.current && !containerRef.current.contains(event.target)) {
         setIsOpen(false);
       }
     }
-    if (isOpen) {
-      document.addEventListener('mousedown', handleClickOutside);
-    }
+    document.addEventListener('mousedown', handleClickOutside);
     return () => document.removeEventListener('mousedown', handleClickOutside);
+  }, []);
+
+  // Close on escape key
+  useEffect(() => {
+    function handleKeyDown(e) {
+      if (e.key === 'Escape' && isOpen) {
+        setIsOpen(false);
+      }
+    }
+    document.addEventListener('keydown', handleKeyDown);
+    return () => document.removeEventListener('keydown', handleKeyDown);
   }, [isOpen]);
 
-  // Find selected label
-  const selectedOption = options.find(opt => opt.value === value);
-  const displayLabel = selectedOption ? selectedOption.label : placeholder;
+  const selectedOption = options.find(opt => String(opt.value) === String(value)) || null;
 
   return (
-    <div className={`relative w-full ${className}`} ref={containerRef}>
+    <div className={`relative ${className}`} ref={containerRef}>
+      {label && (
+        <label className="block text-xs font-semibold text-[var(--foreground)] mb-1">
+          {label}
+        </label>
+      )}
+
       <button
         type="button"
-        onClick={() => setIsOpen(!isOpen)}
-        className="w-full flex items-center justify-between px-3 py-2 bg-[var(--background)] border border-[var(--border)] rounded-[var(--radius-md)] text-sm text-[var(--foreground)] hover:bg-[var(--muted)]/50 focus:outline-none focus:ring-2 focus:ring-[var(--ring)] transition-all shadow-sm active:scale-[0.99]"
+        disabled={disabled}
+        onClick={() => !disabled && setIsOpen(!isOpen)}
+        className={`w-full flex items-center justify-between gap-2 px-3 py-2 text-xs rounded-lg border transition-all duration-150 text-left ${
+          disabled
+            ? 'bg-[var(--muted)]/50 border-[var(--border)] text-[var(--muted-foreground)] cursor-not-allowed opacity-75'
+            : isOpen
+            ? 'bg-[var(--card)] border-[var(--primary)] ring-1 ring-[var(--primary)]/30 text-[var(--foreground)] shadow-xs'
+            : 'bg-[var(--card)] border-[var(--border)] hover:border-[var(--primary)]/50 text-[var(--foreground)] hover:bg-[var(--muted)]/30'
+        } ${buttonClassName}`}
       >
-        <span className="truncate">{displayLabel}</span>
-        <ChevronDown className={`w-4 h-4 ml-2 text-[var(--muted-foreground)] transition-transform duration-200 ${isOpen ? 'rotate-180' : ''}`} />
+        <div className="flex items-center gap-2 truncate">
+          {Icon && <Icon className="w-3.5 h-3.5 text-[var(--primary)] shrink-0" />}
+          <span className="truncate font-medium">
+            {selectedOption ? selectedOption.label : placeholder}
+          </span>
+        </div>
+
+        <ChevronDown
+          className={`w-3.5 h-3.5 text-[var(--muted-foreground)] shrink-0 transition-transform duration-200 ${
+            isOpen ? 'rotate-180 text-[var(--primary)]' : ''
+          }`}
+        />
       </button>
 
       {isOpen && (
-        <div className="absolute z-50 w-full mt-1 bg-[var(--card)] border border-[var(--border)] rounded-[var(--radius-md)] shadow-lg overflow-hidden animate-in fade-in slide-in-from-top-2 duration-200 origin-top">
-          <ul className="max-h-60 overflow-y-auto custom-scrollbar py-1">
-            {options.map((option) => {
-              const isSelected = option.value === value;
+        <div className="absolute z-50 left-0 right-0 mt-1.5 py-1 bg-[var(--card)] border border-[var(--border)] rounded-xl shadow-xl max-h-64 overflow-y-auto backdrop-blur-md animate-in fade-in-0 zoom-in-95 duration-100">
+          {options.length === 0 ? (
+            <div className="px-3 py-2 text-xs text-[var(--muted-foreground)] text-center">
+              Tidak ada opsi
+            </div>
+          ) : (
+            options.map((opt) => {
+              const isSelected = String(opt.value) === String(value);
               return (
-                <li key={option.value}>
-                  <button
-                    type="button"
-                    onClick={() => {
-                      onChange(option.value);
-                      setIsOpen(false);
-                    }}
-                    className={`w-full text-left flex items-center justify-between px-3 py-2 text-sm transition-colors ${
-                      isSelected 
-                        ? 'bg-[var(--primary)]/10 text-[var(--primary)] font-medium' 
-                        : 'text-[var(--foreground)] hover:bg-[var(--muted)] hover:text-[var(--foreground)]'
-                    }`}
-                  >
-                    <span className="truncate">{option.label}</span>
-                    {isSelected && <Check className="w-3.5 h-3.5 shrink-0 ml-2" />}
-                  </button>
-                </li>
+                <button
+                  key={String(opt.value)}
+                  type="button"
+                  onClick={() => {
+                    onChange(opt.value, opt);
+                    setIsOpen(false);
+                  }}
+                  className={`w-full flex items-center justify-between px-3 py-2 text-xs text-left transition-colors ${
+                    isSelected
+                      ? 'bg-[var(--primary)]/10 text-[var(--primary)] font-semibold'
+                      : 'text-[var(--foreground)] hover:bg-[var(--muted)]/60'
+                  }`}
+                >
+                  <div className="flex flex-col truncate pr-2">
+                    <span className="truncate">{opt.label}</span>
+                    {opt.subtext && (
+                      <span className="text-[10px] text-[var(--muted-foreground)] truncate mt-0.5">
+                        {opt.subtext}
+                      </span>
+                    )}
+                  </div>
+                  {isSelected && (
+                    <Check className="w-3.5 h-3.5 text-[var(--primary)] shrink-0" />
+                  )}
+                </button>
               );
-            })}
-          </ul>
+            })
+          )}
         </div>
       )}
     </div>

@@ -5,7 +5,7 @@ import {
   Home, Users, Building, LogOut, Menu, X, Package, Truck,
   MessageSquare, Calendar, FileText, WashingMachine,
   ChevronLeft, ChevronRight, Bell, Search, Activity,
-  Shield, ChevronDown
+  Shield, ChevronDown, Utensils
 } from 'lucide-react';
 
 export function MainLayout() {
@@ -76,12 +76,19 @@ export function MainLayout() {
         ]
       },
       {
+        label: 'Catering',
+        icon: Utensils,
+        subItems: [
+          { label: 'Scoring & Food Index', path: '/catering/scoring' },
+        ]
+      },
+      {
         label: 'Docs',
         icon: FileText,
         subItems: [
           { label: 'Dashboard Invoice', path: '/invoice/dashboard' },
-          { label: 'All Documents', path: '/docs' },
           { label: 'Invoice', path: '/invoice' },
+          { label: 'Standards', path: '/docs/standards' },
         ]
       },
     ];

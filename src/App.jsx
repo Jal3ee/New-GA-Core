@@ -23,6 +23,8 @@ const InvoiceDetailPage   = lazy(() => import('./pages/docs/InvoiceDetailPage'))
 const InvoiceDashboardPage= lazy(() => import('./pages/docs/InvoiceDashboardPage'));
 const FinancePortal       = lazy(() => import('./pages/portal/FinancePortal'));
 const TicketingPage       = lazy(() => import('./pages/transport/TicketingPage'));
+const SopPage             = lazy(() => import('./pages/docs/SopPage'));
+const CateringScoringPage = lazy(() => import('./pages/catering/CateringScoringPage'));
 
 function App() {
   return (
@@ -53,10 +55,16 @@ function App() {
                 <Route path="/assets/vendor" element={<VendorContractsPage />} />
                 <Route path="/assets/unit" element={<UnitContractsPage />} />
                 
+                {/* Catering */}
+                <Route path="/catering" element={<Navigate to="/catering/scoring" replace />} />
+                <Route path="/catering/scoring" element={<CateringScoringPage />} />
+                
                 {/* Docs */}
                 <Route path="/invoice/dashboard" element={<InvoiceDashboardPage />} />
                 <Route path="/invoice" element={<InvoicePage />} />
                 <Route path="/invoice/:id" element={<InvoiceDetailPage />} />
+                <Route path="/docs" element={<Navigate to="/docs/standards" replace />} />
+                <Route path="/docs/standards" element={<SopPage />} />
                 
                 {/* Catch-all for undefined routes inside layout */}
                 <Route path="*" element={<Navigate to="/" replace />} />

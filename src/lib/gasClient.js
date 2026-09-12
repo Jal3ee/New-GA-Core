@@ -30,8 +30,20 @@ class GASError extends Error {
   }
 }
 
+// Throttled Request Queue to prevent Google Apps Script concurrent redirect 404 collision
+let requestQueue = Promise.resolve();
+function enqueueRequest(fn) {
+  const next = requestQueue.then(async () => {
+    // 180ms delay between consecutive calls to ensure GAS macro router assigns distinct redirect keys
+    await new Promise(res => setTimeout(res, 180));
+    return fn();
+  });
+  requestQueue = next.catch(() => {});
+  return next;
+}
+
 export async function gasFetch(action, payload = {}, options = {}) {
-  const { maxRetries = 3, retryDelay = 1000 } = options;
+  const { maxRetries = 3, retryDelay = 800 } = options;
 
   let hasFile = false;
   let fileObj = null;
@@ -53,99 +65,138 @@ export async function gasFetch(action, payload = {}, options = {}) {
     ...payload,
   };
 
+  // If in dev and no GAS_URL, return mock data
+  if (!GAS_URL) {
+    console.warn("GAS_URL is not set. Using mock for action:", action);
+    if (action === 'LOGIN') {
+      if (payload.nik === 'admin' && payload.password === 'admin') {
+        return { ok: true, data: { id: 1, nik: 'admin', name: 'Admin Base', role: 'Admin', status: 'Active' }};
+      }
+      if (payload.nik === 'karyawan' && payload.password === 'karyawan') {
+        return { ok: true, data: { id: 2, nik: 'karyawan', name: 'Karyawan', role: 'Karyawan', status: 'Active' }};
+      }
+      throw new GASError('UNAUTHORIZED', 'Invalid credentials or inactive status', 1);
+    }
+    if (action === 'GET_EVENTS') return { ok: true, data: [] };
+    if (action === 'CREATE_EVENT') return { ok: true, data: { id: 'mock-123' } };
+    if (action === 'DELETE_EVENT') return { ok: true, data: {} };
+    if (action === 'GET_USERS') return { ok: true, data: [] };
+    if (action === 'CREATE_USER') return { ok: true, data: { id: 'mock-user-123' } };
+    if (action === 'UPDATE_USER' || action === 'DELETE_USER') return { ok: true, data: {} };
+    if (action === 'GET_AUDIT_LOGS') return { ok: true, data: [] };
+    if (action === 'GET_MESS_BUILDINGS') return { ok: true, data: [] };
+    if (action === 'GET_MESS_STAYS') return { ok: true, data: [] };
+    if (action === 'CREATE_MESS_BUILDING') return { ok: true, data: { id: 'mock-building-123' } };
+    if (action === 'BATCH_UPDATE_STAYS') return { ok: true, data: { success: true } };
+    if (action === 'UPLOAD_FILE') return { ok: true, fileUrl: 'https://mock-file-url.com/invoice.pdf' };
+    if (action === 'GET_TICKETING_RECORDS') return { ok: true, data: [] };
+    if (action === 'BATCH_IMPORT_TICKETING') return { ok: true, count: payload.payload?.records?.length || 0 };
+    if (action === 'DELETE_TICKETING_RECORD') return { ok: true };
+    if (action === 'GET_SOP_DOCUMENTS') return { ok: true, data: [] };
+    if (action === 'SAVE_SOP_DOCUMENT') return { ok: true, data: { id: 'mock-sop-1' } };
+    if (action === 'DELETE_SOP_DOCUMENT') return { ok: true };
+    return { ok: true, data: {} };
+  }
+
   for (let attempt = 1; attempt <= maxRetries; attempt++) {
     try {
-      const controller = new AbortController();
-      const timeoutId = setTimeout(() => controller.abort(), 300_000); // 5 menit timeout untuk upload file besar
+      const responseData = await enqueueRequest(async () => {
+        const controller = new AbortController();
+        const timeoutId = setTimeout(() => controller.abort(), 300_000); // 5 menit timeout untuk upload
 
-      // If in dev and no GAS_URL, return mock data
-      if (!GAS_URL) {
-        console.warn("GAS_URL is not set. Using mock for action:", action);
-        if (action === 'LOGIN') {
-          if (payload.nik === 'admin' && payload.password === 'admin') {
-            return { ok: true, data: { id: 1, nik: 'admin', name: 'Admin Base', role: 'Admin', status: 'Active' }};
+        let fetchOptions = {
+          method: 'POST',
+          signal: controller.signal,
+          credentials: 'omit',
+          redirect: 'follow',
+        };
+
+        if (hasFile) {
+          const base64Data = await new Promise((resolve, reject) => {
+            const reader = new FileReader();
+            reader.onload = (e) => resolve(e.target.result);
+            reader.onerror = () => reject(new Error('Gagal membaca file'));
+            reader.readAsDataURL(fileObj);
+          });
+          
+          bodyObj.payload = bodyObj.payload || {};
+          if (bodyObj.payload.data) {
+            bodyObj.payload.data.fileName = fileName;
+          } else {
+            bodyObj.payload.fileName = fileName;
           }
-          if (payload.nik === 'karyawan' && payload.password === 'karyawan') {
-            return { ok: true, data: { id: 2, nik: 'karyawan', name: 'Karyawan', role: 'Karyawan', status: 'Active' }};
-          }
-          throw new GASError('UNAUTHORIZED', 'Invalid credentials or inactive status', 1);
-        }
-        if (action === 'GET_EVENTS') return { ok: true, data: [] };
-        if (action === 'CREATE_EVENT') return { ok: true, data: { id: 'mock-123' } };
-        if (action === 'DELETE_EVENT') return { ok: true, data: {} };
-        if (action === 'GET_USERS') return { ok: true, data: [] };
-        if (action === 'CREATE_USER') return { ok: true, data: { id: 'mock-user-123' } };
-        if (action === 'UPDATE_USER' || action === 'DELETE_USER') return { ok: true, data: {} };
-        if (action === 'GET_AUDIT_LOGS') return { ok: true, data: [] };
-        if (action === 'GET_MESS_BUILDINGS') return { ok: true, data: [] };
-        if (action === 'GET_MESS_STAYS') return { ok: true, data: [] };
-        if (action === 'CREATE_MESS_BUILDING') return { ok: true, data: { id: 'mock-building-123' } };
-        if (action === 'BATCH_UPDATE_STAYS') return { ok: true, data: { success: true } };
-        if (action === 'UPLOAD_FILE') return { ok: true, fileUrl: 'https://mock-file-url.com/invoice.pdf' };
-        if (action === 'GET_TICKETING_RECORDS') return { ok: true, data: [] };
-        if (action === 'BATCH_IMPORT_TICKETING') return { ok: true, count: payload.payload?.records?.length || 0 };
-        if (action === 'DELETE_TICKETING_RECORD') return { ok: true };
-        return { ok: true, data: {} };
-      }
 
-      let fetchOptions = {
-        method: 'POST',
-        signal: controller.signal,
-        credentials: 'omit',
-        redirect: 'follow',
-      };
-
-      let res;
-      let text;
-      
-      if (hasFile) {
-        // Convert File to Base64
-        const base64Data = await new Promise((resolve, reject) => {
-          const reader = new FileReader();
-          reader.onload = (e) => resolve(e.target.result);
-          reader.onerror = () => reject(new Error('Gagal membaca file'));
-          reader.readAsDataURL(fileObj);
-        });
-        
-        bodyObj.payload = bodyObj.payload || {};
-        if (bodyObj.payload.data) {
-          bodyObj.payload.data.fileName = fileName;
+          const metaStr = JSON.stringify(bodyObj);
+          fetchOptions.headers = { 'Content-Type': 'text/plain;charset=utf-8' };
+          fetchOptions.body = metaStr + '-----FILE_DELIMITER_PONYTAIL_V2-----' + base64Data;
         } else {
-          bodyObj.payload.fileName = fileName;
+          fetchOptions.headers = { 'Content-Type': 'text/plain;charset=utf-8' };
+          fetchOptions.body = JSON.stringify(bodyObj);
         }
 
-        const metaStr = JSON.stringify(bodyObj);
-        fetchOptions.headers = { 'Content-Type': 'text/plain;charset=utf-8' };
-        fetchOptions.body = metaStr + '-----FILE_DELIMITER_PONYTAIL_V2-----' + base64Data;
-      } else {
-        fetchOptions.headers = { 'Content-Type': 'text/plain;charset=utf-8' };
-        fetchOptions.body = JSON.stringify(bodyObj);
-      }
+        const res = await fetch(GAS_URL, fetchOptions);
+        clearTimeout(timeoutId);
 
-      res = await fetch(GAS_URL, fetchOptions);
-      clearTimeout(timeoutId);
-      text = await res.text();
-      
-      if (text.startsWith('<')) {
-        throw new GASError('HTML_RESPONSE', 'Google server returned HTML', attempt);
-      }
+        if (!res.ok) {
+          throw new GASError('HTTP_' + res.status, `Google Apps Script returned HTTP ${res.status}`, attempt);
+        }
 
-      const data = JSON.parse(text);
+        const text = await res.text();
+        const trimmed = text.trim();
+        
+        if (trimmed.startsWith('<') || trimmed === 'Not Found') {
+          throw new GASError('HTML_RESPONSE', 'Google macro echo server returned HTML/404 response', attempt);
+        }
 
-      if (data.code === 401) throw new GASError('UNAUTHORIZED', data.error, attempt);
-      if (data.code === 429) throw new GASError('RATE_LIMITED', data.error, attempt);
-      if (!data.ok) throw new GASError(data.error || 'API_ERROR', data.message, attempt);
+        let data;
+        try {
+          data = JSON.parse(text);
+        } catch (jsonErr) {
+          throw new GASError('INVALID_JSON', 'Failed to parse JSON response: ' + jsonErr.message, attempt);
+        }
 
-      return data;
+        if (data.code === 401) throw new GASError('UNAUTHORIZED', data.error, attempt);
+        if (data.code === 429) throw new GASError('RATE_LIMITED', data.error, attempt);
+        if (!data.ok) throw new GASError(data.error || 'API_ERROR', data.message, attempt);
+
+        // Cache successful GET responses in localStorage for instant offline/error resilience
+        if (action.startsWith('GET_') && data.ok) {
+          try {
+            localStorage.setItem('garda_cache_' + action, JSON.stringify(data));
+          } catch {
+            // Storage quota ignore
+          }
+        }
+
+        return data;
+      });
+
+      return responseData;
 
     } catch (err) {
       if (err instanceof GASError && err.code === 'UNAUTHORIZED') throw err; 
       if (err instanceof GASError && err.code === 'RATE_LIMITED') throw err; 
       if (err.name === 'AbortError') throw new GASError('TIMEOUT', 'Request timeout', attempt);
 
-      if (attempt === maxRetries) throw err;
+      if (attempt === maxRetries) {
+        // Fallback: if GET action fails completely, try to retrieve cached data to prevent blank screen
+        if (action.startsWith('GET_')) {
+          try {
+            const cached = localStorage.getItem('garda_cache_' + action);
+            if (cached) {
+              const parsed = JSON.parse(cached);
+              console.warn(`[gasClient] Using cached data for ${action} due to network/GAS error:`, err.message);
+              return { ...parsed, fromCache: true };
+            }
+          } catch {
+            // ignore
+          }
+        }
+        throw err;
+      }
 
-      const delay = retryDelay * Math.pow(2, attempt - 1);
+      // Jittered exponential backoff
+      const delay = (retryDelay * Math.pow(1.6, attempt - 1)) + (Math.random() * 300);
       await new Promise(r => setTimeout(r, delay));
     }
   }
@@ -284,5 +335,65 @@ export const api = {
   // File Upload
   async uploadFile(fileData, fileName) {
     return this.post({ action: 'UPLOAD_FILE', payload: { fileData, fileName } });
+  },
+
+  // Standards (SOP / WI / STD & FORM)
+  async getStandards() {
+    return this.post({ action: 'GET_STANDARDS' });
+  },
+  async createStandard(data) {
+    return this.post({ action: 'CREATE_STANDARD', payload: { data } });
+  },
+  async updateStandard(id, data) {
+    return this.post({ action: 'UPDATE_STANDARD', id, payload: { data } });
+  },
+  async deleteStandard(id) {
+    return this.post({ action: 'DELETE_STANDARD', id });
+  },
+  // Backward compatibility aliases
+  async getSopDocuments() {
+    return this.getStandards();
+  },
+  async saveSopDocument(data) {
+    if (data.id) {
+      return this.updateStandard(data.id, data);
+    }
+    return this.createStandard(data);
+  },
+  async deleteSopDocument(id) {
+    return this.deleteStandard(id);
+  },
+
+  // Catering Vendors Master
+  async getCateringVendors() {
+    return this.post({ action: 'GET_CATERING_VENDORS' });
+  },
+  async createCateringVendor(data) {
+    return this.post({ action: 'CREATE_CATERING_VENDOR', payload: { data } });
+  },
+  async updateCateringVendor(id, data) {
+    return this.post({ action: 'UPDATE_CATERING_VENDOR', id, payload: { data } });
+  },
+  async deleteCateringVendor(id) {
+    return this.post({ action: 'DELETE_CATERING_VENDOR', id });
+  },
+
+  // Catering Weekly Food Index Scorings
+  async getCateringScorings() {
+    return this.post({ action: 'GET_CATERING_SCORINGS' });
+  },
+  async createCateringScoring(data) {
+    return this.post({ action: 'CREATE_CATERING_SCORING', payload: { data } });
+  },
+  async updateCateringScoring(id, data) {
+    return this.post({ action: 'UPDATE_CATERING_SCORING', id, payload: { data } });
+  },
+  async deleteCateringScoring(id) {
+    return this.post({ action: 'DELETE_CATERING_SCORING', id });
+  },
+
+  // Database Setup / Sheet Init
+  async setupNewTables() {
+    return this.post({ action: 'SETUP_NEW_TABLES' });
   }
 };

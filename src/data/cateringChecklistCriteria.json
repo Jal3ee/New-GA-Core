@@ -1,0 +1,686 @@
+[
+  {
+    "code": "A",
+    "title": "TERIMA & SIMPAN MAKANAN",
+    "items": [
+      {
+        "num": "1",
+        "id": "A_1",
+        "text": "Apakah lokasi penyimpanan bahan mentah dalam keadaan bersih dan rapih ?",
+        "is_header": false,
+        "max": 1,
+        "a1_na": false,
+        "a2_na": false,
+        "a3_na": false
+      },
+      {
+        "num": "2",
+        "id": "A_2",
+        "text": "Apakah terdapat catatan penerimaan bhn makanan  yg berisi nama bahan, tgl pembelian ?",
+        "is_header": false,
+        "max": 1,
+        "a1_na": false,
+        "a2_na": false,
+        "a3_na": false
+      },
+      {
+        "num": "3",
+        "id": "A_3",
+        "text": "Apakah terdapat pemisahan barang yang sudah kadaluarsa ?",
+        "is_header": false,
+        "max": 1,
+        "a1_na": false,
+        "a2_na": false,
+        "a3_na": false
+      },
+      {
+        "num": "4",
+        "id": "A_4",
+        "text": "Apakah cara penyimpanan makanan tidak tercampur antara makanan yang mentah dengan makanan yang siap dimakan ?",
+        "is_header": false,
+        "max": 1,
+        "a1_na": false,
+        "a2_na": false,
+        "a3_na": false
+      },
+      {
+        "num": "5",
+        "id": "A_5",
+        "text": "Apakah penyimpanan bahan mentah menerapkan rotasi First in -First Out ?",
+        "is_header": false,
+        "max": 1,
+        "a1_na": false,
+        "a2_na": false,
+        "a3_na": false
+      },
+      {
+        "num": "6",
+        "id": "A_6",
+        "text": "Apakah sayur-sayuran dan buah-buahan disimpan di tempat terpisah dari makanan lainnya ?",
+        "is_header": false,
+        "max": 1,
+        "a1_na": false,
+        "a2_na": false,
+        "a3_na": false
+      },
+      {
+        "num": "7",
+        "id": "A_7",
+        "text": "Apakah daging dan ikan pada saat diterima oleh catering dalam keadaan layak untuk dikonsumsi?",
+        "is_header": false,
+        "max": 1,
+        "a1_na": false,
+        "a2_na": false,
+        "a3_na": false
+      },
+      {
+        "num": "8",
+        "id": "A_8",
+        "text": "Apakah bahan yang akan dikelola selalu dalam keadaan baik, dan tidak rusak atau berubah bentuk,warna dan rasa ?",
+        "is_header": false,
+        "max": 1,
+        "a1_na": false,
+        "a2_na": false,
+        "a3_na": false
+      },
+      {
+        "num": "9",
+        "id": "A_9",
+        "text": "Apakah makanan kaleng yang dibeli terdaftar di DepKes RI atau Terdapat Label BP POM ?",
+        "is_header": false,
+        "max": 1,
+        "a1_na": false,
+        "a2_na": false,
+        "a3_na": false
+      },
+      {
+        "num": "10",
+        "id": "A_10",
+        "text": "Apakah tidak terdapat bahan kimia berbahaya disimpan digudang makanan ?",
+        "is_header": false,
+        "max": 1,
+        "a1_na": false,
+        "a2_na": false,
+        "a3_na": false
+      },
+      {
+        "num": "11",
+        "id": "A_11",
+        "text": "Terdapat label expired date untuk bahan olahan pabrik ?",
+        "is_header": false,
+        "max": 1,
+        "a1_na": false,
+        "a2_na": false,
+        "a3_na": false
+      },
+      {
+        "num": "12",
+        "id": "A_12",
+        "text": "Apakah isi tempat penyimpanan beku tidak melebihi kapasitas ?",
+        "is_header": false,
+        "max": 1,
+        "a1_na": false,
+        "a2_na": false,
+        "a3_na": false
+      },
+      {
+        "num": "13",
+        "id": "A_13",
+        "text": "Apakah temperature tempat penyimpanan dingin (chiller) antara 4 - 10 derajat celcius ?",
+        "is_header": false,
+        "max": 1,
+        "a1_na": false,
+        "a2_na": false,
+        "a3_na": false
+      },
+      {
+        "num": "14",
+        "id": "A_14",
+        "text": "Apakah tempat penyimpanan dingin (chiller) secara keseluruhan bersih ?",
+        "is_header": false,
+        "max": 1,
+        "a1_na": false,
+        "a2_na": false,
+        "a3_na": false
+      },
+      {
+        "num": "15",
+        "id": "A_15",
+        "text": "Apakah temperature tempat penyimpanan beku lebih rendah dari -18 derajat celcius ?",
+        "is_header": false,
+        "max": 1,
+        "a1_na": false,
+        "a2_na": false,
+        "a3_na": false
+      },
+      {
+        "num": "16",
+        "id": "A_16",
+        "text": "Apakah tempat penyimpanan beku secara keseluruhan bersih ?",
+        "is_header": false,
+        "max": 1,
+        "a1_na": false,
+        "a2_na": false,
+        "a3_na": false
+      },
+      {
+        "num": "17",
+        "id": "A_17",
+        "text": "Apakah penempatan bahan baku makanan tidak bersentuhan langsung dengan lantai dan tidak menempel dinding?",
+        "is_header": false,
+        "max": 1,
+        "a1_na": false,
+        "a2_na": false,
+        "a3_na": false
+      }
+    ]
+  },
+  {
+    "code": "B",
+    "title": "PERSIAPAN BAHAN MAKANAN",
+    "items": [
+      {
+        "num": "1",
+        "id": "B_1",
+        "text": "Apakah penempatan bahan makanan tidak bersentuhan langsung dengan lantai dan tidak menempel dinding?",
+        "is_header": false,
+        "max": 1,
+        "a1_na": false,
+        "a2_na": false,
+        "a3_na": false
+      },
+      {
+        "num": "2",
+        "id": "B_2",
+        "text": "Petugas sudah mencuci tangan sebelum melakukan persiapan ?",
+        "is_header": false,
+        "max": 1,
+        "a1_na": false,
+        "a2_na": false,
+        "a3_na": false
+      },
+      {
+        "num": "3",
+        "id": "B_3",
+        "text": "Petugas selalu menggunakan APD (hairnet, rubber boots anti slip, gloves) pada saat tahap persiapan ?",
+        "is_header": false,
+        "max": 1,
+        "a1_na": false,
+        "a2_na": false,
+        "a3_na": false
+      },
+      {
+        "num": "4",
+        "id": "B_4",
+        "text": "Butcher selalu menggunakan APD (hairnet, apron, rubber boots anti slip, steel gloves*) pada saat tahap persiapan ?",
+        "is_header": false,
+        "max": 1,
+        "a1_na": true,
+        "a2_na": true,
+        "a3_na": false
+      },
+      {
+        "num": "5",
+        "id": "B_5",
+        "text": "Apakah bahan makanan yang sudah dipotong dan dicuci diletakkan pada wadah tertutup ?",
+        "is_header": false,
+        "max": 1,
+        "a1_na": false,
+        "a2_na": false,
+        "a3_na": false
+      },
+      {
+        "num": "6",
+        "id": "B_6",
+        "text": "Apakah terdapat ruangan khusus untuk tempat persiapan daging mentah ? ( Butcher )",
+        "is_header": false,
+        "max": 1,
+        "a1_na": true,
+        "a2_na": true,
+        "a3_na": false
+      }
+    ]
+  },
+  {
+    "code": "C",
+    "title": "PENGOLAHAN MAKANAN",
+    "items": [
+      {
+        "num": "1",
+        "id": "C_1",
+        "text": "Apakah peletakkan wadah makanan tidak langsung diatas lantai ?",
+        "is_header": false,
+        "max": 1,
+        "a1_na": false,
+        "a2_na": false,
+        "a3_na": false
+      },
+      {
+        "num": "2",
+        "id": "C_2",
+        "text": "Petugas selalu menggunakan APD (hairnet, sarung tangan, apron, rubber boots anti slip) pada saat tahap pengolahan ?",
+        "is_header": false,
+        "max": 1,
+        "a1_na": false,
+        "a2_na": false,
+        "a3_na": false
+      }
+    ]
+  },
+  {
+    "code": "D",
+    "title": "DAPUR DAN PERALATAN",
+    "items": [
+      {
+        "num": "1",
+        "id": "D_1",
+        "text": "Apakah dapur dalam keadaan bersih (lantai,dinding,jendela,langit-langit,ventilasi,cat) ?",
+        "is_header": false,
+        "max": 1,
+        "a1_na": false,
+        "a2_na": false,
+        "a3_na": false
+      },
+      {
+        "num": "2",
+        "id": "D_2",
+        "text": "Apakah terdapat inspeksi periodik terhadap peralatan listrik di area dapur?",
+        "is_header": false,
+        "max": 1,
+        "a1_na": false,
+        "a2_na": false,
+        "a3_na": false
+      },
+      {
+        "num": "3",
+        "id": "D_3",
+        "text": "Apakah tidak ada kebocoran instalasi pipa di area dapur ?",
+        "is_header": false,
+        "max": 1,
+        "a1_na": false,
+        "a2_na": false,
+        "a3_na": false
+      },
+      {
+        "num": "4",
+        "id": "D_4",
+        "text": "Apakah APAR dengan jenis Dry Chemical (penempatan sesuai dengan PERMENAKER no.4 Tahun 1980) ada terpasang di ruang dapur ?",
+        "is_header": false,
+        "max": 1,
+        "a1_na": false,
+        "a2_na": false,
+        "a3_na": false
+      },
+      {
+        "num": "5",
+        "id": "D_5",
+        "text": "Apakah ada kotak P3K (isi sesuai PERMENAKER no 15 Tahun 2008) di luar area dapur?",
+        "is_header": false,
+        "max": 1,
+        "a1_na": false,
+        "a2_na": false,
+        "a3_na": false
+      },
+      {
+        "num": "6",
+        "id": "D_6",
+        "text": "Apakah semua talenan bersih, tidak terbuat dari kayu tidak tercampur penggunaannya dengan bahan mentah dan bahan matang ?",
+        "is_header": false,
+        "max": 1,
+        "a1_na": false,
+        "a2_na": false,
+        "a3_na": false
+      },
+      {
+        "num": "7",
+        "id": "D_7",
+        "text": "Apakah semua peralatan masak dan makan dalam keadaan baik ( tidak bau amis, tidak retak/sumbing, tidak berminyak, tidak berkarat dan tidak patah) ?",
+        "is_header": false,
+        "max": 1,
+        "a1_na": false,
+        "a2_na": false,
+        "a3_na": false
+      },
+      {
+        "num": "8",
+        "id": "D_8",
+        "text": "Apakah tempat penyimpan dingin bersih dan digunakan sebagaimana mestinya ?",
+        "is_header": false,
+        "max": 1,
+        "a1_na": false,
+        "a2_na": false,
+        "a3_na": false
+      },
+      {
+        "num": "9",
+        "id": "D_9",
+        "text": "Apakah tersedia fasilitas untuk mencuci tangan di dapur dengan air mengalir berfungsi dengan baik dan dilengkapi sabun ?",
+        "is_header": false,
+        "max": 1,
+        "a1_na": false,
+        "a2_na": false,
+        "a3_na": false
+      }
+    ]
+  },
+  {
+    "code": "E",
+    "title": "PENYAJIAN MAKANAN",
+    "items": [
+      {
+        "num": "1",
+        "id": "E_1",
+        "text": "Apakah petugas selalu menggunakan APD (hairnet, apron, gloves, rubber boots anti slip) pada saat tahap pengolahan ?",
+        "is_header": false,
+        "max": 1,
+        "a1_na": false,
+        "a2_na": false,
+        "a3_na": false
+      },
+      {
+        "num": "2",
+        "id": "E_2",
+        "text": "Apakah petugas selalu menggunakan alat untuk ambil makanan matang ?",
+        "is_header": false,
+        "max": 1,
+        "a1_na": false,
+        "a2_na": false,
+        "a3_na": false
+      }
+    ]
+  },
+  {
+    "code": "F",
+    "title": "KEBERSIHAN PERORANGAN",
+    "items": [
+      {
+        "num": "1",
+        "id": "F_1",
+        "text": "Apakah dilakukan pemeriksaan kesehatan tenaga kerja secara berkala dan berlaku khusus karyawan kantin ? Jika ya, kapan pemeriksaan terakhir dilakukan ?",
+        "is_header": false,
+        "max": 1,
+        "a1_na": false,
+        "a2_na": false,
+        "a3_na": false
+      },
+      {
+        "num": "2",
+        "id": "F_2",
+        "text": "Apakah pemeriksaan food handler (yang bekerja tidak menderita penyakit menular seperti penyakit kulit, jerawat, bisul, koreng, batuk, pilek, bersin, dan luka terbuka) harian dilakukan?",
+        "is_header": false,
+        "max": 1,
+        "a1_na": false,
+        "a2_na": false,
+        "a3_na": false
+      },
+      {
+        "num": "3",
+        "id": "F_3",
+        "text": "Apakah kuku jari tangan foodhandler dalam keadaan pendek dan bersih ?",
+        "is_header": false,
+        "max": 1,
+        "a1_na": false,
+        "a2_na": false,
+        "a3_na": false
+      },
+      {
+        "num": "4",
+        "id": "F_4",
+        "text": "Apakah rambut food handler dipotong pendek dan bersih ?",
+        "is_header": false,
+        "max": 1,
+        "a1_na": false,
+        "a2_na": false,
+        "a3_na": false
+      },
+      {
+        "num": "5",
+        "id": "F_5",
+        "text": "Apakah Catering menerapkan Food Handler Authority ?",
+        "is_header": false,
+        "max": 1,
+        "a1_na": false,
+        "a2_na": false,
+        "a3_na": false
+      },
+      {
+        "num": "6",
+        "id": "F_6",
+        "text": "Apakah pegawai catering telah mengikuti pelatihan hygiene, sanitasi dan penanganan keadaan darurat secara berkala ?",
+        "is_header": false,
+        "max": 1,
+        "a1_na": false,
+        "a2_na": false,
+        "a3_na": false
+      },
+      {
+        "num": "7",
+        "id": "F_7",
+        "text": "Apakah pegawai catering tidak menggunakan perhiasan dan jam tangan?",
+        "is_header": false,
+        "max": 1,
+        "a1_na": false,
+        "a2_na": false,
+        "a3_na": false
+      }
+    ]
+  },
+  {
+    "code": "G",
+    "title": "SANITASI UMUM",
+    "items": [
+      {
+        "num": "1",
+        "id": "G_1",
+        "text": "Apakah alat -alat makanan atau masak setelah digunakan selalu dibersihkan dengan sabun dan air panas kemudian dikeringkan ?",
+        "is_header": false,
+        "max": 1,
+        "a1_na": false,
+        "a2_na": false,
+        "a3_na": false
+      },
+      {
+        "num": "2",
+        "id": "G_2",
+        "text": "Apakah terdapat exhaust fan di area dapur masak ?",
+        "is_header": false,
+        "max": 1,
+        "a1_na": false,
+        "a2_na": false,
+        "a3_na": false
+      },
+      {
+        "num": "3",
+        "id": "G_3",
+        "text": "Apakah terdapat kitchen hood di area dapur masak ?",
+        "is_header": false,
+        "max": 1,
+        "a1_na": true,
+        "a2_na": false,
+        "a3_na": false
+      },
+      {
+        "num": "4",
+        "id": "G_4",
+        "text": "Tidak terdapat sisa bahan/makanan yang dibuang kedalam saluran air ?",
+        "is_header": false,
+        "max": 1,
+        "a1_na": false,
+        "a2_na": false,
+        "a3_na": false
+      },
+      {
+        "num": "5",
+        "id": "G_5",
+        "text": "Apakah tersedia alat alat pembersih ( sapu biasa, sapu lidi, tempat sampah, sikat lantai, ember, gayung ) dan disimpan di tempat khusus ?",
+        "is_header": false,
+        "max": 1,
+        "a1_na": false,
+        "a2_na": false,
+        "a3_na": false
+      },
+      {
+        "num": "6",
+        "id": "G_6",
+        "text": "Apakah bak sampah dalam keadaan tertutup & tidak bocor ?",
+        "is_header": false,
+        "max": 1,
+        "a1_na": false,
+        "a2_na": false,
+        "a3_na": false
+      },
+      {
+        "num": "7",
+        "id": "G_7",
+        "text": "Apakah ventilasi di area dapur memadai ?",
+        "is_header": false,
+        "max": 1,
+        "a1_na": false,
+        "a2_na": false,
+        "a3_na": false
+      },
+      {
+        "num": "8",
+        "id": "G_8",
+        "text": "Apakah intensitas cahaya di area dapur memadai ?",
+        "is_header": false,
+        "max": 1,
+        "a1_na": false,
+        "a2_na": false,
+        "a3_na": false
+      },
+      {
+        "num": "9",
+        "id": "G_9",
+        "text": "Apakah permukaan lantai tidak licin dan tidak rusak ?",
+        "is_header": false,
+        "max": 1,
+        "a1_na": false,
+        "a2_na": false,
+        "a3_na": false
+      },
+      {
+        "num": "10",
+        "id": "G_10",
+        "text": "Apakah terdapat MCK yang selalu terpelihara dengan baik kebersihannya ?",
+        "is_header": false,
+        "max": 1,
+        "a1_na": false,
+        "a2_na": false,
+        "a3_na": false
+      },
+      {
+        "num": "11",
+        "id": "G_11",
+        "text": "Apakah persediaan air panas (70-800) dan air dingin cukup memadai ?",
+        "is_header": false,
+        "max": 1,
+        "a1_na": false,
+        "a2_na": false,
+        "a3_na": false
+      },
+      {
+        "num": "12",
+        "id": "G_12",
+        "text": "Apakah di area kantin dan dapur tidak terdapat hama termasuk kucing, kecoa, lalat, burung, atau tikus ?",
+        "is_header": false,
+        "max": 1,
+        "a1_na": false,
+        "a2_na": false,
+        "a3_na": false
+      },
+      {
+        "num": "13",
+        "id": "G_13",
+        "text": "Apakah pengendalian hama dilakukan secara berkala?",
+        "is_header": false,
+        "max": 1,
+        "a1_na": false,
+        "a2_na": false,
+        "a3_na": false
+      }
+    ]
+  },
+  {
+    "code": "H",
+    "title": "PACKING MAKANAN & DISTRIBUSI",
+    "items": [
+      {
+        "num": "1",
+        "id": "H_1",
+        "text": "Apakah pada saat packing makanan siap saji, kondisi makanan layak konsumsi?",
+        "is_header": false,
+        "max": 1,
+        "a1_na": false,
+        "a2_na": false,
+        "a3_na": false
+      },
+      {
+        "num": "2",
+        "id": "H_2",
+        "text": "Apakah petugas menggunakan APD (hairnet, apron, sarung tangan, masker) pada saat tahap packing makanan ?",
+        "is_header": false,
+        "max": 1,
+        "a1_na": false,
+        "a2_na": false,
+        "a3_na": false
+      },
+      {
+        "num": "3",
+        "id": "H_3",
+        "text": "Apakah sarana transportasi makanan lulus uji commissioning safety dan hygiene?",
+        "is_header": false,
+        "max": 1,
+        "a1_na": false,
+        "a2_na": false,
+        "a3_na": false
+      },
+      {
+        "num": "4",
+        "id": "H_4",
+        "text": "Apakah tidak terdapat bahan kimia berbahaya di area pengepakan makanan ?",
+        "is_header": false,
+        "max": 1,
+        "a1_na": false,
+        "a2_na": false,
+        "a3_na": false
+      }
+    ]
+  },
+  {
+    "code": "I",
+    "title": "AIR MINUM (AIR BAKU MASAK)",
+    "items": [
+      {
+        "num": "1",
+        "id": "I_1",
+        "text": "Apakah air yang digunakan untuk masak menggunakan air minum dalam kemasan (AMDK skala daerah), jika ya :",
+        "is_header": true,
+        "max": 0,
+        "a1_na": false,
+        "a2_na": false,
+        "a3_na": false
+      },
+      {
+        "num": "1a",
+        "id": "I_1a",
+        "text": "Apakah terdapat hasil analisa lab kualitas air minum bulanan dari produsen air minum?",
+        "is_header": false,
+        "max": 1,
+        "a1_na": false,
+        "a2_na": false,
+        "a3_na": false
+      },
+      {
+        "num": "1b",
+        "id": "I_1b",
+        "text": "Apakah terdapat hasil analisa lab kualitas air minum  6 bulanan yg dilakukan oleh pihak catering dengan lab terakreditasi?",
+        "is_header": false,
+        "max": 1,
+        "a1_na": false,
+        "a2_na": false,
+        "a3_na": false
+      }
+    ]
+  }
+]

@@ -125,6 +125,71 @@ function setupDocsInvoicesSheet() {
 
 /**
  * ============================================================================
+ * DOCS STANDARDS (SOP / WI / STD & FORM) INITIALIZATION
+ * ============================================================================
+ */
+function setupStandardsSheet() {
+  const ss = SpreadsheetApp.openById(SPREADSHEET_ID);
+  let sheet = ss.getSheetByName('tbl_docs_standards');
+  if (!sheet) {
+    sheet = ss.insertSheet('tbl_docs_standards');
+    sheet.appendRow([
+      'id', 'doc_number', 'title', 'category', 'type', 'version',
+      'effective_date', 'description', 'file_url', 'file_name',
+      'created_at', 'updated_at'
+    ]);
+  }
+  Logger.log('Standards sheet initialized!');
+}
+
+/**
+ * ============================================================================
+ * CATERING FOOD INDEX SCORING & VENDORS INITIALIZATION
+ * ============================================================================
+ */
+function setupCateringSheets() {
+  const ss = SpreadsheetApp.openById(SPREADSHEET_ID);
+  
+  // 1. Catering Vendors Master
+  let vSheet = ss.getSheetByName('tbl_catering_vendors');
+  if (!vSheet) {
+    vSheet = ss.insertSheet('tbl_catering_vendors');
+    vSheet.appendRow([
+      'id', 'vendor_name', 'catering_name', 'site', 'kitchen_type',
+      'pic_name', 'target_frequency', 'target_score', 'status',
+      'created_at', 'updated_at'
+    ]);
+    
+    // Seed default vendors from Excel
+    const now = new Date().toISOString();
+    const defaults = [
+      [Utilities.getUuid(), 'CV ABS', 'Catering GAS', 'LBCT', 'A1', 'Pak Agus', 2, 85, 'Aktif', now, now],
+      [Utilities.getUuid(), 'CV Moms Ainun', "Catering Mom's", 'IDMG', 'A2', 'Ibu Ainun', 2, 85, 'Aktif', now, now],
+      [Utilities.getUuid(), 'PT Sandaga Perkasa', 'Catering Sandaga', 'SPCT', 'A3', 'Pak Rudi', 2, 85, 'Aktif', now, now],
+      [Utilities.getUuid(), 'CV Manggala Raya', 'Catering Manggala raya', 'LBCT', 'A2', 'Pak Hendra', 2, 85, 'Aktif', now, now]
+    ];
+    defaults.forEach(function(r) { vSheet.appendRow(r); });
+  }
+  
+  // 2. Catering Weekly Scorings
+  let sSheet = ss.getSheetByName('tbl_catering_scorings');
+  if (!sSheet) {
+    sSheet = ss.insertSheet('tbl_catering_scorings');
+    sSheet.appendRow([
+      'id', 'vendor_id', 'vendor_name', 'catering_name', 'site', 'kitchen_type',
+      'year', 'month', 'week', 'inspection_date', 'auditor_name',
+      'score_a', 'score_b', 'score_c', 'score_d', 'score_e', 'score_f', 'score_g', 'score_h', 'score_i',
+      'total_score', 'max_score', 'food_index_percent', 'grade',
+      'checklist_answers_json', 'findings_notes', 'corrective_actions', 'file_url',
+      'created_at', 'updated_at'
+    ]);
+  }
+  
+  Logger.log('Catering sheets initialized!');
+}
+
+/**
+ * ============================================================================
  * SYSTEM AUDIT LOG
  * ============================================================================
  */

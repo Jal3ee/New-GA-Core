@@ -28,7 +28,11 @@ import {
   Info,
   LayoutDashboard,
   ChevronUp,
-  ChevronDown
+  ChevronDown,
+  Clock,
+  TrendingUp,
+  Compass,
+  Briefcase
 } from 'lucide-react';
 import { api as gasClient } from '../../lib/gasClient';
 
@@ -61,6 +65,98 @@ function parseDateSafe(val) {
   return isNaN(d.getTime()) ? null : d;
 }
 
+// Helper to calculate lead time in days between booking and departure
+function getLeadTimeDays(bookingDateStr, departureDateStr) {
+  const dBooking = parseDateSafe(bookingDateStr);
+  const dDeparture = parseDateSafe(departureDateStr);
+  if (!dBooking || !dDeparture) return null;
+  const diffMs = dDeparture.getTime() - dBooking.getTime();
+  return Math.round(diffMs / (1000 * 60 * 60 * 24));
+}
+
+// Pure helper to consolidate transit legs and group bookings by PNR Code
+function consolidateTicketingJourneys(rawList) {
+  if (!Array.isArray(rawList)) return [];
+  const pnrGroups = {};
+  const standalone = [];
+
+  rawList.forEach((r, idx) => {
+    const pnr = String(r['Pnr Code'] || '').trim();
+    if (!pnr) {
+      standalone.push({ ...r, _rawIndex: idx, _legs: [r], _isConsolidated: false });
+      return;
+    }
+    if (!pnrGroups[pnr]) pnrGroups[pnr] = [];
+    pnrGroups[pnr].push({ ...r, _rawIndex: idx });
+  });
+
+  const consolidated = [...standalone];
+
+  Object.entries(pnrGroups).forEach(([pnr, rows]) => {
+    // Total cost across this entire PNR
+    const totalPnrCost = rows.reduce((acc, row) => {
+      return acc + parsePrice(row['Total Selling Price (VAT + StampFee + MDR Included)']);
+    }, 0);
+
+    // Group rows in this PNR by passenger name
+    const passengerGroups = {};
+    rows.forEach(r => {
+      const pName = `${r['First Name'] || ''} ${r['Last Name'] || ''}`.trim().toUpperCase() || 'UNKNOWN';
+      if (!passengerGroups[pName]) passengerGroups[pName] = [];
+      passengerGroups[pName].push(r);
+    });
+
+    const uniquePassengerNames = Object.keys(passengerGroups);
+    const passengerCount = uniquePassengerNames.length;
+    // Rule: Jika PNR sama namun nama berbeda beda maka artinya berbeda orang, cost dibagi total orang
+    const costPerPax = passengerCount > 0 ? (totalPnrCost / passengerCount) : 0;
+
+    uniquePassengerNames.forEach(pName => {
+      const pRows = passengerGroups[pName];
+      // Sort legs chronologically
+      pRows.sort((a, b) => {
+        const timeA = String(a['Departure Time'] || '');
+        const timeB = String(b['Departure Time'] || '');
+        return timeA.localeCompare(timeB);
+      });
+
+      const firstLeg = pRows[0];
+      const lastLeg = pRows[pRows.length - 1];
+      // Rule: Jika nama dan PNR sama di tanggal yang sama maka jadikan 1 data:
+      // secara rute tidak include bandara transit, langsung bandara awal ke bandara tujuan akhir
+      const isTransit = pRows.length > 1;
+      const transits = isTransit ? pRows.slice(0, -1).map(l => l['Destination']).filter(Boolean) : [];
+
+      const airlines = [...new Set(pRows.map(l => l['Airline']).filter(Boolean))].join(' / ');
+      const flights = [...new Set(pRows.map(l => l['Flight Number']).filter(Boolean))].join(' / ');
+
+      consolidated.push({
+        ...firstLeg,
+        id: firstLeg.id || `TRX-${pnr}-${pName.replace(/[^A-Z0-9]/g, '').slice(0, 8)}`,
+        Origination: firstLeg['Origination'],
+        Destination: lastLeg['Destination'],
+        Airline: airlines || firstLeg['Airline'],
+        'Flight Number': flights || firstLeg['Flight Number'],
+        'Departure Date': firstLeg['Departure Date'],
+        'Departure Time': firstLeg['Departure Time'],
+        'Arrival Date': lastLeg['Arrival Date'] || firstLeg['Arrival Date'],
+        'Arrival Time': lastLeg['Arrival Time'] || firstLeg['Arrival Time'],
+        'Total Selling Price (VAT + StampFee + MDR Included)': costPerPax,
+        _isConsolidated: true,
+        _isTransit: isTransit,
+        _transits: transits,
+        _isGroup: passengerCount > 1,
+        _groupSize: passengerCount,
+        _groupMembers: uniquePassengerNames,
+        _legs: pRows,
+        _pnrTotalCost: totalPnrCost
+      });
+    });
+  });
+
+  return consolidated;
+}
+
 export default function TicketingPage() {
   // Local storage cache or fallback to empty
   const [records, setRecords] = useState(() => {
@@ -77,6 +173,9 @@ export default function TicketingPage() {
   });
   const [isLoading, setIsLoading] = useState(false);
 
+  // View Mode: 'consolidated' (Rute Bersih & Pembagian PNR) or 'raw' (Semua Segmen Mentah)
+  const [viewMode, setViewMode] = useState('consolidated');
+
   // Filters state
   const [searchQuery, setSearchQuery] = useState('');
   const [datePreset, setDatePreset] = useState('all'); // 'all', 'month', '30days', '7days', 'custom'
@@ -84,7 +183,6 @@ export default function TicketingPage() {
   const [endDate, setEndDate] = useState('');
   const [airlineFilter, setAirlineFilter] = useState('all');
   const [airportFilter, setAirportFilter] = useState('all');
-  const [activeTab, setActiveTab] = useState('all'); // 'all', 'dashboard', 'table'
 
   // Pagination state
   const [currentPage, setCurrentPage] = useState(1);
@@ -167,6 +265,16 @@ export default function TicketingPage() {
     return { start: null, end: null };
   }, [datePreset, startDate, endDate]);
 
+  // Consolidated records (PNR transit merged into origin -> destination, group booking cost distributed)
+  const consolidatedRecords = useMemo(() => {
+    return consolidateTicketingJourneys(records);
+  }, [records]);
+
+  // Current display dataset based on viewMode
+  const activeDataset = useMemo(() => {
+    return viewMode === 'consolidated' ? consolidatedRecords : records;
+  }, [viewMode, consolidatedRecords, records]);
+
   // Unique options for dropdown filters
   const uniqueAirlines = useMemo(() => {
     const set = new Set();
@@ -185,9 +293,9 @@ export default function TicketingPage() {
     return Array.from(set).sort();
   }, [records]);
 
-  // Filtered dataset
-  const filteredRecords = useMemo(() => {
-    return records.filter(r => {
+  // Filter helper
+  const applyFilters = (list) => {
+    return list.filter(r => {
       // 1. Search Query
       if (searchQuery.trim()) {
         const q = searchQuery.toLowerCase();
@@ -197,7 +305,7 @@ export default function TicketingPage() {
         const flight = String(r['Flight Number'] || '').toLowerCase();
         const airline = String(r['Airline'] || '').toLowerCase();
         const route = `${r['Origination'] || ''} ${r['Destination'] || ''}`.toLowerCase();
-        const booker = String(r['User Id'] || '').toLowerCase();
+        const booker = String(r['UserId/Company'] || r['User Id'] || '').toLowerCase();
 
         const match = passenger.includes(q) ||
           pnr.includes(q) ||
@@ -233,17 +341,35 @@ export default function TicketingPage() {
 
       return true;
     });
-  }, [records, searchQuery, airlineFilter, airportFilter, dateRangeBounds]);
+  };
+
+  // Filtered dataset for active table view
+  const filteredRecords = useMemo(() => {
+    return applyFilters(activeDataset);
+  }, [activeDataset, searchQuery, airlineFilter, airportFilter, dateRangeBounds]);
+
+  // Filtered consolidated dataset specifically for dashboard metrics (ensures accurate journey count and routes)
+  const filteredConsolidatedRecords = useMemo(() => {
+    return applyFilters(consolidatedRecords);
+  }, [consolidatedRecords, searchQuery, airlineFilter, airportFilter, dateRangeBounds]);
 
   // Analytical Metrics for Dashboard
   const analytics = useMemo(() => {
     let totalCost = 0;
     const passengerMap = {};
-    const airportMap = {};
     const airlineMap = {};
     const routeMap = {};
+    const bookerMap = {};
 
-    filteredRecords.forEach(r => {
+    let urgentCount = 0;   // < 3 hari
+    let urgentCost = 0;
+    let normalCount = 0;   // 3 - 7 hari
+    let normalCost = 0;
+    let plannedCount = 0;  // > 7 hari
+    let plannedCost = 0;
+    let totalWithLeadTime = 0;
+
+    filteredConsolidatedRecords.forEach(r => {
       const cost = parsePrice(r['Total Selling Price (VAT + StampFee + MDR Included)']);
       totalCost += cost;
 
@@ -255,12 +381,6 @@ export default function TicketingPage() {
       passengerMap[passenger].count += 1;
       passengerMap[passenger].cost += cost;
 
-      // Airport stats
-      const orig = r['Origination'] ? r['Origination'].trim() : null;
-      const dest = r['Destination'] ? r['Destination'].trim() : null;
-      if (orig) airportMap[orig] = (airportMap[orig] || 0) + 1;
-      if (dest) airportMap[dest] = (airportMap[dest] || 0) + 1;
-
       // Airline stats
       const airline = r['Airline'] ? r['Airline'].trim() : 'Lainnya';
       if (!airlineMap[airline]) {
@@ -269,51 +389,103 @@ export default function TicketingPage() {
       airlineMap[airline].count += 1;
       airlineMap[airline].cost += cost;
 
-      // Route stats
+      // Route stats (Top Routes: Origination -> Destination)
+      const orig = r['Origination'] ? r['Origination'].trim() : null;
+      const dest = r['Destination'] ? r['Destination'].trim() : null;
       if (orig && dest) {
         const routeKey = `${orig} → ${dest}`;
-        routeMap[routeKey] = (routeMap[routeKey] || 0) + 1;
+        if (!routeMap[routeKey]) {
+          routeMap[routeKey] = { route: routeKey, orig, dest, count: 0, cost: 0 };
+        }
+        routeMap[routeKey].count += 1;
+        routeMap[routeKey].cost += cost;
       }
+
+      // Lead time stats
+      const days = getLeadTimeDays(r['Booking Date Time'], r['Departure Date']);
+      if (days !== null && days >= 0) {
+        totalWithLeadTime++;
+        if (days < 3) {
+          urgentCount++;
+          urgentCost += cost;
+        } else if (days <= 7) {
+          normalCount++;
+          normalCost += cost;
+        } else {
+          plannedCount++;
+          plannedCost += cost;
+        }
+      }
+
+      // Booker / Company stats
+      const booker = (r['UserId/Company'] || r['User Id'] || 'Lainnya').trim();
+      if (!bookerMap[booker]) {
+        bookerMap[booker] = { name: booker, count: 0, cost: 0 };
+      }
+      bookerMap[booker].count += 1;
+      bookerMap[booker].cost += cost;
     });
 
-    // Top 5 Spenders
+    // Top 5 Spenders (Passengers)
     const topSpenders = Object.values(passengerMap)
       .sort((a, b) => b.cost - a.cost)
       .slice(0, 5);
 
-    // Top 5 Airports
-    const topAirports = Object.entries(airportMap)
-      .map(([code, count]) => ({ code, count }))
-      .sort((a, b) => b.count - a.count)
+    // Top 5 Routes (Rute Terpadat)
+    const topRoutes = Object.values(routeMap)
+      .map(item => ({
+        ...item,
+        avgCost: item.count > 0 ? Math.round(item.cost / item.count) : 0
+      }))
+      .sort((a, b) => b.count - a.count || b.cost - a.cost)
       .slice(0, 5);
 
-    // Airline breakdown
+    // Airline breakdown with avg ticket price
     const airlineStats = Object.values(airlineMap)
+      .map(a => ({
+        ...a,
+        avgPrice: a.count > 0 ? Math.round(a.cost / a.count) : 0
+      }))
       .sort((a, b) => b.cost - a.cost);
 
-    // Top 5 Routes
-    const topRoutes = Object.entries(routeMap)
-      .map(([route, count]) => ({ route, count }))
-      .sort((a, b) => b.count - a.count)
+    // Top 5 Bookers / Entities
+    const topBookers = Object.values(bookerMap)
+      .sort((a, b) => b.cost - a.cost)
       .slice(0, 5);
 
-    const totalTickets = filteredRecords.length;
-    const avgCost = totalTickets > 0 ? totalCost / totalTickets : 0;
+    const totalTickets = filteredConsolidatedRecords.length;
+    const avgCost = totalTickets > 0 ? Math.round(totalCost / totalTickets) : 0;
     const topSpender = topSpenders[0] || null;
-    const topAirport = topAirports[0] || null;
+    const topRoute = topRoutes[0] || null;
+
+    const urgentPct = totalWithLeadTime > 0 ? Math.round((urgentCount / totalWithLeadTime) * 100) : 0;
+    const normalPct = totalWithLeadTime > 0 ? Math.round((normalCount / totalWithLeadTime) * 100) : 0;
+    const plannedPct = totalWithLeadTime > 0 ? Math.round((plannedCount / totalWithLeadTime) * 100) : 0;
 
     return {
       totalCost,
       totalTickets,
       avgCost,
       topSpender,
-      topAirport,
+      topRoute,
       topSpenders,
-      topAirports,
+      topRoutes,
       airlineStats,
-      topRoutes
+      topBookers,
+      leadTime: {
+        totalWithLeadTime,
+        urgentCount,
+        urgentCost,
+        urgentPct,
+        normalCount,
+        normalCost,
+        normalPct,
+        plannedCount,
+        plannedCost,
+        plannedPct
+      }
     };
-  }, [filteredRecords]);
+  }, [filteredConsolidatedRecords]);
 
   // Paginated records for table view
   const totalPages = Math.ceil(filteredRecords.length / pageSize) || 1;
@@ -672,197 +844,349 @@ export default function TicketingPage() {
 
       {/* KPI Cards Grid (Following skill/design.md: Flat cards with left border accent) */}
       {isDashboardVisible && (
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-        {/* KPI 1: Total Cost */}
-        <div className="bg-[var(--card)] rounded-xl border border-[var(--border)] border-l-4 border-l-[var(--primary)] p-4 shadow-xs flex flex-col justify-between">
-          <div className="flex items-center justify-between text-xs text-[var(--muted-foreground)] mb-1">
-            <span className="font-semibold uppercase tracking-wider">Total Biaya Tiket</span>
-            <DollarSign className="w-4 h-4 text-[var(--primary)]" />
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-3.5">
+          {/* KPI 1: Total Cost */}
+          <div className="bg-[var(--card)] rounded-xl border border-[var(--border)] border-l-4 border-l-[var(--primary)] p-4 shadow-xs flex flex-col justify-between">
+            <div className="flex items-center justify-between text-xs text-[var(--muted-foreground)] mb-1">
+              <span className="font-semibold uppercase tracking-wider">Total Biaya Tiket</span>
+              <DollarSign className="w-4 h-4 text-[var(--primary)]" />
+            </div>
+            <div className="text-xl font-bold font-mono text-[var(--foreground)] tabular-nums">
+              {formatRupiah(analytics.totalCost)}
+            </div>
+            <div className="text-[11px] text-[var(--muted-foreground)] mt-1">
+              Dari {analytics.totalTickets} perjalanan terfilter
+            </div>
           </div>
-          <div className="text-xl font-bold font-mono text-[var(--foreground)] tabular-nums">
-            {formatRupiah(analytics.totalCost)}
-          </div>
-          <div className="text-[11px] text-[var(--muted-foreground)] mt-1">
-            Dari {analytics.totalTickets} penerbangan terfilter
-          </div>
-        </div>
 
-        {/* KPI 2: Total Flights */}
-        <div className="bg-[var(--card)] rounded-xl border border-[var(--border)] border-l-4 border-l-[var(--accent)] p-4 shadow-xs flex flex-col justify-between">
-          <div className="flex items-center justify-between text-xs text-[var(--muted-foreground)] mb-1">
-            <span className="font-semibold uppercase tracking-wider">Total Penerbangan</span>
-            <Plane className="w-4 h-4 text-[var(--accent)]" />
+          {/* KPI 2: Total Journeys */}
+          <div className="bg-[var(--card)] rounded-xl border border-[var(--border)] border-l-4 border-l-[var(--accent)] p-4 shadow-xs flex flex-col justify-between">
+            <div className="flex items-center justify-between text-xs text-[var(--muted-foreground)] mb-1">
+              <span className="font-semibold uppercase tracking-wider">Total Perjalanan</span>
+              <Plane className="w-4 h-4 text-[var(--accent)]" />
+            </div>
+            <div className="text-xl font-bold font-mono text-[var(--foreground)] tabular-nums">
+              {analytics.totalTickets} <span className="text-sm font-normal text-[var(--muted-foreground)]">pax</span>
+            </div>
+            <div className="text-[11px] text-[var(--muted-foreground)] mt-1">
+              {viewMode === 'consolidated' ? 'Terkonsolidasi per rute' : 'Segmen penerbangan mentah'}
+            </div>
           </div>
-          <div className="text-xl font-bold font-mono text-[var(--foreground)] tabular-nums">
-            {analytics.totalTickets} <span className="text-sm font-normal text-[var(--muted-foreground)]">tiket</span>
-          </div>
-          <div className="text-[11px] text-[var(--muted-foreground)] mt-1">
-            Rata-rata: {formatRupiah(analytics.avgCost)} / tiket
-          </div>
-        </div>
 
-        {/* KPI 3: Top Spender */}
-        <div className="bg-[var(--card)] rounded-xl border border-[var(--border)] border-l-4 border-l-teal-600 p-4 shadow-xs flex flex-col justify-between">
-          <div className="flex items-center justify-between text-xs text-[var(--muted-foreground)] mb-1">
-            <span className="font-semibold uppercase tracking-wider">Top Spender (Penumpang)</span>
-            <Users className="w-4 h-4 text-teal-600" />
+          {/* KPI 3: Average Cost per Pax */}
+          <div className="bg-[var(--card)] rounded-xl border border-[var(--border)] border-l-4 border-l-emerald-600 p-4 shadow-xs flex flex-col justify-between">
+            <div className="flex items-center justify-between text-xs text-[var(--muted-foreground)] mb-1">
+              <span className="font-semibold uppercase tracking-wider">Rata-rata / Pax</span>
+              <TrendingUp className="w-4 h-4 text-emerald-600" />
+            </div>
+            <div className="text-xl font-bold font-mono text-[var(--foreground)] tabular-nums">
+              {formatRupiah(analytics.avgCost)}
+            </div>
+            <div className="text-[11px] text-[var(--muted-foreground)] mt-1">
+              Efisiensi biaya rata-rata perjalanan
+            </div>
           </div>
-          <div className="text-base font-bold text-[var(--foreground)] truncate" title={analytics.topSpender?.name}>
-            {analytics.topSpender?.name || '-'}
-          </div>
-          <div className="text-[11px] font-mono text-teal-600 font-bold mt-1">
-            {analytics.topSpender ? `${formatRupiah(analytics.topSpender.cost)} (${analytics.topSpender.count} tiket)` : 'Belum ada data'}
-          </div>
-        </div>
 
-        {/* KPI 4: Top Airport */}
-        <div className="bg-[var(--card)] rounded-xl border border-[var(--border)] border-l-4 border-l-sky-600 p-4 shadow-xs flex flex-col justify-between">
-          <div className="flex items-center justify-between text-xs text-[var(--muted-foreground)] mb-1">
-            <span className="font-semibold uppercase tracking-wider">Bandara Terpadat</span>
-            <MapPin className="w-4 h-4 text-sky-600" />
+          {/* KPI 4: Top Route (Replaces Bandara Terpadat) */}
+          <div className="bg-[var(--card)] rounded-xl border border-[var(--border)] border-l-4 border-l-sky-600 p-4 shadow-xs flex flex-col justify-between">
+            <div className="flex items-center justify-between text-xs text-[var(--muted-foreground)] mb-1">
+              <span className="font-semibold uppercase tracking-wider">Rute Terpadat</span>
+              <Compass className="w-4 h-4 text-sky-600" />
+            </div>
+            <div className="text-base font-bold font-mono text-[var(--foreground)] truncate" title={analytics.topRoute?.route}>
+              {analytics.topRoute?.route || '-'}
+            </div>
+            <div className="text-[11px] text-[var(--muted-foreground)] mt-1">
+              {analytics.topRoute ? `${analytics.topRoute.count} penerbangan (${formatRupiah(analytics.topRoute.cost)})` : 'Belum ada data'}
+            </div>
           </div>
-          <div className="text-xl font-bold font-mono text-[var(--foreground)]">
-            {analytics.topAirport?.code || '-'}
-          </div>
-          <div className="text-[11px] text-[var(--muted-foreground)] mt-1">
-            {analytics.topAirport ? `${analytics.topAirport.count} pergerakan keberangkatan/kedatangan` : 'Belum ada data'}
+
+          {/* KPI 5: Booking Lead Time Risk */}
+          <div className="bg-[var(--card)] rounded-xl border border-[var(--border)] border-l-4 border-l-ruby-500 p-4 shadow-xs flex flex-col justify-between">
+            <div className="flex items-center justify-between text-xs text-[var(--muted-foreground)] mb-1">
+              <span className="font-semibold uppercase tracking-wider">Booking Mendadak</span>
+              <Clock className="w-4 h-4 text-ruby-500" />
+            </div>
+            <div className="text-xl font-bold font-mono text-ruby-600 tabular-nums">
+              {analytics.leadTime?.urgentPct || 0}%
+            </div>
+            <div className="text-[11px] text-[var(--muted-foreground)] mt-1">
+              {analytics.leadTime?.urgentCount || 0} tiket dipesan &lt; 3 hari
+            </div>
           </div>
         </div>
-      </div>
       )}
 
-      {/* Monitoring Analytics: Spenders, Airports & Airlines */}
+      {/* Monitoring Analytics: Spenders, Routes, Airlines, Lead Time & Bookers */}
       {isDashboardVisible && (
-        <div className="grid grid-cols-1 lg:grid-cols-3 gap-5">
-        
-        {/* Card 1: Top 5 Penumpang Biaya Terbesar */}
-        <div className="bg-[var(--card)] rounded-xl border border-[var(--border)] p-4 shadow-xs flex flex-col">
-          <div className="flex items-center justify-between mb-3">
-            <h3 className="text-xs font-bold uppercase tracking-wider text-[var(--foreground)] flex items-center">
-              <Users className="w-3.5 h-3.5 mr-1.5 text-[var(--primary)]" />
-              Top 5 Biaya Tertinggi (Penumpang)
-            </h3>
-            <span className="text-[10px] text-[var(--muted-foreground)]">Ranked</span>
+        <div className="space-y-4">
+          {/* Row 1: Spenders, Top Routes, Airline Share */}
+          <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
+            
+            {/* Card 1: Top 5 Penumpang Biaya Terbesar */}
+            <div className="bg-[var(--card)] rounded-xl border border-[var(--border)] p-4 shadow-xs flex flex-col">
+              <div className="flex items-center justify-between mb-3">
+                <h3 className="text-xs font-bold uppercase tracking-wider text-[var(--foreground)] flex items-center">
+                  <Users className="w-3.5 h-3.5 mr-1.5 text-[var(--primary)]" />
+                  Top 5 Penumpang (Biaya Tertinggi)
+                </h3>
+                <span className="text-[10px] text-[var(--muted-foreground)] font-mono">Ranked</span>
+              </div>
+              
+              <div className="space-y-3 flex-1">
+                {analytics.topSpenders.length === 0 ? (
+                  <p className="text-xs text-[var(--muted-foreground)] italic py-4 text-center">Tidak ada data terfilter.</p>
+                ) : (
+                  analytics.topSpenders.map((sp, idx) => {
+                    const maxCost = analytics.topSpenders[0]?.cost || 1;
+                    const pct = Math.min(100, Math.round((sp.cost / maxCost) * 100));
+                    return (
+                      <div key={sp.name} className="space-y-1">
+                        <div className="flex items-center justify-between text-xs">
+                          <span className="font-medium text-[var(--foreground)] truncate max-w-[180px]">
+                            <span className="text-[var(--muted-foreground)] font-mono mr-1.5">{idx + 1}.</span>
+                            {sp.name}
+                          </span>
+                          <span className="font-mono font-bold text-[var(--foreground)] tabular-nums">
+                            {formatRupiah(sp.cost)}
+                          </span>
+                        </div>
+                        <div className="flex items-center justify-between text-[10px] text-[var(--muted-foreground)]">
+                          <span>{sp.count} perjalanan</span>
+                          <span>{pct}% dari biaya tertinggi</span>
+                        </div>
+                        <div className="w-full h-1.5 bg-[var(--muted)] rounded-full overflow-hidden">
+                          <div 
+                            className="h-full bg-[var(--primary)] rounded-full transition-all duration-300"
+                            style={{ width: `${pct}%` }}
+                          />
+                        </div>
+                      </div>
+                    );
+                  })
+                )}
+              </div>
+            </div>
+
+            {/* Card 2: Top 5 Rute Terpadat (Asal -> Tujuan Akhir) */}
+            <div className="bg-[var(--card)] rounded-xl border border-[var(--border)] p-4 shadow-xs flex flex-col">
+              <div className="flex items-center justify-between mb-3">
+                <h3 className="text-xs font-bold uppercase tracking-wider text-[var(--foreground)] flex items-center">
+                  <Compass className="w-3.5 h-3.5 mr-1.5 text-[var(--accent)]" />
+                  Top 5 Rute Terpadat
+                </h3>
+                <span className="text-[10px] text-[var(--muted-foreground)] font-mono">Asal → Tujuan</span>
+              </div>
+
+              <div className="space-y-3 flex-1">
+                {analytics.topRoutes.length === 0 ? (
+                  <p className="text-xs text-[var(--muted-foreground)] italic py-4 text-center">Tidak ada data terfilter.</p>
+                ) : (
+                  analytics.topRoutes.map((rt, idx) => {
+                    const maxCount = analytics.topRoutes[0]?.count || 1;
+                    const pct = Math.min(100, Math.round((rt.count / maxCount) * 100));
+                    return (
+                      <div key={rt.route} className="space-y-1">
+                        <div className="flex items-center justify-between text-xs">
+                          <span className="font-mono font-bold text-[var(--foreground)] flex items-center">
+                            <span className="text-[var(--muted-foreground)] mr-1.5 font-normal">{idx + 1}.</span>
+                            {rt.route}
+                          </span>
+                          <span className="font-mono text-[var(--foreground)] tabular-nums font-bold">
+                            {rt.count} penerbangan
+                          </span>
+                        </div>
+                        <div className="flex items-center justify-between text-[10px] text-[var(--muted-foreground)] font-mono">
+                          <span>Total: {formatRupiah(rt.cost)}</span>
+                          <span>Rata-rata: {formatRupiah(rt.avgCost)}</span>
+                        </div>
+                        <div className="w-full h-1.5 bg-[var(--muted)] rounded-full overflow-hidden">
+                          <div 
+                            className="h-full bg-[var(--accent)] rounded-full transition-all duration-300"
+                            style={{ width: `${pct}%` }}
+                          />
+                        </div>
+                      </div>
+                    );
+                  })
+                )}
+              </div>
+            </div>
+
+            {/* Card 3: Distribusi Maskapai & Efisiensi Biaya */}
+            <div className="bg-[var(--card)] rounded-xl border border-[var(--border)] p-4 shadow-xs flex flex-col">
+              <div className="flex items-center justify-between mb-3">
+                <h3 className="text-xs font-bold uppercase tracking-wider text-[var(--foreground)] flex items-center">
+                  <Plane className="w-3.5 h-3.5 mr-1.5 text-sky-600" />
+                  Pangsa Maskapai & Harga Tiket
+                </h3>
+                <span className="text-[10px] text-[var(--muted-foreground)] font-mono">Share & Efisiensi</span>
+              </div>
+
+              <div className="space-y-3 flex-1">
+                {analytics.airlineStats.length === 0 ? (
+                  <p className="text-xs text-[var(--muted-foreground)] italic py-4 text-center">Tidak ada data terfilter.</p>
+                ) : (
+                  analytics.airlineStats.map((al) => {
+                    const pct = analytics.totalCost > 0 ? Math.round((al.cost / analytics.totalCost) * 100) : 0;
+                    return (
+                      <div key={al.airline} className="space-y-1">
+                        <div className="flex items-center justify-between text-xs">
+                          <span className="font-medium text-[var(--foreground)]">{al.airline}</span>
+                          <span className="font-mono font-bold text-[var(--foreground)] tabular-nums">
+                            {formatRupiah(al.cost)}
+                          </span>
+                        </div>
+                        <div className="flex items-center justify-between text-[10px] text-[var(--muted-foreground)] font-mono">
+                          <span>{al.count} tiket ({pct}%)</span>
+                          <span>Rata-rata: {formatRupiah(al.avgPrice)}</span>
+                        </div>
+                        <div className="w-full h-1.5 bg-[var(--muted)] rounded-full overflow-hidden">
+                          <div 
+                            className="h-full bg-sky-600 rounded-full transition-all duration-300"
+                            style={{ width: `${pct}%` }}
+                          />
+                        </div>
+                      </div>
+                    );
+                  })
+                )}
+              </div>
+            </div>
           </div>
-          
-          <div className="space-y-3 flex-1">
-            {analytics.topSpenders.length === 0 ? (
-              <p className="text-xs text-[var(--muted-foreground)] italic py-4 text-center">Tidak ada data terfilter.</p>
-            ) : (
-              analytics.topSpenders.map((sp, idx) => {
-                const maxCost = analytics.topSpenders[0]?.cost || 1;
-                const pct = Math.min(100, Math.round((sp.cost / maxCost) * 100));
-                return (
-                  <div key={sp.name} className="space-y-1">
-                    <div className="flex items-center justify-between text-xs">
-                      <span className="font-medium text-[var(--foreground)] truncate max-w-[180px]">
-                        <span className="text-[var(--muted-foreground)] font-mono mr-1.5">{idx + 1}.</span>
-                        {sp.name}
-                      </span>
-                      <span className="font-mono font-bold text-[var(--foreground)] tabular-nums">
-                        {formatRupiah(sp.cost)}
-                      </span>
-                    </div>
-                    <div className="flex items-center justify-between text-[10px] text-[var(--muted-foreground)]">
-                      <span>{sp.count} penerbangan</span>
-                      <span>{pct}% dari tertinggi</span>
-                    </div>
-                    {/* Minimal Progress Bar */}
-                    <div className="w-full h-1.5 bg-[var(--muted)] rounded-full overflow-hidden">
-                      <div 
-                        className="h-full bg-[var(--primary)] rounded-full transition-all duration-300"
-                        style={{ width: `${pct}%` }}
-                      />
-                    </div>
+
+          {/* Row 2: Lead Time Analysis & Top Bookers */}
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+            
+            {/* Card 4: Analisis Lead Time Pemesanan */}
+            <div className="bg-[var(--card)] rounded-xl border border-[var(--border)] p-4 shadow-xs flex flex-col">
+              <div className="flex items-center justify-between mb-3">
+                <h3 className="text-xs font-bold uppercase tracking-wider text-[var(--foreground)] flex items-center">
+                  <Clock className="w-3.5 h-3.5 mr-1.5 text-amber-600" />
+                  Waktu Pemesanan Sebelum Berangkat (Lead Time)
+                </h3>
+                <span className="text-[10px] text-[var(--muted-foreground)] font-mono">Cost Compliance</span>
+              </div>
+              
+              <div className="space-y-3.5 flex-1 text-xs">
+                {/* 1. Mendadak */}
+                <div className="space-y-1">
+                  <div className="flex items-center justify-between">
+                    <span className="font-semibold text-ruby-600 flex items-center">
+                      <span className="w-2 h-2 rounded-full bg-ruby-500 mr-2"></span>
+                      Mendadak (&lt; 3 Hari Sebelum Berangkat)
+                    </span>
+                    <span className="font-mono font-bold text-ruby-600">
+                      {analytics.leadTime?.urgentCount || 0} Tiket ({analytics.leadTime?.urgentPct || 0}%)
+                    </span>
                   </div>
-                );
-              })
-            )}
+                  <div className="flex justify-between text-[10px] text-[var(--muted-foreground)] font-mono">
+                    <span>Pengeluaran: {formatRupiah(analytics.leadTime?.urgentCost)}</span>
+                    <span>Risiko tarif tiket mahal</span>
+                  </div>
+                  <div className="w-full h-2 bg-[var(--muted)] rounded-full overflow-hidden">
+                    <div 
+                      className="h-full bg-ruby-500 rounded-full transition-all"
+                      style={{ width: `${analytics.leadTime?.urgentPct || 0}%` }}
+                    />
+                  </div>
+                </div>
+
+                {/* 2. Normal */}
+                <div className="space-y-1">
+                  <div className="flex items-center justify-between">
+                    <span className="font-semibold text-amber-600 flex items-center">
+                      <span className="w-2 h-2 rounded-full bg-amber-500 mr-2"></span>
+                      Standar / Normal (3 s/d 7 Hari)
+                    </span>
+                    <span className="font-mono font-bold text-amber-600">
+                      {analytics.leadTime?.normalCount || 0} Tiket ({analytics.leadTime?.normalPct || 0}%)
+                    </span>
+                  </div>
+                  <div className="flex justify-between text-[10px] text-[var(--muted-foreground)] font-mono">
+                    <span>Pengeluaran: {formatRupiah(analytics.leadTime?.normalCost)}</span>
+                    <span>Tarif reguler operasional</span>
+                  </div>
+                  <div className="w-full h-2 bg-[var(--muted)] rounded-full overflow-hidden">
+                    <div 
+                      className="h-full bg-amber-500 rounded-full transition-all"
+                      style={{ width: `${analytics.leadTime?.normalPct || 0}%` }}
+                    />
+                  </div>
+                </div>
+
+                {/* 3. Terencana */}
+                <div className="space-y-1">
+                  <div className="flex items-center justify-between">
+                    <span className="font-semibold text-emerald-600 flex items-center">
+                      <span className="w-2 h-2 rounded-full bg-emerald-500 mr-2"></span>
+                      Terencana Lebih Awal (&gt; 7 Hari)
+                    </span>
+                    <span className="font-mono font-bold text-emerald-600">
+                      {analytics.leadTime?.plannedCount || 0} Tiket ({analytics.leadTime?.plannedPct || 0}%)
+                    </span>
+                  </div>
+                  <div className="flex justify-between text-[10px] text-[var(--muted-foreground)] font-mono">
+                    <span>Pengeluaran: {formatRupiah(analytics.leadTime?.plannedCost)}</span>
+                    <span>Potensi diskon &amp; promo terbaik</span>
+                  </div>
+                  <div className="w-full h-2 bg-[var(--muted)] rounded-full overflow-hidden">
+                    <div 
+                      className="h-full bg-emerald-500 rounded-full transition-all"
+                      style={{ width: `${analytics.leadTime?.plannedPct || 0}%` }}
+                    />
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            {/* Card 5: Top Entitas Pemesan / Departemen */}
+            <div className="bg-[var(--card)] rounded-xl border border-[var(--border)] p-4 shadow-xs flex flex-col">
+              <div className="flex items-center justify-between mb-3">
+                <h3 className="text-xs font-bold uppercase tracking-wider text-[var(--foreground)] flex items-center">
+                  <Briefcase className="w-3.5 h-3.5 mr-1.5 text-[var(--primary)]" />
+                  Top Akun / Entitas Pemesan Tiket
+                </h3>
+                <span className="text-[10px] text-[var(--muted-foreground)] font-mono">Company / User Id</span>
+              </div>
+
+              <div className="space-y-3 flex-1">
+                {analytics.topBookers.length === 0 ? (
+                  <p className="text-xs text-[var(--muted-foreground)] italic py-4 text-center">Tidak ada data terfilter.</p>
+                ) : (
+                  analytics.topBookers.map((bk, idx) => {
+                    const maxCost = analytics.topBookers[0]?.cost || 1;
+                    const pct = Math.min(100, Math.round((bk.cost / maxCost) * 100));
+                    return (
+                      <div key={bk.name} className="space-y-1">
+                        <div className="flex items-center justify-between text-xs">
+                          <span className="font-medium text-[var(--foreground)] truncate max-w-[220px]">
+                            <span className="text-[var(--muted-foreground)] font-mono mr-1.5">{idx + 1}.</span>
+                            {bk.name}
+                          </span>
+                          <span className="font-mono font-bold text-[var(--foreground)] tabular-nums">
+                            {formatRupiah(bk.cost)}
+                          </span>
+                        </div>
+                        <div className="flex items-center justify-between text-[10px] text-[var(--muted-foreground)] font-mono">
+                          <span>{bk.count} tiket</span>
+                          <span>{pct}% dari akun tertinggi</span>
+                        </div>
+                        <div className="w-full h-1.5 bg-[var(--muted)] rounded-full overflow-hidden">
+                          <div 
+                            className="h-full bg-[var(--primary)] rounded-full transition-all duration-300"
+                            style={{ width: `${pct}%` }}
+                          />
+                        </div>
+                      </div>
+                    );
+                  })
+                )}
+              </div>
+            </div>
+
           </div>
         </div>
-
-        {/* Card 2: Top Bandara Terpadat */}
-        <div className="bg-[var(--card)] rounded-xl border border-[var(--border)] p-4 shadow-xs flex flex-col">
-          <div className="flex items-center justify-between mb-3">
-            <h3 className="text-xs font-bold uppercase tracking-wider text-[var(--foreground)] flex items-center">
-              <MapPin className="w-3.5 h-3.5 mr-1.5 text-[var(--accent)]" />
-              Top Bandara Terbanyak Dikunjungi
-            </h3>
-            <span className="text-[10px] text-[var(--muted-foreground)]">Asal / Tujuan</span>
-          </div>
-
-          <div className="space-y-3 flex-1">
-            {analytics.topAirports.length === 0 ? (
-              <p className="text-xs text-[var(--muted-foreground)] italic py-4 text-center">Tidak ada data terfilter.</p>
-            ) : (
-              analytics.topAirports.map((ap, idx) => {
-                const maxCount = analytics.topAirports[0]?.count || 1;
-                const pct = Math.min(100, Math.round((ap.count / maxCount) * 100));
-                return (
-                  <div key={ap.code} className="space-y-1">
-                    <div className="flex items-center justify-between text-xs">
-                      <span className="font-mono font-bold text-[var(--foreground)]">
-                        <span className="text-[var(--muted-foreground)] mr-1.5 font-normal">{idx + 1}.</span>
-                        {ap.code}
-                      </span>
-                      <span className="font-mono text-[var(--foreground)] tabular-nums font-semibold">
-                        {ap.count} kali
-                      </span>
-                    </div>
-                    <div className="w-full h-1.5 bg-[var(--muted)] rounded-full overflow-hidden">
-                      <div 
-                        className="h-full bg-[var(--accent)] rounded-full transition-all duration-300"
-                        style={{ width: `${pct}%` }}
-                      />
-                    </div>
-                  </div>
-                );
-              })
-            )}
-          </div>
-        </div>
-
-        {/* Card 3: Distribusi Maskapai */}
-        <div className="bg-[var(--card)] rounded-xl border border-[var(--border)] p-4 shadow-xs flex flex-col">
-          <div className="flex items-center justify-between mb-3">
-            <h3 className="text-xs font-bold uppercase tracking-wider text-[var(--foreground)] flex items-center">
-              <Plane className="w-3.5 h-3.5 mr-1.5 text-sky-600" />
-              Distribusi Maskapai & Pengeluaran
-            </h3>
-            <span className="text-[10px] text-[var(--muted-foreground)]">Share %</span>
-          </div>
-
-          <div className="space-y-3 flex-1">
-            {analytics.airlineStats.length === 0 ? (
-              <p className="text-xs text-[var(--muted-foreground)] italic py-4 text-center">Tidak ada data terfilter.</p>
-            ) : (
-              analytics.airlineStats.map((al) => {
-                const pct = analytics.totalCost > 0 ? Math.round((al.cost / analytics.totalCost) * 100) : 0;
-                return (
-                  <div key={al.airline} className="space-y-1">
-                    <div className="flex items-center justify-between text-xs">
-                      <span className="font-medium text-[var(--foreground)]">{al.airline}</span>
-                      <span className="font-mono font-bold text-[var(--foreground)] tabular-nums">
-                        {formatRupiah(al.cost)}
-                      </span>
-                    </div>
-                    <div className="flex items-center justify-between text-[10px] text-[var(--muted-foreground)]">
-                      <span>{al.count} penerbangan</span>
-                      <span>{pct}% dari total</span>
-                    </div>
-                    <div className="w-full h-1.5 bg-[var(--muted)] rounded-full overflow-hidden">
-                      <div 
-                        className="h-full bg-sky-600 rounded-full transition-all duration-300"
-                        style={{ width: `${pct}%` }}
-                      />
-                    </div>
-                  </div>
-                );
-              })
-            )}
-          </div>
-        </div>
-      </div>
       )}
 
       {/* Main Database Table Container */}
@@ -870,13 +1194,39 @@ export default function TicketingPage() {
         
         {/* Table Controls Bar */}
         <div className="p-4 border-b border-[var(--border)] flex flex-col sm:flex-row sm:items-center justify-between gap-3 bg-[var(--background)]">
-          <div className="flex items-center space-x-2">
+          <div className="flex flex-wrap items-center gap-3">
             <span className="text-xs font-bold text-[var(--foreground)] uppercase tracking-wider">
               Daftar Transaksi Tiket
             </span>
             <span className="text-xs px-2 py-0.5 rounded-full bg-[var(--muted)] text-[var(--muted-foreground)] font-mono">
               {filteredRecords.length} Data
             </span>
+
+            {/* View Mode Toggle: Consolidated Journey vs Raw Segments */}
+            <div className="inline-flex p-0.5 rounded-lg bg-[var(--muted)] border border-[var(--border)] text-xs font-medium">
+              <button
+                onClick={() => setViewMode('consolidated')}
+                title="Tampilkan data terkonsolidasi (transit digabung jadi 1 rute awal-akhir, biaya PNR rombongan dibagi rata)"
+                className={`px-2.5 py-1 rounded-md text-[11px] transition-all ${
+                  viewMode === 'consolidated'
+                    ? 'bg-[var(--card)] text-[var(--foreground)] font-bold shadow-xs'
+                    : 'text-[var(--muted-foreground)] hover:text-[var(--foreground)]'
+                }`}
+              >
+                Rute Konsolidasi
+              </button>
+              <button
+                onClick={() => setViewMode('raw')}
+                title="Tampilkan setiap segmen/leg tiket mentah persis seperti file asal"
+                className={`px-2.5 py-1 rounded-md text-[11px] transition-all ${
+                  viewMode === 'raw'
+                    ? 'bg-[var(--card)] text-[var(--foreground)] font-bold shadow-xs'
+                    : 'text-[var(--muted-foreground)] hover:text-[var(--foreground)]'
+                }`}
+              >
+                Semua Segmen Mentah
+              </button>
+            </div>
           </div>
 
           <div className="flex items-center space-x-3 text-xs">
@@ -902,7 +1252,7 @@ export default function TicketingPage() {
                 <th className="py-3 px-4 w-12 text-center">No</th>
                 <th className="py-3 px-4">Tgl Berangkat</th>
                 <th className="py-3 px-4">Penumpang</th>
-                <th className="py-3 px-4">Maskapai & No Penerbangan</th>
+                <th className="py-3 px-4">Maskapai &amp; No Penerbangan</th>
                 <th className="py-3 px-4">Rute</th>
                 <th className="py-3 px-4">PNR / No Tiket</th>
                 <th className="py-3 px-4 text-right">Biaya (Rp)</th>
@@ -950,7 +1300,14 @@ export default function TicketingPage() {
                         <div className="text-[10px] text-[var(--muted-foreground)] font-mono">{r['Departure Time'] || ''}</div>
                       </td>
                       <td className="py-3 px-4">
-                        <div className="font-bold text-[var(--foreground)]">{passengerName}</div>
+                        <div className="font-bold text-[var(--foreground)] flex items-center">
+                          {passengerName}
+                          {r._isGroup && (
+                            <span className="ml-1.5 px-1.5 py-0.5 rounded text-[9px] font-bold bg-amber-50 text-amber-700 border border-amber-200">
+                              Grup {r._groupSize} Pax
+                            </span>
+                          )}
+                        </div>
                         <div className="text-[10px] text-[var(--muted-foreground)] truncate max-w-[150px]">
                           {r['UserId/Company'] || r['User Id'] || '-'}
                         </div>
@@ -964,6 +1321,11 @@ export default function TicketingPage() {
                           <span>{r['Origination'] || '-'}</span>
                           <ArrowRight className="w-3 h-3 text-[var(--muted-foreground)]" />
                           <span>{r['Destination'] || '-'}</span>
+                          {r._isTransit && (
+                            <span className="ml-1 px-1.5 py-0.5 rounded text-[9px] font-medium bg-sky-50 text-sky-700 border border-sky-200">
+                              Transit ({r._transits.join(', ')})
+                            </span>
+                          )}
                         </div>
                         <div className="text-[10px] text-[var(--muted-foreground)]">Kelas: {r['Class'] || '-'}</div>
                       </td>
@@ -974,7 +1336,18 @@ export default function TicketingPage() {
                         </div>
                       </td>
                       <td className="py-3 px-4 text-right font-mono font-bold text-[var(--foreground)] tabular-nums">
-                        {price > 0 ? formatRupiah(price) : <span className="text-[var(--muted-foreground)] font-normal">Rp 0</span>}
+                        {price > 0 ? (
+                          <div>
+                            {formatRupiah(price)}
+                            {r._isGroup && (
+                              <div className="text-[9px] font-normal text-[var(--muted-foreground)]">
+                                (bagi rata 1/{r._groupSize})
+                              </div>
+                            )}
+                          </div>
+                        ) : (
+                          <span className="text-[var(--muted-foreground)] font-normal">Rp 0</span>
+                        )}
                       </td>
                       <td className="py-3 px-4 text-center">
                         <span className="inline-block px-2 py-0.5 rounded text-[10px] font-bold uppercase tracking-wider bg-emerald-50 text-emerald-700 border border-emerald-200">
@@ -1010,7 +1383,7 @@ export default function TicketingPage() {
         {/* Table Pagination Footer */}
         <div className="p-4 border-t border-[var(--border)] flex flex-col sm:flex-row sm:items-center justify-between gap-3 text-xs bg-[var(--background)]">
           <span className="text-[var(--muted-foreground)]">
-            Menampilkan {filteredRecords.length > 0 ? (currentPage - 1) * pageSize + 1 : 0} - {Math.min(currentPage * pageSize, filteredRecords.length)} dari {filteredRecords.length} transaksi
+            Menampilkan {filteredRecords.length > 0 ? (currentPage - 1) * pageSize + 1 : 0} - {Math.min(currentPage * pageSize, filteredRecords.length)} dari {filteredRecords.length} transaksi {viewMode === 'consolidated' ? '(terkonsolidasi)' : '(mentah)'}
           </span>
 
           <div className="flex items-center space-x-2">
@@ -1069,18 +1442,71 @@ export default function TicketingPage() {
                   <span className="text-sm font-bold text-emerald-600">{selectedRecord['Status'] || 'Ticketed'}</span>
                 </div>
                 <div className="text-right">
-                  <span className="text-[10px] text-[var(--muted-foreground)] uppercase tracking-wider block">Total Biaya</span>
+                  <span className="text-[10px] text-[var(--muted-foreground)] uppercase tracking-wider block">Total Biaya Perjalanan</span>
                   <span className="text-sm font-bold font-mono text-[var(--foreground)] tabular-nums">
                     {formatRupiah(parsePrice(selectedRecord['Total Selling Price (VAT + StampFee + MDR Included)']))}
                   </span>
                 </div>
               </div>
 
+              {/* Transit Information Box if applicable */}
+              {selectedRecord._isTransit && (
+                <div className="p-3 bg-sky-50/70 border border-sky-200 rounded-xl space-y-2">
+                  <div className="flex items-center justify-between text-sky-800 font-bold text-[11px]">
+                    <span className="flex items-center">
+                      <Compass className="w-3.5 h-3.5 mr-1" />
+                      Penerbangan Transit Terhubung
+                    </span>
+                    <span>{selectedRecord._legs?.length || 2} Segmen</span>
+                  </div>
+                  <p className="text-[11px] text-sky-700">
+                    Rute langsung: <strong>{selectedRecord['Origination']} → {selectedRecord['Destination']}</strong> (via transit di {selectedRecord._transits?.join(', ')}).
+                  </p>
+                  <div className="space-y-1.5 pt-1 border-t border-sky-200">
+                    {selectedRecord._legs?.map((leg, lIdx) => (
+                      <div key={lIdx} className="bg-white/80 p-2 rounded border border-sky-100 flex items-center justify-between text-[10px] font-mono">
+                        <div>
+                          <strong>Leg {lIdx + 1}:</strong> {leg['Origination']} → {leg['Destination']} ({leg['Flight Number']})
+                        </div>
+                        <div className="text-[var(--muted-foreground)]">
+                          {leg['Departure Date']} {leg['Departure Time']}
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              {/* Group Booking Information Box if applicable */}
+              {selectedRecord._isGroup && (
+                <div className="p-3 bg-amber-50/70 border border-amber-200 rounded-xl space-y-2">
+                  <div className="flex items-center justify-between text-amber-800 font-bold text-[11px]">
+                    <span className="flex items-center">
+                      <Users className="w-3.5 h-3.5 mr-1" />
+                      Tiket Rombongan (Group PNR: {selectedRecord['Pnr Code']})
+                    </span>
+                    <span>{selectedRecord._groupSize} Penumpang</span>
+                  </div>
+                  <p className="text-[11px] text-amber-700">
+                    Total biaya grup {formatRupiah(selectedRecord._pnrTotalCost)} dibagi rata untuk {selectedRecord._groupSize} penumpang ({formatRupiah(parsePrice(selectedRecord['Total Selling Price (VAT + StampFee + MDR Included)']))} / orang).
+                  </p>
+                  <div className="space-y-1 pt-1 border-t border-amber-200">
+                    <span className="text-[10px] font-bold text-amber-800 uppercase tracking-wider block">Daftar Penumpang Rombongan:</span>
+                    {selectedRecord._groupMembers?.map((mName, mIdx) => (
+                      <div key={mIdx} className="text-[11px] text-amber-900 flex items-center">
+                        <span className="w-1.5 h-1.5 rounded-full bg-amber-500 mr-1.5"></span>
+                        {mName}
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+
               {/* Passenger Info */}
               <div className="space-y-2">
                 <h4 className="font-bold text-[var(--foreground)] uppercase tracking-wider text-[11px] flex items-center">
                   <Users className="w-3.5 h-3.5 mr-1 text-[var(--muted-foreground)]" />
-                  Informasi Penumpang & Pemesan
+                  Informasi Penumpang &amp; Pemesan
                 </h4>
                 <div className="bg-[var(--background)] p-3 rounded-lg border border-[var(--border)] space-y-1.5">
                   <p><span className="text-[var(--muted-foreground)]">Nama Penumpang:</span> <strong className="text-[var(--foreground)]">{selectedRecord['First Name']} {selectedRecord['Last Name']}</strong></p>

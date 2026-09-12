@@ -1,4 +1,4 @@
-const SPREADSHEET_ID = 'YOUR_SPREADSHEET_ID_HERE'; // GANTI DENGAN ID SPREADSHEET ANDA
+const SPREADSHEET_ID = '1T0F3N2T8br_1awN51HPVxEic1YKp6HpXKaCZJ9Lxdn8';
 
 const SECURITY = {
   // Diset di File > Project Properties > Script Properties
@@ -183,6 +183,42 @@ function routeAction(body) {
       return batchAppendRecords('tbl_transport_ticketing', body.payload.records, actor, body.payload.mode);
     case 'DELETE_TICKETING_RECORD':
       return deleteRecord('tbl_transport_ticketing', body.id, actor);
+    // Standards (SOP / WI / STD & FORM)
+    case 'GET_STANDARDS':
+      return getRecords('tbl_docs_standards');
+    case 'CREATE_STANDARD':
+      return createRecord('tbl_docs_standards', body.payload.data, actor);
+    case 'UPDATE_STANDARD':
+      return updateRecord('tbl_docs_standards', body.id, body.payload.data, actor);
+    case 'DELETE_STANDARD':
+      return deleteRecord('tbl_docs_standards', body.id, actor);
+
+    // Catering Vendors Master
+    case 'GET_CATERING_VENDORS':
+      return getRecords('tbl_catering_vendors');
+    case 'CREATE_CATERING_VENDOR':
+      return createRecord('tbl_catering_vendors', body.payload.data, actor);
+    case 'UPDATE_CATERING_VENDOR':
+      return updateRecord('tbl_catering_vendors', body.id, body.payload.data, actor);
+    case 'DELETE_CATERING_VENDOR':
+      return deleteRecord('tbl_catering_vendors', body.id, actor);
+
+    // Catering Weekly Food Index Scorings
+    case 'GET_CATERING_SCORINGS':
+      return getRecords('tbl_catering_scorings');
+    case 'CREATE_CATERING_SCORING':
+      return createRecord('tbl_catering_scorings', body.payload.data, actor);
+    case 'UPDATE_CATERING_SCORING':
+      return updateRecord('tbl_catering_scorings', body.id, body.payload.data, actor);
+    case 'DELETE_CATERING_SCORING':
+      return deleteRecord('tbl_catering_scorings', body.id, actor);
+
+    // Setup / Migration Helper
+    case 'SETUP_NEW_TABLES':
+      setupStandardsSheet();
+      setupCateringSheets();
+      return jsonResponse({ ok: true, message: 'Standards and Catering sheets verified/created successfully' });
+
     // Finance Portal
     case 'FINANCE_PORTAL_AUTH':
       return authFinancePortal(body.payload.role, body.payload.password);
