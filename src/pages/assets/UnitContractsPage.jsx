@@ -16,20 +16,20 @@ export default function UnitContractsPage() {
   const { showLoading, hideLoading } = useLoading();
 
   const DEPARTMENTS = [
-    { label: 'Operation', value: 'Operation' },
-    { label: 'Engineering', value: 'Engineering' },
-    { label: 'Marine', value: 'Marine' },
-    { label: 'Mining Production', value: 'Mining Production' },
-    { label: 'P&M', value: 'P&M' },
-    { label: 'Civil & Infra', value: 'Civil & Infra' },
-    { label: 'HSE&C', value: 'HSE&C' },
-    { label: 'Supply Chain', value: 'Supply Chain' },
-    { label: 'IT', value: 'IT' },
     { label: 'CCI', value: 'CCI' },
-    { label: 'LLG', value: 'LLG' },
+    { label: 'CHRM', value: 'CHRM' },
+    { label: 'Civil & Infra', value: 'Civil & Infra' },
+    { label: 'Engineering', value: 'Engineering' },
     { label: 'Finance', value: 'Finance' },
     { label: 'HCGA', value: 'HCGA' },
-    { label: 'CHRM', value: 'CHRM' }
+    { label: 'HSE&C', value: 'HSE&C' },
+    { label: 'IT', value: 'IT' },
+    { label: 'LLG', value: 'LLG' },
+    { label: 'Marine', value: 'Marine' },
+    { label: 'Mining Production', value: 'Mining Production' },
+    { label: 'Operation', value: 'Operation' },
+    { label: 'P&M', value: 'P&M' },
+    { label: 'Supply Chain', value: 'Supply Chain' }
   ];
 
   const TYPE_UNIT = [
