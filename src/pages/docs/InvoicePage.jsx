@@ -2,13 +2,27 @@ import React, { useState, useEffect } from 'react';
 import { api as gasClient } from '../../lib/gasClient';
 import { toast } from 'sonner';
 import { useGlobalLoading as useLoading } from '../../context/LoadingContext';
-import { Plus, Trash2, Search, X, Paperclip, FileText, ArrowRight } from 'lucide-react';
+import { Plus, Trash2, Search, X, Paperclip, FileText, ArrowRight, Clock, CheckCircle2, Calendar, ExternalLink, ShieldCheck, Check, Layers } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 import CustomSelect from '../../components/ui/CustomSelect';
 import { useNavigate } from 'react-router-dom';
+import { useAuth } from '../../context/AuthContext';
+
+const WORKFLOW_STEPS = [
+  { key: 'tgl_berkas', label: 'Diserahkan' },
+  { key: 'tracking_admin_ga', label: 'Admin GA' },
+  { key: 'tracking_ga_gl', label: 'GA GL' },
+  { key: 'tracking_ga_spv', label: 'GA SPV' },
+  { key: 'tracking_ga_sect_head', label: 'GA Sect Head' },
+  { key: 'tracking_ga_dept_head', label: 'GA Dept Head' },
+  { key: 'tracking_site_manager', label: 'Site Manager' },
+  { key: 'tracking_accounting', label: 'Accounting' },
+  { key: 'tracking_fa_gl', label: 'FA GL' },
+];
 
 export default function InvoicePage() {
   const navigate = useNavigate();
+  const { user } = useAuth();
   const [invoices, setInvoices] = useState([]);
   const [searchTerm, setSearchTerm] = useState('');
   const [filterStatus, setFilterStatus] = useState('ALL');
@@ -171,6 +185,75 @@ export default function InvoicePage() {
     return new Date(dateString).toLocaleDateString('id-ID', options);
   };
 
+  const [trackingModalInvoice, setTrackingModalInvoice] = useState(null);
+  const [trackingDraft, setTrackingDraft] = useState({});
+  const [savingTracking, setSavingTracking] = useState(false);
+  const [previewPdfUrl, setPreviewPdfUrl] = useState(null);
+
+  const getWorkflowStatus = (inv) => {
+    const completed = WORKFLOW_STEPS.filter(s => !!inv[s.key]).length;
+    if (inv.status_pembayaran === 'PAID') {
+      return { label: 'PAID & Selesai', color: 'bg-emerald-50 text-emerald-700 border-emerald-200', count: 9 };
+    }
+    if (completed === WORKFLOW_STEPS.length) {
+      return { label: 'Menunggu Closing / PAID', color: 'bg-teal-50 text-teal-700 border-teal-200', count: 9 };
+    }
+    const nextStep = WORKFLOW_STEPS.find(s => !inv[s.key]);
+    return {
+      label: nextStep ? `Menunggu ${nextStep.label}` : 'Sedang Berjalan',
+      color: completed >= 6 ? 'bg-purple-50 text-purple-700 border-purple-200' : 'bg-sky-50 text-sky-700 border-sky-200',
+      count: completed
+    };
+  };
+
+  const getDrivePreviewUrl = (url) => {
+    if (!url) return null;
+    const match = url.match(/\/d\/([a-zA-Z0-9_-]+)/);
+    if (match && match[1]) {
+      return `https://drive.google.com/file/d/${match[1]}/preview`;
+    }
+    return url;
+  };
+
+  const openTrackingModal = (inv) => {
+    setTrackingModalInvoice(inv);
+    const draft = {};
+    WORKFLOW_STEPS.forEach(step => {
+      draft[step.key] = inv[step.key] ? String(inv[step.key]).split('T')[0] : '';
+    });
+    setTrackingDraft(draft);
+  };
+
+  const handleSaveTracking = async () => {
+    if (!trackingModalInvoice) return;
+    setSavingTracking(true);
+    const targetId = trackingModalInvoice.id;
+    
+    // Optimistic update
+    setInvoices(prev => prev.map(inv => inv.id === targetId ? { ...inv, ...trackingDraft } : inv));
+    
+    try {
+      const res = await gasClient.updateInvoice(targetId, trackingDraft);
+      if (res.ok) {
+        toast.success('Status tracking berhasil disimpan!');
+        setTrackingModalInvoice(null);
+      } else {
+        toast.error(res.message || 'Gagal update status tracking');
+        fetchInvoices();
+      }
+    } catch (e) {
+      toast.error('Gagal update status: ' + (e.message || 'Kesalahan jaringan'));
+      fetchInvoices();
+    } finally {
+      setSavingTracking(false);
+    }
+  };
+
+  const handleSetTodayForStep = (key) => {
+    const today = new Date().toISOString().split('T')[0];
+    setTrackingDraft(prev => ({ ...prev, [key]: today }));
+  };
+
   const filteredInvoices = invoices.filter(c => {
     const matchesSearch = String(c.vendor).toLowerCase().includes(searchTerm.toLowerCase());
     
@@ -187,9 +270,8 @@ export default function InvoicePage() {
     let matchesMonth = true;
     if (filterMonth && c.periode_start) {
       // filterMonth is 'YYYY-MM', e.g., '2026-08'
-      // We safely check if the formatted local date ends with 'MM/YYYY'
       const [year, month] = filterMonth.split('-');
-      const formattedPeriode = formatDateSafe(c.periode_start); // e.g., '15/08/2026'
+      const formattedPeriode = formatDateSafe(c.periode_start);
       matchesMonth = formattedPeriode.endsWith(`${month}/${year}`);
     }
 
@@ -201,7 +283,7 @@ export default function InvoicePage() {
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
         <div>
           <h1 className="text-2xl font-bold font-display text-[var(--foreground)]">Manajemen Invoice</h1>
-          <p className="text-[var(--muted-foreground)] text-sm mt-1">Kelola data invoice masuk, anotasi, dan tracking progress.</p>
+          <p className="text-[var(--muted-foreground)] text-sm mt-1">Kelola data invoice masuk, update progress dokumen tanpa download PDF, dan tracking approval.</p>
         </div>
         <button
           onClick={openModal}
@@ -262,56 +344,97 @@ export default function InvoicePage() {
       </div>
 
       <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-6">
-        {filteredInvoices.map(invoice => (
-          <div key={invoice.id} className="bg-[var(--card)] rounded-xl border border-[var(--border)] overflow-hidden shadow-sm hover:shadow-md transition-shadow group flex flex-col">
-            <div className="p-5 flex-1">
-              <div className="flex justify-between items-start mb-4">
-                <div className="bg-sky-50 text-sky-700 px-3 py-1 rounded-full text-xs font-semibold">
-                  {invoice.vendor}
+        {filteredInvoices.map(invoice => {
+          const statusInfo = getWorkflowStatus(invoice);
+          return (
+            <div key={invoice.id} className="bg-[var(--card)] rounded-xl border border-[var(--border)] overflow-hidden shadow-sm hover:shadow-md transition-shadow group flex flex-col justify-between">
+              <div className="p-5 flex-1 space-y-3">
+                <div className="flex justify-between items-start">
+                  <div className="bg-sky-50 text-sky-700 px-3 py-1 rounded-full text-xs font-semibold border border-sky-100">
+                    {invoice.vendor}
+                  </div>
+                  <span className={`px-2 py-0.5 rounded text-[10px] font-bold uppercase tracking-wide border
+                    ${invoice.status_pembayaran === 'PAID' ? 'bg-emerald-50 text-emerald-700 border-emerald-200' : 'bg-amber-50 text-amber-700 border-amber-200'}
+                  `}>
+                    {invoice.status_pembayaran || 'OPEN'}
+                  </span>
                 </div>
-                <span className={`px-2 py-1 rounded text-[10px] font-bold uppercase tracking-wide border
-                  ${invoice.status_pembayaran === 'PAID' ? 'bg-emerald-50 text-emerald-700 border-emerald-200' : 'bg-amber-50 text-amber-700 border-amber-200'}
-                `}>
-                  {invoice.status_pembayaran || 'OPEN'}
-                </span>
-              </div>
-              <h3 className="font-bold text-[var(--foreground)] text-lg">
-                Periode: {invoice.periode_start ? formatDateSafe(invoice.periode_start, { month: 'short', year: 'numeric'}) : '-'}
-              </h3>
-              <div className="mt-1 font-mono text-emerald-600 font-bold">
-                Rp {Number(invoice.nilai || 0).toLocaleString('id-ID')}
-              </div>
-              <div className="mt-3 text-sm text-[var(--muted-foreground)] flex flex-col space-y-1">
-                <div className="flex items-center">
-                  <FileText className="w-4 h-4 mr-2" />
-                  Site: {invoice.site || '-'}
+
+                <div>
+                  <h3 className="font-bold text-[var(--foreground)] text-lg">
+                    Periode: {invoice.periode_start ? formatDateSafe(invoice.periode_start, { month: 'short', year: 'numeric'}) : '-'}
+                  </h3>
+                  <div className="mt-1 font-mono text-emerald-600 font-bold">
+                    Rp {Number(invoice.nilai || 0).toLocaleString('id-ID')}
+                  </div>
                 </div>
-                <div className="flex items-center">
-                  <FileText className="w-4 h-4 mr-2" />
-                  Diserahkan: {formatDateSafe(invoice.tgl_berkas)}
+
+                <div className="text-xs text-[var(--muted-foreground)] flex flex-col space-y-1 bg-[var(--muted)]/40 p-3 rounded-lg border border-[var(--border)]">
+                  <div className="flex items-center">
+                    <FileText className="w-3.5 h-3.5 mr-2 text-[var(--muted-foreground)]" />
+                    <span>Site: <strong className="text-[var(--foreground)]">{invoice.site || '-'}</strong></span>
+                  </div>
+                  <div className="flex items-center">
+                    <Calendar className="w-3.5 h-3.5 mr-2 text-[var(--muted-foreground)]" />
+                    <span>Diserahkan: <strong className="text-[var(--foreground)]">{formatDateSafe(invoice.tgl_berkas)}</strong></span>
+                  </div>
+                </div>
+
+                {/* Workflow pipeline stage badge */}
+                <div className="flex items-center justify-between pt-1 text-xs">
+                  <span className="text-[var(--muted-foreground)] flex items-center font-medium">
+                    <Layers className="w-3.5 h-3.5 mr-1 text-[var(--primary)]" />
+                    Status Tracking:
+                  </span>
+                  <span className={`px-2 py-0.5 rounded-full font-bold border text-[11px] ${statusInfo.color}`}>
+                    {statusInfo.label} ({statusInfo.count}/9)
+                  </span>
                 </div>
               </div>
-            </div>
-            
-            <div className="bg-[var(--muted)]/30 border-t border-[var(--border)] p-4 flex items-center justify-between">
-              <button
-                onClick={() => handleDelete(invoice.id)}
-                className="text-ruby-600 hover:text-ruby-700 p-2 hover:bg-ruby-50 rounded-lg transition-colors"
-                title="Hapus Invoice"
-              >
-                <Trash2 className="w-4 h-4" />
-              </button>
               
-              <button
-                onClick={() => navigate(`/invoice/${invoice.id}`)}
-                className="inline-flex items-center text-sm font-semibold text-[var(--primary)] hover:text-teal-700 transition-colors"
-              >
-                Buka Detail
-                <ArrowRight className="w-4 h-4 ml-1 group-hover:translate-x-1 transition-transform" />
-              </button>
+              <div className="bg-[var(--muted)]/30 border-t border-[var(--border)] p-3 flex items-center justify-between gap-2 flex-wrap">
+                <div className="flex items-center space-x-1">
+                  <button
+                    onClick={() => handleDelete(invoice.id)}
+                    className="text-ruby-600 hover:text-ruby-700 p-2 hover:bg-ruby-50 rounded-lg transition-colors"
+                    title="Hapus Invoice"
+                  >
+                    <Trash2 className="w-4 h-4" />
+                  </button>
+                  {invoice.file_url && (
+                    <button
+                      onClick={() => setPreviewPdfUrl(getDrivePreviewUrl(invoice.file_url))}
+                      className="text-[var(--muted-foreground)] hover:text-sky-600 p-2 hover:bg-sky-50 rounded-lg transition-colors"
+                      title="Quick Preview PDF Drive"
+                    >
+                      <ExternalLink className="w-4 h-4" />
+                    </button>
+                  )}
+                </div>
+                
+                <div className="flex items-center space-x-2">
+                  <button
+                    onClick={() => openTrackingModal(invoice)}
+                    className="inline-flex items-center px-3 py-1.5 bg-[var(--primary)]/10 text-[var(--primary)] hover:bg-[var(--primary)] hover:text-white rounded-lg text-xs font-bold transition-all active:scale-95 shadow-xs"
+                    title="Update status/tanggal dokumen tanpa buka PDF"
+                  >
+                    <Clock className="w-3.5 h-3.5 mr-1" />
+                    Tracking Status
+                  </button>
+                  
+                  <button
+                    onClick={() => navigate(`/invoice/${invoice.id}`)}
+                    className="inline-flex items-center px-2.5 py-1.5 bg-[var(--muted)] hover:bg-[var(--border)] text-[var(--foreground)] rounded-lg text-xs font-semibold transition-colors"
+                    title="Buka PDF & Tanda Tangan"
+                  >
+                    Anotasi
+                    <ArrowRight className="w-3.5 h-3.5 ml-1" />
+                  </button>
+                </div>
+              </div>
             </div>
-          </div>
-        ))}
+          );
+        })}
         {filteredInvoices.length === 0 && (
           <div className="col-span-full py-12 text-center text-[var(--muted-foreground)]">
             Tidak ada data invoice ditemukan.
@@ -420,6 +543,169 @@ export default function InvoicePage() {
                 </button>
               </div>
             </motion.div>
+          </div>
+        )}
+        {/* Quick Tracking Status Modal - No PDF Loading Required */}
+        {trackingModalInvoice && (
+          <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+            <motion.div 
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              className="absolute inset-0 bg-black/50 backdrop-blur-sm" 
+              onClick={() => !savingTracking && setTrackingModalInvoice(null)} 
+            />
+            
+            <motion.div 
+              initial={{ opacity: 0, scale: 0.95, y: 20 }}
+              animate={{ opacity: 1, scale: 1, y: 0 }}
+              exit={{ opacity: 0, scale: 0.95, y: 20 }}
+              className="relative w-full max-w-2xl bg-[var(--card)] rounded-2xl shadow-2xl overflow-hidden flex flex-col max-h-[90vh] border border-[var(--border)]"
+            >
+              {/* Header */}
+              <div className="px-6 py-4 border-b border-[var(--border)] flex items-center justify-between bg-[var(--background)]">
+                <div className="flex items-center space-x-3">
+                  <div className="w-9 h-9 rounded-lg bg-[var(--primary)]/10 flex items-center justify-center text-[var(--primary)]">
+                    <Clock className="w-5 h-5" />
+                  </div>
+                  <div>
+                    <h2 className="text-lg font-bold font-display text-[var(--foreground)]">Update Status & Tracking</h2>
+                    <p className="text-xs text-[var(--muted-foreground)]">
+                      {trackingModalInvoice.vendor} • {trackingModalInvoice.site} • Rp {Number(trackingModalInvoice.nilai || 0).toLocaleString('id-ID')}
+                    </p>
+                  </div>
+                </div>
+                <button 
+                  onClick={() => !savingTracking && setTrackingModalInvoice(null)} 
+                  className="p-2 text-[var(--muted-foreground)] hover:bg-[var(--muted)] rounded-lg transition-colors"
+                >
+                  <X className="w-5 h-5" />
+                </button>
+              </div>
+
+              {/* Body */}
+              <div className="p-6 overflow-y-auto space-y-6">
+                {/* 9 Tracking Steps Timeline */}
+                <div>
+                  <h4 className="text-sm font-bold text-[var(--foreground)] mb-3 flex items-center">
+                    <Layers className="w-4 h-4 mr-1.5 text-[var(--primary)]" />
+                    Tahapan Approval & Penyerahan Berkas
+                  </h4>
+
+                  <div className="space-y-3">
+                    {WORKFLOW_STEPS.map((step, idx) => {
+                      const val = trackingDraft[step.key] || '';
+                      const isCompleted = !!val;
+                      return (
+                        <div 
+                          key={step.key} 
+                          className={`p-3 rounded-xl border transition-colors flex flex-col sm:flex-row sm:items-center justify-between gap-3 ${isCompleted ? 'bg-emerald-50/40 border-emerald-200 dark:bg-emerald-950/20' : 'bg-[var(--card)] border-[var(--border)]'}`}
+                        >
+                          <div className="flex items-center space-x-3">
+                            <div className={`w-7 h-7 rounded-full flex items-center justify-center text-xs font-bold shrink-0 ${isCompleted ? 'bg-emerald-600 text-white' : 'bg-[var(--muted)] text-[var(--muted-foreground)]'}`}>
+                              {isCompleted ? <Check className="w-4 h-4" /> : idx + 1}
+                            </div>
+                            <div>
+                              <p className="text-sm font-bold text-[var(--foreground)]">{step.label}</p>
+                              <p className="text-[11px] text-[var(--muted-foreground)]">
+                                {isCompleted ? `Tercatat: ${val}` : 'Belum tercatat'}
+                              </p>
+                            </div>
+                          </div>
+
+                          <div className="flex items-center space-x-2 shrink-0">
+                            <input
+                              type="date"
+                              value={val}
+                              onChange={(e) => setTrackingDraft(prev => ({ ...prev, [step.key]: e.target.value }))}
+                              className="px-2.5 py-1.5 bg-[var(--background)] border border-[var(--border)] rounded-lg text-xs outline-none focus:ring-2 focus:ring-[var(--ring)]"
+                            />
+                            {!isCompleted ? (
+                              <button
+                                type="button"
+                                onClick={() => handleSetTodayForStep(step.key)}
+                                className="px-2.5 py-1.5 bg-sky-600 hover:bg-sky-700 text-white rounded-lg text-xs font-semibold transition-colors shadow-xs"
+                                title="Set tanggal hari ini"
+                              >
+                                Hari Ini
+                              </button>
+                            ) : (
+                              <button
+                                type="button"
+                                onClick={() => setTrackingDraft(prev => ({ ...prev, [step.key]: '' }))}
+                                className="px-2 py-1.5 text-ruby-500 hover:bg-ruby-50 rounded-lg text-xs transition-colors"
+                                title="Reset / Hapus tanggal"
+                              >
+                                Clear
+                              </button>
+                            )}
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
+              </div>
+
+              {/* Footer */}
+              <div className="px-6 py-4 border-t border-[var(--border)] bg-[var(--background)] flex items-center justify-between">
+                <button
+                  type="button"
+                  onClick={() => !savingTracking && setTrackingModalInvoice(null)}
+                  className="px-4 py-2 text-sm font-medium text-[var(--muted-foreground)] hover:text-[var(--foreground)] hover:bg-[var(--muted)] rounded-lg transition-colors"
+                  disabled={savingTracking}
+                >
+                  Batal
+                </button>
+                <button
+                  type="button"
+                  onClick={handleSaveTracking}
+                  disabled={savingTracking}
+                  className="inline-flex items-center px-5 py-2 bg-[var(--primary)] hover:bg-teal-700 text-white rounded-lg text-sm font-bold transition-all shadow-sm active:scale-95 disabled:opacity-50"
+                >
+                  {savingTracking ? 'Menyimpan...' : 'Simpan Status Tracking'}
+                </button>
+              </div>
+            </motion.div>
+          </div>
+        )}
+
+        {/* Quick Drive PDF Preview Modal */}
+        {previewPdfUrl && (
+          <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm">
+            <div className="bg-[var(--card)] rounded-2xl w-full max-w-5xl h-[85vh] flex flex-col shadow-2xl border border-[var(--border)] overflow-hidden">
+              <div className="flex items-center justify-between px-6 py-4 border-b border-[var(--border)] bg-[var(--background)]">
+                <div className="flex items-center space-x-2">
+                  <FileText className="w-5 h-5 text-[var(--primary)]" />
+                  <h3 className="font-bold text-[var(--foreground)]">Dokumen Invoice (Google Drive Preview)</h3>
+                </div>
+                <div className="flex items-center space-x-2">
+                  <a 
+                    href={previewPdfUrl.replace('/preview', '/view')} 
+                    target="_blank" 
+                    rel="noopener noreferrer"
+                    className="px-3 py-1.5 text-xs font-semibold text-[var(--primary)] hover:bg-[var(--muted)] rounded-lg transition-colors flex items-center"
+                  >
+                    <ExternalLink className="w-3.5 h-3.5 mr-1" />
+                    Buka Tab Baru
+                  </a>
+                  <button 
+                    onClick={() => setPreviewPdfUrl(null)}
+                    className="px-3 py-1.5 text-xs font-bold text-[var(--muted-foreground)] hover:text-[var(--foreground)] hover:bg-[var(--muted)] rounded-lg transition-colors"
+                  >
+                    Tutup
+                  </button>
+                </div>
+              </div>
+              <div className="flex-1 bg-gray-100 dark:bg-zinc-900 relative">
+                <iframe 
+                  src={previewPdfUrl} 
+                  className="w-full h-full border-0" 
+                  title="PDF Preview"
+                  allow="autoplay"
+                />
+              </div>
+            </div>
           </div>
         )}
       </AnimatePresence>

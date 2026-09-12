@@ -5,12 +5,18 @@ const API_SECRET = import.meta.env.VITE_API_SECRET;
 function getSessionEmail() {
   try {
     const raw = sessionStorage.getItem('garda_session');
-    if (!raw) return null;
-    const SALT = import.meta.env.VITE_SESSION_SALT || 'garda-internal-2024';
-    const decoded = decodeURIComponent(atob(raw));
-    const [json] = decoded.split('|' + SALT);
-    const parsed = JSON.parse(json);
-    return parsed.email || parsed.nik || null;
+    if (raw) {
+      const SALT = import.meta.env.VITE_SESSION_SALT || 'garda-internal-2024';
+      const decoded = decodeURIComponent(atob(raw));
+      const [json] = decoded.split('|' + SALT);
+      const parsed = JSON.parse(json);
+      return parsed.email || parsed.nik || null;
+    }
+    const financeRole = sessionStorage.getItem('finance_role');
+    if (financeRole) {
+      return `finance_${financeRole.toLowerCase().replace(/[^a-z0-9]/g, '_')}@portal`;
+    }
+    return null;
   } catch {
     return null;
   }
@@ -76,6 +82,9 @@ export async function gasFetch(action, payload = {}, options = {}) {
         if (action === 'CREATE_MESS_BUILDING') return { ok: true, data: { id: 'mock-building-123' } };
         if (action === 'BATCH_UPDATE_STAYS') return { ok: true, data: { success: true } };
         if (action === 'UPLOAD_FILE') return { ok: true, fileUrl: 'https://mock-file-url.com/invoice.pdf' };
+        if (action === 'GET_TICKETING_RECORDS') return { ok: true, data: [] };
+        if (action === 'BATCH_IMPORT_TICKETING') return { ok: true, count: payload.payload?.records?.length || 0 };
+        if (action === 'DELETE_TICKETING_RECORD') return { ok: true };
         return { ok: true, data: {} };
       }
 
@@ -251,6 +260,20 @@ export const api = {
   },
   async downloadFile(fileId) {
     return this.post({ action: 'DOWNLOAD_FILE', payload: { fileId } });
+  },
+
+  // Transport Ticketing
+  async getTicketingRecords() {
+    return this.post({ action: 'GET_TICKETING_RECORDS' });
+  },
+  async createTicketingRecord(data) {
+    return this.post({ action: 'CREATE_TICKETING_RECORD', payload: { data } });
+  },
+  async batchImportTicketing(records, mode = 'append') {
+    return this.post({ action: 'BATCH_IMPORT_TICKETING', payload: { records, mode } });
+  },
+  async deleteTicketingRecord(id) {
+    return this.post({ action: 'DELETE_TICKETING_RECORD', id });
   },
 
   // Finance Portal

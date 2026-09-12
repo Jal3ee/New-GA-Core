@@ -78,7 +78,7 @@ export default function PdfOrganizerModal({ isOpen, onClose, invoice, pdfDataUri
           pageIndex: i
         });
       }
-      setPages(prev => [...prev, ...newPages]);
+      setPages(prev => [...newPages, ...prev]);
       toast.success(`${numPages} halaman ditambahkan dari ${file.name}`);
     } catch (e) {
       toast.error('Gagal memproses PDF baru');
@@ -231,6 +231,13 @@ export default function PdfOrganizerModal({ isOpen, onClose, invoice, pdfDataUri
                 </div>
 
                   <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-4">
+                    {/* Add New PDF Button (Moved to front) */}
+                    <label className="border-2 border-dashed border-gray-300 rounded-lg flex flex-col items-center justify-center p-4 cursor-pointer hover:bg-gray-100 hover:border-sky-400 hover:text-sky-600 transition-colors aspect-[1/1.4]">
+                      <Plus className="w-8 h-8 text-gray-400 mb-2 group-hover:text-sky-600" />
+                      <span className="text-xs font-bold text-gray-600 text-center group-hover:text-sky-600">Tambah<br/>PDF Baru</span>
+                      <input type="file" className="hidden" accept=".pdf" onChange={handleAddPdf} multiple={false} />
+                    </label>
+
                     {pages.map((p, index) => {
                       const sourceFile = files.find(f => f.id === p.fileId);
                       return (
@@ -287,12 +294,6 @@ export default function PdfOrganizerModal({ isOpen, onClose, invoice, pdfDataUri
                       );
                     })}
                     
-                    {/* Add New PDF Button */}
-                    <label className="border-2 border-dashed border-gray-300 rounded-lg flex flex-col items-center justify-center p-4 cursor-pointer hover:bg-gray-100 hover:border-sky-400 hover:text-sky-600 transition-colors aspect-[1/1.4]">
-                      <Plus className="w-8 h-8 text-gray-400 mb-2 group-hover:text-sky-600" />
-                      <span className="text-xs font-bold text-gray-600 text-center group-hover:text-sky-600">Tambah<br/>PDF Baru</span>
-                      <input type="file" className="hidden" accept=".pdf" onChange={handleAddPdf} multiple={false} />
-                    </label>
                   </div>
               </div>
             )}

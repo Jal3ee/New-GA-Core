@@ -36,6 +36,15 @@ function checkRateLimit(identifier) {
   return true;
 }
 
+function doGet(e) {
+  return jsonResponse({
+    ok: true,
+    status: 'GA Core API Online',
+    timestamp: new Date().toISOString(),
+    action: e?.parameter?.action || 'HEALTH'
+  });
+}
+
 function doPost(e) {
   try {
     let body;
@@ -165,6 +174,15 @@ function routeAction(body) {
       return updateRecord('tbl_docs_invoices', body.id, body.payload.data, actor);
     case 'DELETE_INVOICE':
       return deleteRecord('tbl_docs_invoices', body.id, actor);
+    // Transport Ticketing Database
+    case 'GET_TICKETING_RECORDS':
+      return getRecords('tbl_transport_ticketing');
+    case 'CREATE_TICKETING_RECORD':
+      return createRecord('tbl_transport_ticketing', body.payload.data, actor);
+    case 'BATCH_IMPORT_TICKETING':
+      return batchAppendRecords('tbl_transport_ticketing', body.payload.records, actor, body.payload.mode);
+    case 'DELETE_TICKETING_RECORD':
+      return deleteRecord('tbl_transport_ticketing', body.id, actor);
     // Finance Portal
     case 'FINANCE_PORTAL_AUTH':
       return authFinancePortal(body.payload.role, body.payload.password);

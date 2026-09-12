@@ -525,6 +525,17 @@ export default function UnitContractsPage() {
                       </div>
                     </div>
 
+                    <div className="grid grid-cols-2 gap-2">
+                      <div>
+                        <label className="block text-xs font-medium text-[var(--foreground)] mb-1">CoA Dept</label>
+                        <input type="text" value={formData.coa} onChange={(e) => setFormData({...formData, coa: e.target.value})} className="w-full px-3 py-2 border border-[var(--border)] rounded-lg bg-[var(--card)] focus:ring-2 focus:ring-[var(--ring)] outline-none text-sm" placeholder="Misal: 6010-001" />
+                      </div>
+                      <div>
+                        <label className="block text-xs font-medium text-[var(--foreground)] mb-1">Budget Tahunan</label>
+                        <input type="text" value={formData.budget_tahunan} onChange={handleBudgetChange} placeholder="Rp..." className="w-full px-3 py-2 border border-[var(--border)] rounded-lg bg-[var(--card)] focus:ring-2 focus:ring-[var(--ring)] outline-none text-sm" />
+                      </div>
+                    </div>
+
                     <div>
                       <label className="block text-xs font-medium text-[var(--muted-foreground)] mb-1">Pengguna (User)</label>
                       <input type="text" value={formData.user_pengguna} onChange={(e) => setFormData({...formData, user_pengguna: e.target.value})} className="w-full px-3 py-2 border border-[var(--border)] rounded-lg bg-[var(--card)] focus:ring-2 focus:ring-[var(--ring)] outline-none text-sm" />
@@ -569,16 +580,7 @@ export default function UnitContractsPage() {
                       </div>
                     </div>
 
-                    <div className="grid grid-cols-2 gap-2">
-                      <div>
-                        <label className="block text-xs font-medium text-[var(--muted-foreground)] mb-1">CoA Dept</label>
-                        <input type="text" value={formData.coa} onChange={(e) => setFormData({...formData, coa: e.target.value})} className="w-full px-3 py-2 border border-[var(--border)] rounded-lg bg-[var(--card)] focus:ring-2 focus:ring-[var(--ring)] outline-none text-sm" placeholder="Misal: 6010-001" />
-                      </div>
-                      <div>
-                        <label className="block text-xs font-medium text-[var(--muted-foreground)] mb-1">Budget Tahunan</label>
-                        <input type="text" value={formData.budget_tahunan} onChange={handleBudgetChange} placeholder="Rp..." className="w-full px-3 py-2 border border-[var(--border)] rounded-lg bg-[var(--card)] focus:ring-2 focus:ring-[var(--ring)] outline-none text-sm" />
-                      </div>
-                    </div>
+
 
                   </div>
                 </div>

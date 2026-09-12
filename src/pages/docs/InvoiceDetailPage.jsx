@@ -1,9 +1,9 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useMemo } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { api as gasClient } from '../../lib/gasClient';
 import { useGlobalLoading } from '../../context/LoadingContext';
 import { toast } from 'sonner';
-import { ArrowLeft, Plus, PenTool, Type, Highlighter, Trash2, CheckCircle, Save, Calendar, Settings, X, Upload, Download } from 'lucide-react';
+import { ArrowLeft, Plus, PenTool, Type, Highlighter, Trash2, CheckCircle, Save, Calendar, Settings, X, Upload, Download, Eye, RefreshCw, ExternalLink } from 'lucide-react';
 import { Document, Page, pdfjs } from 'react-pdf';
 import { Rnd } from 'react-rnd';
 import SignatureCanvas from 'react-signature-canvas';
@@ -25,6 +25,11 @@ export default function InvoiceDetailPage() {
   const [numPages, setNumPages] = useState(null);
   const [annotations, setAnnotations] = useState([]); // { id, pageIndex, type, x, y, width, height, data }
   
+  // Dual-mode view: 'drive' (Fast native iframe) vs 'canvas' (Interactive annotations/signing)
+  const [viewMode, setViewMode] = useState('drive');
+  const [isPdfLoading, setIsPdfLoading] = useState(false);
+  const [pdfError, setPdfError] = useState(null);
+
   // Annotation state
   const [activeSignId, setActiveSignId] = useState(null);
   const [isSignModalOpen, setIsSignModalOpen] = useState(false);
@@ -37,6 +42,10 @@ export default function InvoiceDetailPage() {
 
   // PDF Organizer state
   const [isPdfOrganizerOpen, setIsPdfOrganizerOpen] = useState(false);
+
+  // Pagination for PDF Canvas
+  const [pdfPageGroup, setPdfPageGroup] = useState(0);
+  const pdfPagesPerGroup = 5;
 
   // Workflow tracking structure
   const WORKFLOW_STEPS = [
@@ -51,6 +60,35 @@ export default function InvoiceDetailPage() {
     { key: 'tracking_fa_gl', label: 'FA GL' },
   ];
 
+  const driveFileId = useMemo(() => {
+    if (!invoice?.file_url) return null;
+    const match = invoice.file_url.match(/\/d\/([a-zA-Z0-9_-]+)/);
+    return match ? match[1] : null;
+  }, [invoice?.file_url]);
+
+  const drivePreviewUrl = useMemo(() => {
+    if (!driveFileId) return null;
+    return `https://drive.google.com/file/d/${driveFileId}/preview`;
+  }, [driveFileId]);
+
+  const loadPdfForCanvas = async (forced = false) => {
+    if ((pdfDataUri && !forced) || !driveFileId) return;
+    setIsPdfLoading(true);
+    setPdfError(null);
+    try {
+      const resPdf = await gasClient.downloadFile(driveFileId);
+      if (resPdf.ok && resPdf.data) {
+        setPdfDataUri(`data:${resPdf.mimeType || 'application/pdf'};base64,${resPdf.data}`);
+      } else {
+        setPdfError(resPdf.message || resPdf.error || 'Gagal memuat file PDF untuk anotasi');
+      }
+    } catch(e) {
+      setPdfError('Gagal mendownload PDF: ' + (e.message || 'Kesalahan jaringan'));
+    } finally {
+      setIsPdfLoading(false);
+    }
+  };
+
   const fetchDetail = async () => {
     showLoading();
     try {
@@ -61,25 +99,11 @@ export default function InvoiceDetailPage() {
           setInvoice(inv);
           if (inv.annotations_json) {
             try {
-              setAnnotations(JSON.parse(inv.annotations_json));
+              const parsed = JSON.parse(inv.annotations_json);
+              setAnnotations(parsed);
+              // If annotations exist, user might want canvas mode or can switch anytime
             } catch(e) {}
           }
-          
-          // Ponytail Hack: Proxy PDF download via Google Apps Script to bypass CORS
-          if (inv.file_url) {
-            const match = inv.file_url.match(/d\/([a-zA-Z0-9_-]+)/);
-            if (match && match[1]) {
-              try {
-                const resPdf = await gasClient.downloadFile(match[1]);
-                if (resPdf.ok && resPdf.data) {
-                  setPdfDataUri(`data:${resPdf.mimeType || 'application/pdf'};base64,${resPdf.data}`);
-                }
-              } catch(e) {
-                console.error("Gagal mendownload PDF via GAS", e);
-              }
-            }
-          }
-          
         } else {
           toast.error('Invoice tidak ditemukan');
           navigate('/invoice');
@@ -156,10 +180,21 @@ export default function InvoiceDetailPage() {
     setIsSignModalOpen(true);
   };
 
+  const compressSignature = (sourceCanvas) => {
+    const targetCanvas = document.createElement('canvas');
+    const maxWidth = 320;
+    const maxHeight = 160;
+    const scale = Math.min(maxWidth / sourceCanvas.width, maxHeight / sourceCanvas.height, 1);
+    targetCanvas.width = sourceCanvas.width * scale;
+    targetCanvas.height = sourceCanvas.height * scale;
+    const ctx = targetCanvas.getContext('2d');
+    ctx.drawImage(sourceCanvas, 0, 0, targetCanvas.width, targetCanvas.height);
+    return targetCanvas.toDataURL('image/png');
+  };
+
   const handleSignSave = () => {
     if (sigCanvasRef.current && !sigCanvasRef.current.isEmpty()) {
-      // Use getCanvas() instead of getTrimmedCanvas() to avoid trim-canvas dependency error
-      const dataURL = sigCanvasRef.current.getCanvas().toDataURL('image/png');
+      const dataURL = compressSignature(sigCanvasRef.current.getCanvas());
       updateAnnotation(activeSignId, { signedImageData: dataURL, signedBy: user.name });
       setIsSignModalOpen(false);
       // Automatically save to DB
@@ -177,11 +212,23 @@ export default function InvoiceDetailPage() {
       }
       const reader = new FileReader();
       reader.onload = (event) => {
-        const dataURL = event.target.result;
-        updateAnnotation(activeSignId, { signedImageData: dataURL, signedBy: user.name });
-        setIsSignModalOpen(false);
-        const updated = annotations.map(a => a.id === activeSignId ? { ...a, signedImageData: dataURL, signedBy: user.name } : a);
-        saveAnnotations(updated);
+        const img = new Image();
+        img.onload = () => {
+          const canvas = document.createElement('canvas');
+          const maxWidth = 320;
+          const maxHeight = 160;
+          const scale = Math.min(maxWidth / img.width, maxHeight / img.height, 1);
+          canvas.width = img.width * scale;
+          canvas.height = img.height * scale;
+          const ctx = canvas.getContext('2d');
+          ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
+          const compressedDataURL = canvas.toDataURL('image/png');
+          updateAnnotation(activeSignId, { signedImageData: compressedDataURL, signedBy: user.name });
+          setIsSignModalOpen(false);
+          const updated = annotations.map(a => a.id === activeSignId ? { ...a, signedImageData: compressedDataURL, signedBy: user.name } : a);
+          saveAnnotations(updated);
+        };
+        img.src = event.target.result;
       };
       reader.readAsDataURL(file);
     }
@@ -319,45 +366,132 @@ export default function InvoiceDetailPage() {
             <button onClick={() => navigate('/invoice')} className="p-2 text-[var(--muted-foreground)] hover:text-[var(--foreground)] hover:bg-[var(--muted)] rounded-lg transition-colors">
               <ArrowLeft className="w-5 h-5" />
             </button>
-            <h1 className="font-bold text-[var(--foreground)]">Invoice: {invoice.vendor}</h1>
+            <div>
+              <h1 className="font-bold text-[var(--foreground)] text-sm sm:text-base leading-tight">Invoice: {invoice.vendor}</h1>
+              <p className="text-[10px] text-[var(--muted-foreground)] font-mono">{invoice.site} • {invoice.periode_start || '-'} s/d {invoice.periode_end || '-'}</p>
+            </div>
           </div>
+
           <div className="flex items-center space-x-2">
-            <button onClick={handleDownloadPdf} className="flex items-center px-3 py-1.5 bg-indigo-50 text-indigo-700 hover:bg-indigo-100 rounded-lg text-sm font-semibold transition-colors">
-              <Download className="w-4 h-4 mr-1.5" /> Download
-            </button>
-            <button onClick={() => setIsPdfOrganizerOpen(true)} className="flex items-center px-3 py-1.5 bg-amber-50 text-amber-700 hover:bg-amber-100 rounded-lg text-sm font-semibold transition-colors">
-              <Settings className="w-4 h-4 mr-1.5" /> Atur PDF
-            </button>
-            <button onClick={() => saveAnnotations(annotations)} className="flex items-center px-3 py-1.5 bg-sky-50 text-sky-700 hover:bg-sky-100 rounded-lg text-sm font-semibold transition-colors">
-              <Save className="w-4 h-4 mr-1.5" /> Simpan Anotasi
-            </button>
+            {/* View Mode Toggle */}
+            <div className="hidden sm:flex bg-[var(--muted)] p-1 rounded-lg border border-[var(--border)] text-xs font-medium">
+              <button
+                onClick={() => setViewMode('drive')}
+                className={`px-3 py-1 rounded-md transition-all flex items-center ${viewMode === 'drive' ? 'bg-[var(--card)] text-[var(--foreground)] shadow-xs' : 'text-[var(--muted-foreground)] hover:text-[var(--foreground)]'}`}
+              >
+                <Eye className="w-3.5 h-3.5 mr-1.5 opacity-70" />
+                Preview Cepat (Drive)
+              </button>
+              <button
+                onClick={() => {
+                  setViewMode('canvas');
+                  loadPdfForCanvas();
+                }}
+                className={`px-3 py-1 rounded-md transition-all flex items-center ${viewMode === 'canvas' ? 'bg-[var(--card)] text-[var(--foreground)] shadow-xs' : 'text-[var(--muted-foreground)] hover:text-[var(--foreground)]'}`}
+              >
+                <PenTool className="w-3.5 h-3.5 mr-1.5 opacity-70" />
+                Anotasi & Tanda Tangan
+              </button>
+            </div>
+
+            {viewMode === 'canvas' && (
+              <>
+                <button 
+                  onClick={handleDownloadPdf} 
+                  className="inline-flex items-center px-3 py-1.5 border border-[var(--border)] bg-[var(--card)] hover:bg-[var(--muted)] text-[var(--foreground)] rounded-lg text-xs font-medium transition-colors shadow-xs"
+                >
+                  <Download className="w-3.5 h-3.5 mr-1.5 text-[var(--muted-foreground)]" /> Export PDF
+                </button>
+                <button 
+                  onClick={() => setIsPdfOrganizerOpen(true)} 
+                  className="inline-flex items-center px-3 py-1.5 border border-[var(--border)] bg-[var(--card)] hover:bg-[var(--muted)] text-[var(--foreground)] rounded-lg text-xs font-medium transition-colors shadow-xs"
+                >
+                  <Settings className="w-3.5 h-3.5 mr-1.5 text-[var(--muted-foreground)]" /> Atur PDF
+                </button>
+                <button 
+                  onClick={() => saveAnnotations(annotations)} 
+                  className="inline-flex items-center px-3.5 py-1.5 bg-[var(--primary)] hover:opacity-90 text-[var(--primary-foreground)] rounded-lg text-xs font-medium transition-all shadow-xs"
+                >
+                  <Save className="w-3.5 h-3.5 mr-1.5" /> Simpan Anotasi
+                </button>
+              </>
+            )}
+
+            {drivePreviewUrl && viewMode === 'drive' && (
+              <a
+                href={drivePreviewUrl.replace('/preview', '/view')}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="inline-flex items-center px-3 py-1.5 border border-[var(--border)] bg-[var(--card)] hover:bg-[var(--muted)] text-[var(--foreground)] rounded-lg text-xs font-medium transition-colors shadow-xs"
+              >
+                <ExternalLink className="w-3.5 h-3.5 mr-1.5 text-[var(--muted-foreground)]" /> Buka Tab Baru
+              </a>
+            )}
           </div>
         </div>
 
-        {/* Scrollable PDF Area */}
-        <div className="flex-1 overflow-y-auto p-8 flex justify-center custom-scrollbar">
-          {invoice.file_url ? (
-            <Document
-              file={pdfDataUri || (() => {
-                // Fallback to Google Drive view URL if proxy fails
-                return invoice.file_url;
-              })()}
-              onLoadSuccess={onDocumentLoadSuccess}
-              loading={<div className="text-[var(--muted-foreground)] p-10 animate-pulse">Memuat Dokumen PDF...</div>}
-              error={<div className="text-ruby-600 p-10">Gagal memuat PDF. Pastikan file valid dan dapat diakses.</div>}
-            >
-              {Array.from(new Array(numPages), (el, index) => (
+        {/* Content Area */}
+        {viewMode === 'drive' ? (
+          <div className="flex-1 w-full h-full relative bg-gray-100 dark:bg-zinc-900">
+            {drivePreviewUrl ? (
+              <iframe
+                src={drivePreviewUrl}
+                className="w-full h-full border-0"
+                title="Google Drive Native Preview"
+                allow="autoplay"
+              />
+            ) : (
+              <div className="flex flex-col items-center justify-center h-full text-[var(--muted-foreground)] p-8">
+                <FileText className="w-12 h-12 mb-3 opacity-40" />
+                <p>Tidak ada tautan file PDF yang valid.</p>
+              </div>
+            )}
+          </div>
+        ) : (
+          /* Canvas & Annotation Mode */
+          <div className="flex-1 overflow-y-auto p-8 flex justify-center custom-scrollbar relative">
+            {isPdfLoading ? (
+              <div className="flex flex-col items-center justify-center my-auto p-10 text-center">
+                <RefreshCw className="w-10 h-10 text-sky-600 animate-spin mb-4" />
+                <h4 className="font-bold text-[var(--foreground)]">Memuat Engine PDF untuk Anotasi...</h4>
+                <p className="text-xs text-[var(--muted-foreground)] mt-1">Mengambil dokumen dari server untuk memungkinkan tanda tangan langsung.</p>
+              </div>
+            ) : pdfError ? (
+              <div className="flex flex-col items-center justify-center my-auto p-8 text-center max-w-md bg-[var(--card)] rounded-2xl border border-[var(--border)] shadow-sm">
+                <div className="p-3 rounded-full bg-amber-50 text-amber-600 mb-3">
+                  <Eye className="w-6 h-6" />
+                </div>
+                <h4 className="font-bold text-[var(--foreground)] text-base mb-1">Tidak Dapat Memuat Canvas</h4>
+                <p className="text-xs text-[var(--muted-foreground)] mb-4">{pdfError}</p>
+                <button
+                  onClick={() => setViewMode('drive')}
+                  className="px-4 py-2 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg text-xs font-bold transition-all shadow-sm active:scale-95"
+                >
+                  Gunakan Preview Cepat Google Drive
+                </button>
+              </div>
+            ) : pdfDataUri ? (
+              <Document
+                file={pdfDataUri}
+                onLoadSuccess={onDocumentLoadSuccess}
+                loading={<div className="text-[var(--muted-foreground)] p-10 animate-pulse">Memproses Halaman PDF...</div>}
+                error={<div className="text-ruby-600 p-10">Gagal render PDF canvas. Silakan gunakan mode Preview Cepat Drive.</div>}
+              >
+              {Array.from(new Array(numPages || 0))
+                .map((_, i) => i)
+                .slice(pdfPageGroup * pdfPagesPerGroup, (pdfPageGroup + 1) * pdfPagesPerGroup)
+                .map((index) => (
                 <div key={`page_${index + 1}`} className="relative mb-8 shadow-xl rounded overflow-hidden" style={{ width: 'fit-content' }}>
                   
                   {/* Floating Action Bar for this specific page */}
-                  <div className="absolute top-2 left-2 z-20 flex flex-col space-y-1 opacity-20 hover:opacity-100 transition-opacity bg-white/90 p-1 rounded-lg shadow border border-gray-200">
-                    <button onClick={() => addAnnotation('sign', index)} className="p-1.5 text-gray-600 hover:text-emerald-600 hover:bg-emerald-50 rounded" title="Tambah Sign Box">
+                  <div className="absolute top-2 left-2 z-20 flex flex-col space-y-1 bg-white/95 p-1 rounded-lg shadow-xs border border-[var(--border)]">
+                    <button onClick={() => addAnnotation('sign', index)} className="p-1.5 text-[var(--muted-foreground)] hover:text-[var(--foreground)] hover:bg-[var(--muted)] rounded transition-colors" title="Tambah Sign Box">
                       <PenTool className="w-4 h-4" />
                     </button>
-                    <button onClick={() => addAnnotation('text', index)} className="p-1.5 text-gray-600 hover:text-sky-600 hover:bg-sky-50 rounded" title="Tambah Text">
+                    <button onClick={() => addAnnotation('text', index)} className="p-1.5 text-[var(--muted-foreground)] hover:text-[var(--foreground)] hover:bg-[var(--muted)] rounded transition-colors" title="Tambah Text">
                       <Type className="w-4 h-4" />
                     </button>
-                    <button onClick={() => addAnnotation('highlight', index)} className="p-1.5 text-gray-600 hover:text-amber-600 hover:bg-amber-50 rounded" title="Tambah Highlight">
+                    <button onClick={() => addAnnotation('highlight', index)} className="p-1.5 text-[var(--muted-foreground)] hover:text-[var(--foreground)] hover:bg-[var(--muted)] rounded transition-colors" title="Tambah Highlight">
                       <Highlighter className="w-4 h-4" />
                     </button>
                   </div>
@@ -419,11 +553,34 @@ export default function InvoiceDetailPage() {
                   ))}
                 </div>
               ))}
+              
+              {numPages > pdfPagesPerGroup && (
+                <div className="flex items-center justify-between w-full max-w-[800px] mt-4 mb-8 bg-[var(--card)] p-3 rounded-lg border border-[var(--border)] shadow-xs">
+                  <button 
+                    onClick={() => setPdfPageGroup(Math.max(0, pdfPageGroup - 1))}
+                    disabled={pdfPageGroup === 0}
+                    className="px-3.5 py-1.5 border border-[var(--border)] bg-[var(--card)] hover:bg-[var(--muted)] text-[var(--foreground)] rounded-lg text-xs font-medium disabled:opacity-40 transition-colors shadow-xs"
+                  >
+                    Sebelumnya
+                  </button>
+                  <span className="text-xs font-medium text-[var(--muted-foreground)] font-mono">
+                    Halaman {(pdfPageGroup * pdfPagesPerGroup) + 1} - {Math.min((pdfPageGroup + 1) * pdfPagesPerGroup, numPages)} dari {numPages}
+                  </span>
+                  <button 
+                    onClick={() => setPdfPageGroup(Math.min(Math.ceil(numPages / pdfPagesPerGroup) - 1, pdfPageGroup + 1))}
+                    disabled={(pdfPageGroup + 1) * pdfPagesPerGroup >= numPages}
+                    className="px-3.5 py-1.5 border border-[var(--border)] bg-[var(--card)] hover:bg-[var(--muted)] text-[var(--foreground)] rounded-lg text-xs font-medium disabled:opacity-40 transition-colors shadow-xs"
+                  >
+                    Selanjutnya
+                  </button>
+                </div>
+              )}
             </Document>
           ) : (
             <div className="text-[var(--muted-foreground)]">File PDF tidak tersedia</div>
           )}
         </div>
+        )}
       </div>
 
       {/* Right: Sidebar (Timeline & Nav) */}
@@ -477,13 +634,13 @@ export default function InvoiceDetailPage() {
                           <div className="flex space-x-2">
                             <button 
                               onClick={() => updateTrackingDate(step.key, stepDateValue)} 
-                              className="text-[10px] bg-sky-600 text-white px-2 py-1 rounded font-semibold hover:bg-sky-700 transition-colors flex-1"
+                              className="text-xs bg-[var(--primary)] text-[var(--primary-foreground)] hover:opacity-90 px-2.5 py-1 rounded-md font-medium transition-colors flex-1"
                             >
                               Simpan
                             </button>
                             <button 
                               onClick={() => setEditingStep(null)} 
-                              className="text-[10px] bg-gray-100 text-gray-600 px-2 py-1 rounded font-semibold hover:bg-gray-200 transition-colors flex-1"
+                              className="text-xs border border-[var(--border)] bg-[var(--card)] text-[var(--muted-foreground)] hover:text-[var(--foreground)] hover:bg-[var(--muted)] px-2.5 py-1 rounded-md font-medium transition-colors flex-1"
                             >
                               Batal
                             </button>
@@ -498,9 +655,9 @@ export default function InvoiceDetailPage() {
                             localDate.setMinutes(localDate.getMinutes() - localDate.getTimezoneOffset());
                             setStepDateValue(localDate.toISOString().split('T')[0]);
                           }}
-                          className="mt-2 text-left w-max inline-flex items-center text-[10px] px-2 py-1 bg-sky-50 text-sky-700 hover:bg-sky-100 rounded border border-sky-200 transition-colors"
+                          className="mt-2 text-left w-max inline-flex items-center text-[11px] px-2.5 py-1 border border-[var(--border)] bg-[var(--card)] hover:bg-[var(--muted)] text-[var(--foreground)] rounded-md transition-colors shadow-xs font-medium"
                         >
-                          <Calendar className="w-3 h-3 mr-1" /> Set Tanggal
+                          <Calendar className="w-3 h-3 mr-1 text-[var(--muted-foreground)]" /> Set Tanggal
                         </button>
                       )
                     ) : (

@@ -45,6 +45,7 @@ function verifyPassword(plainPassword, storedHash) {
  */
 function sanitizeCell(value) {
   if (value === null || value === undefined) return '';
+  if (typeof value === 'number') return value;
   const str = String(value).trim();
   if (/^[=+\-@\t\r]/.test(str)) {
     return "'" + str;
@@ -142,7 +143,27 @@ function ensureAuditLogSheet() {
 
 function writeAuditLog(userEmail, action, resource, resourceId, before, after) {
   try {
+    const sanitizeForAudit = (obj) => {
+      if (!obj || typeof obj !== 'object') return obj;
+      const safe = {};
+      for (const k in obj) {
+        const v = obj[k];
+        if (typeof v === 'string' && v.length > 500) {
+          safe[k] = `[Truncated text, length: ${v.length}]`;
+        } else {
+          safe[k] = v;
+        }
+      }
+      return safe;
+    };
+
     const sheet = ensureAuditLogSheet();
+    let beforeStr = before ? JSON.stringify(sanitizeForAudit(before)) : '';
+    let afterStr = after ? JSON.stringify(sanitizeForAudit(after)) : '';
+
+    if (beforeStr.length > 40000) beforeStr = beforeStr.substring(0, 40000);
+    if (afterStr.length > 40000) afterStr = afterStr.substring(0, 40000);
+
     sheet.appendRow([
       Utilities.getUuid(),
       new Date().toISOString(),
@@ -150,8 +171,8 @@ function writeAuditLog(userEmail, action, resource, resourceId, before, after) {
       action,
       resource,
       resourceId || '',
-      before ? JSON.stringify(before) : '',
-      after ? JSON.stringify(after) : ''
+      beforeStr,
+      afterStr
     ]);
   } catch (e) {
     Logger.log('Error writing audit log: ' + e);

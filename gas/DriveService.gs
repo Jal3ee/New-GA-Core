@@ -84,6 +84,16 @@ function uploadFileToDrive(base64Data, fileName, moduleName) {
 function downloadFile(fileId) {
   try {
     const file = DriveApp.getFileById(fileId);
+    const size = file.getSize();
+    // Jika file lebih besar dari 10MB, hindari base64 decode di memory GAS untuk mencegah OOM / timeout
+    if (size > 10 * 1024 * 1024) {
+      return { 
+        ok: false, 
+        error: 'FILE_TOO_LARGE', 
+        message: 'Ukuran file terlalu besar (' + Math.round(size / 1024 / 1024) + 'MB). Gunakan preview Google Drive.',
+        previewUrl: file.getUrl()
+      };
+    }
     const blob = file.getBlob();
     const base64 = Utilities.base64Encode(blob.getBytes());
     return { ok: true, data: base64, mimeType: blob.getContentType() };

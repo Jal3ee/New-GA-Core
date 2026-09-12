@@ -60,7 +60,13 @@ export function MainLayout() {
           { label: 'Transfer / Simulasi', path: '/mess/transfer' },
         ]
       },
-      { label: 'Travel & Transport', path: '/transport', icon: Truck },
+      {
+        label: 'Travel & Transport',
+        icon: Truck,
+        subItems: [
+          { label: 'Ticketing Database', path: '/transport/ticketing' }
+        ]
+      },
       {
         label: 'Assets',
         icon: Package,
