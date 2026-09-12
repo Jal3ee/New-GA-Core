@@ -58,6 +58,7 @@ export default function UnitContractsPage() {
     stnk_end: '',
     budget_tahunan: '',
     status_unit: 'Aktif',
+    tahun_unit: '',
     fileData: null,
     fileName: '',
     file_url: ''
@@ -104,6 +105,7 @@ export default function UnitContractsPage() {
         stnk_end: contract.stnk_end ? contract.stnk_end.split('T')[0] : '',
         budget_tahunan: contract.budget_tahunan || '',
         status_unit: contract.status_unit || 'Aktif',
+        tahun_unit: contract.tahun_unit || '',
         fileData: null,
         fileName: '',
         file_url: contract.file_url || ''
@@ -127,6 +129,7 @@ export default function UnitContractsPage() {
         stnk_end: '',
         budget_tahunan: '',
         status_unit: 'Aktif',
+        tahun_unit: '',
         fileData: null,
         fileName: '',
         file_url: ''
@@ -167,8 +170,8 @@ export default function UnitContractsPage() {
 
   const handleSubmit = async (e) => {
     e.preventDefault();
-    if (!formData.no_polisi || !formData.stnk_end) {
-      return toast.warning('No Polisi dan Akhir Masa STNK wajib diisi');
+    if (!formData.no_polisi) {
+      return toast.warning('No Polisi wajib diisi');
     }
 
     showLoading();
@@ -284,7 +287,7 @@ export default function UnitContractsPage() {
               <tr>
                 <th className="px-6 py-4 font-medium sticky left-0 bg-[var(--muted)] z-10">Asset & Lambung</th>
                 <th className="px-6 py-4 font-medium">Dept/User</th>
-                <th className="px-6 py-4 font-medium">Tipe / Merk</th>
+                <th className="px-6 py-4 font-medium">Tipe / Merk / Tahun</th>
                 <th className="px-6 py-4 font-medium">No Polisi & Mesin</th>
                 <th className="px-6 py-4 font-medium text-center">Masa STNK</th>
                 <th className="px-6 py-4 font-medium text-center">Lampiran</th>
@@ -317,7 +320,7 @@ export default function UnitContractsPage() {
                       </td>
                       <td className="px-6 py-4">
                         <div className="text-[var(--foreground)]">{contract.merk} {contract.type}</div>
-                        <div className="text-[var(--muted-foreground)] text-xs mt-0.5">{contract.warna} | {contract.bahan_bakar}</div>
+                        <div className="text-[var(--muted-foreground)] text-xs mt-0.5">{contract.tahun_unit ? `Th: ${contract.tahun_unit} | ` : ''}{contract.warna} | {contract.bahan_bakar}</div>
                       </td>
                       <td className="px-6 py-4">
                         <div className="font-semibold text-[var(--foreground)] font-mono">{contract.no_polisi || '-'}</div>
@@ -446,9 +449,16 @@ export default function UnitContractsPage() {
 
                     <div className="grid grid-cols-2 gap-2">
                       <div>
+                        <label className="block text-xs font-medium text-[var(--foreground)] mb-1">Tahun Unit</label>
+                        <input type="text" value={formData.tahun_unit} onChange={(e) => setFormData({...formData, tahun_unit: e.target.value})} className="w-full px-3 py-2 border border-[var(--border)] rounded-lg bg-[var(--card)] focus:ring-2 focus:ring-[var(--ring)] outline-none text-sm font-mono" placeholder="Misal: 2023" />
+                      </div>
+                      <div>
                         <label className="block text-xs font-medium text-[var(--muted-foreground)] mb-1">Warna</label>
                         <input type="text" value={formData.warna} onChange={(e) => setFormData({...formData, warna: e.target.value})} className="w-full px-3 py-2 border border-[var(--border)] rounded-lg bg-[var(--card)] focus:ring-2 focus:ring-[var(--ring)] outline-none text-sm" />
                       </div>
+                    </div>
+
+                    <div className="grid grid-cols-2 gap-2">
                       <div>
                         <label className="block text-xs font-medium text-[var(--foreground)] mb-1">Bahan Bakar</label>
                         <CustomSelect 
@@ -461,6 +471,7 @@ export default function UnitContractsPage() {
                           ]}
                         />
                       </div>
+                      <div className="hidden sm:block"></div>
                     </div>
 
                     <div className="grid grid-cols-2 gap-2">
@@ -513,8 +524,8 @@ export default function UnitContractsPage() {
                           <input type="date" value={formData.stnk_start} onChange={(e) => setFormData({...formData, stnk_start: e.target.value})} className="w-full px-3 py-2 border border-[var(--border)] rounded-lg bg-[var(--card)] focus:ring-2 focus:ring-[var(--ring)] outline-none text-sm" />
                         </div>
                         <div>
-                          <label className="block text-xs font-bold text-amber-700 mb-1">Masa STNK (Akhir) *</label>
-                          <input type="date" required value={formData.stnk_end} onChange={(e) => setFormData({...formData, stnk_end: e.target.value})} className="w-full px-3 py-2 border border-amber-200 rounded-lg bg-white focus:ring-2 focus:ring-amber-500 outline-none text-sm" />
+                          <label className="block text-xs font-medium text-[var(--muted-foreground)] mb-1">Masa STNK (Akhir)</label>
+                          <input type="date" value={formData.stnk_end} onChange={(e) => setFormData({...formData, stnk_end: e.target.value})} className="w-full px-3 py-2 border border-[var(--border)] rounded-lg bg-[var(--card)] focus:ring-2 focus:ring-[var(--ring)] outline-none text-sm" />
                         </div>
                       </div>
                       <div>
