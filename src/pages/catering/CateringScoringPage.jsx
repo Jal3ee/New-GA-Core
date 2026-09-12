@@ -732,15 +732,6 @@ export default function CateringScoringPage() {
       {/* Header */}
       <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 border-b border-[var(--border)] pb-5">
         <div>
-          <div className="flex items-center gap-2 mb-1">
-            <span className="text-xs font-semibold px-2.5 py-0.5 rounded-full bg-[var(--primary)]/10 text-[var(--primary)] border border-[var(--primary)]/20">
-              PT. Antang Gunung Meratus
-            </span>
-            <span className="text-xs font-mono text-[var(--muted-foreground)] flex items-center gap-1">
-              <Database className="w-3 h-3 text-[var(--primary)]" />
-              tbl_catering_scorings
-            </span>
-          </div>
           <h1 className="text-2xl font-bold tracking-tight text-[var(--foreground)] font-display flex items-center gap-2">
             <Utensils className="w-6 h-6 text-[var(--primary)]" />
             Vendor Catering Scoring & Food Index

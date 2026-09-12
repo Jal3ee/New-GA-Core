@@ -1,3 +1,5 @@
+import { LOGO_AGM_BASE64, LOGO_HCGA_BASE64 } from '../assets/logos/logosBase64';
+
 /**
  * generateCateringPdfReport
  * Exports high-resolution, modern minimalist corporate report for PT. Antang Gunung Meratus
@@ -85,19 +87,41 @@ export function generateCateringPdfReport({
       -webkit-print-color-adjust: exact;
       print-color-adjust: exact;
     }
-    .simple-header {
-      margin-bottom: 20px;
+    .header-table {
+      width: 100%;
+      border-collapse: collapse;
+      border-bottom: 2px solid #0F5C56;
+      padding-bottom: 8px;
+      margin-bottom: 12px;
     }
-    .doc-title {
-      font-size: 18px;
+    .header-logo {
+      height: 48px;
+      object-fit: contain;
+    }
+    .header-title-box {
+      text-align: center;
+      padding: 0 10px;
+    }
+    .company-name {
+      font-size: 14px;
       font-weight: 800;
-      color: #0f172a;
-      margin-bottom: 4px;
+      letter-spacing: 0.5px;
+      color: #0F5C56;
       text-transform: uppercase;
     }
-    .doc-subtitle {
+    .dept-name {
+      font-size: 10px;
+      font-weight: 700;
+      color: #475569;
+      text-transform: uppercase;
+      letter-spacing: 0.3px;
+    }
+    .doc-title {
       font-size: 12px;
-      color: #64748b;
+      font-weight: 800;
+      color: #0f172a;
+      margin-top: 3px;
+      text-transform: uppercase;
     }
     .meta-strip {
       display: flex;
@@ -144,7 +168,18 @@ export function generateCateringPdfReport({
       color: #64748b;
     }
 
-
+    /* Section Headings */
+    .section-header {
+      font-size: 10.5px;
+      font-weight: 800;
+      color: #0F5C56;
+      text-transform: uppercase;
+      letter-spacing: 0.3px;
+      border-left: 3px solid #0F5C56;
+      padding-left: 6px;
+      margin-top: 14px;
+      margin-bottom: 6px;
+    }
 
     /* Tables */
     table.data-table {
@@ -294,7 +329,7 @@ export function generateCateringPdfReport({
 </head>
 <body>
   <div class="no-print-bar">
-    <span>Laporan Siap Cetak / Unduh PDF</span>
+    <span>Laporan Siap Cetak / Unduh PDF - PT. Antang Gunung Meratus</span>
     <div>
       <button onclick="window.print()">Cetak / Simpan PDF</button>
       <button onclick="window.close()" style="margin-left: 6px; background: transparent; color: #ffffff; border: 1px solid #ffffff;">Tutup</button>
@@ -302,10 +337,21 @@ export function generateCateringPdfReport({
   </div>
 
   <!-- Header -->
-  <div class="simple-header">
-    <div class="doc-title">Laporan Food Index & Frekuensi Inspeksi Katering</div>
-    <div class="doc-subtitle">Human Capital & General Affairs Department</div>
-  </div>
+  <table class="header-table">
+    <tr>
+      <td style="width: 15%; text-align: left; vertical-align: middle;">
+        <img src="${LOGO_AGM_BASE64}" class="header-logo" alt="Logo AGM" />
+      </td>
+      <td class="header-title-box" style="width: 70%;">
+        <div class="company-name">PT. Antang Gunung Meratus</div>
+        <div class="dept-name">Human Capital & General Affairs Department</div>
+        <div class="doc-title">Laporan Food Index & Frekuensi Inspeksi Katering</div>
+      </td>
+      <td style="width: 15%; text-align: right; vertical-align: middle;">
+        <img src="${LOGO_HCGA_BASE64}" class="header-logo" alt="Logo HCGA" />
+      </td>
+    </tr>
+  </table>
 
   <!-- Meta Info -->
   <div class="meta-strip">
@@ -340,6 +386,7 @@ export function generateCateringPdfReport({
   </div>
 
   <!-- SECTION 1: Matriks Standar Report -->
+  <div class="section-header">1. Form Pencapaian Inspeksi Katering (Standar Report)</div>
   <table class="data-table">
     <thead>
       <tr>
@@ -392,7 +439,8 @@ export function generateCateringPdfReport({
   </table>
 
   <!-- SECTION 2: Detailing Riwayat Inspeksi & Catatan Temuan -->
-  <table class="data-table" style="margin-top: 24px;">
+  <div class="section-header">2. Detailing Riwayat Log & Temuan Lapangan</div>
+  <table class="data-table">
     <thead>
       <tr>
         <th class="center" style="width: 25px;">No</th>
@@ -427,7 +475,8 @@ export function generateCateringPdfReport({
 
   <!-- SECTION 3: Lampiran Foto Dokumentasi Inspeksi (jika ada) -->
   ${filteredScorings.some(s => s.photos && s.photos.length > 0) ? `
-    <div class="photo-grid" style="margin-top: 24px;">
+    <div class="section-header" style="page-break-before: auto;">3. Lampiran Dokumentasi Foto Inspeksi</div>
+    <div class="photo-grid">
       ${filteredScorings.flatMap(s => (s.photos || []).map(p => `
         <div class="photo-card">
           <img src="${p.data || p.url}" class="photo-img" alt="Foto Inspeksi" />
