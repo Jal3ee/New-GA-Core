@@ -58,6 +58,7 @@ export default function VendorContractsPage() {
         start_kontrak: contract.start_kontrak ? contract.start_kontrak.split('T')[0] : '',
         end_kontrak: contract.end_kontrak ? contract.end_kontrak.split('T')[0] : '',
         no_kontrak: contract.no_kontrak || '',
+        coa: contract.coa || '',
         fileData: null,
         fileName: '',
         file_url: contract.file_url || ''
@@ -71,6 +72,7 @@ export default function VendorContractsPage() {
         start_kontrak: '',
         end_kontrak: '',
         no_kontrak: '',
+        coa: '',
         fileData: null,
         fileName: '',
         file_url: ''
@@ -359,20 +361,33 @@ export default function VendorContractsPage() {
                         { label: 'Catering', value: 'Catering' },
                         { label: 'Gas & Galon', value: 'Gas & Galon' },
                         { label: 'Laundry', value: 'Laundry' },
+                        { label: 'Transport', value: 'Transport' },
                         { label: 'Lainnya', value: 'Lainnya' }
                       ]}
                     />
                   </div>
                 </div>
 
-                <div>
-                  <label className="block text-sm font-medium text-[var(--foreground)] mb-1">No Kontrak PKS</label>
-                  <input
-                    type="text"
-                    value={formData.no_kontrak}
-                    onChange={(e) => setFormData({...formData, no_kontrak: e.target.value})}
-                    className="w-full px-3 py-2 border border-[var(--border)] rounded-lg bg-[var(--card)] focus:ring-2 focus:ring-[var(--ring)] focus:border-transparent transition-all outline-none font-mono text-sm"
-                  />
+                <div className="grid grid-cols-2 gap-4">
+                  <div>
+                    <label className="block text-sm font-medium text-[var(--foreground)] mb-1">No Kontrak PKS</label>
+                    <input
+                      type="text"
+                      value={formData.no_kontrak}
+                      onChange={(e) => setFormData({...formData, no_kontrak: e.target.value})}
+                      className="w-full px-3 py-2 border border-[var(--border)] rounded-lg bg-[var(--card)] focus:ring-2 focus:ring-[var(--ring)] focus:border-transparent transition-all outline-none font-mono text-sm"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-sm font-medium text-[var(--foreground)] mb-1">CoA Dept</label>
+                    <input
+                      type="text"
+                      value={formData.coa}
+                      onChange={(e) => setFormData({...formData, coa: e.target.value})}
+                      className="w-full px-3 py-2 border border-[var(--border)] rounded-lg bg-[var(--card)] focus:ring-2 focus:ring-[var(--ring)] focus:border-transparent transition-all outline-none font-mono text-sm"
+                      placeholder="Misal: 6010-001"
+                    />
+                  </div>
                 </div>
 
                 <div className="grid grid-cols-2 gap-4">

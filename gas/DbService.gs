@@ -92,14 +92,14 @@ function setupAssetsSheets() {
   let vendorSheet = ss.getSheetByName('tbl_assets_vendor_contracts');
   if (!vendorSheet) {
     vendorSheet = ss.insertSheet('tbl_assets_vendor_contracts');
-    vendorSheet.appendRow(['id', 'nomor', 'nama_vendor', 'site', 'jenis_kontrak', 'start_kontrak', 'end_kontrak', 'no_kontrak', 'file_url', 'created_at', 'updated_at']);
+    vendorSheet.appendRow(['id', 'nomor', 'nama_vendor', 'site', 'jenis_kontrak', 'start_kontrak', 'end_kontrak', 'no_kontrak', 'coa', 'file_url', 'created_at', 'updated_at']);
   }
   
   // 2. Unit Internal
   let unitSheet = ss.getSheetByName('tbl_assets_unit_contracts');
   if (!unitSheet) {
     unitSheet = ss.insertSheet('tbl_assets_unit_contracts');
-    unitSheet.appendRow(['id', 'no_lambung', 'no_polisi', 'unit_asset', 'site', 'dept', 'user_pengguna', 'merk', 'warna', 'type', 'tahun_unit', 'no_rangka', 'no_mesin', 'bahan_bakar', 'stnk_start', 'stnk_end', 'file_url', 'coa', 'budget_tahunan', 'status_unit', 'created_at', 'updated_at']);
+    unitSheet.appendRow(['id', 'no_lambung', 'no_polisi', 'unit_asset', 'site', 'dept', 'user_pengguna', 'merk', 'warna', 'type', 'tahun_unit', 'no_rangka', 'no_mesin', 'bahan_bakar', 'stnk_start', 'stnk_end', 'kir_start', 'kir_end', 'file_url', 'coa', 'budget_tahunan', 'status_unit', 'created_at', 'updated_at']);
   }
   
   Logger.log('Assets sheets initialized!');

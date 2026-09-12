@@ -473,7 +473,18 @@ export default function UnitContractsPage() {
                           ]}
                         />
                       </div>
-                      <div className="hidden sm:block"></div>
+                      <div>
+                        <label className="block text-xs font-medium text-[var(--foreground)] mb-1">Status Keaktifan</label>
+                        <CustomSelect 
+                          value={formData.status_unit} 
+                          onChange={(val) => setFormData({...formData, status_unit: val})}
+                          options={[
+                            {label: 'Aktif (Beroperasi)', value: 'Aktif'},
+                            {label: 'Tidak Aktif (Standby)', value: 'Tidak aktif'},
+                            {label: 'BD (Breakdown)', value: 'BD'}
+                          ]}
+                        />
+                      </div>
                     </div>
 
                     <div className="grid grid-cols-2 gap-2">
@@ -530,8 +541,18 @@ export default function UnitContractsPage() {
                           <input type="date" value={formData.stnk_end} onChange={(e) => setFormData({...formData, stnk_end: e.target.value})} className="w-full px-3 py-2 border border-[var(--border)] rounded-lg bg-[var(--card)] focus:ring-2 focus:ring-[var(--ring)] outline-none text-sm" />
                         </div>
                       </div>
+                      <div className="grid grid-cols-2 gap-2">
+                        <div>
+                          <label className="block text-xs font-medium text-[var(--muted-foreground)] mb-1">Masa KIR (Dari)</label>
+                          <input type="date" value={formData.kir_start} onChange={(e) => setFormData({...formData, kir_start: e.target.value})} className="w-full px-3 py-2 border border-[var(--border)] rounded-lg bg-[var(--card)] focus:ring-2 focus:ring-[var(--ring)] outline-none text-sm" />
+                        </div>
+                        <div>
+                          <label className="block text-xs font-medium text-[var(--muted-foreground)] mb-1">Masa KIR (Akhir)</label>
+                          <input type="date" value={formData.kir_end} onChange={(e) => setFormData({...formData, kir_end: e.target.value})} className="w-full px-3 py-2 border border-[var(--border)] rounded-lg bg-[var(--card)] focus:ring-2 focus:ring-[var(--ring)] outline-none text-sm" />
+                        </div>
+                      </div>
                       <div>
-                        <label className="block text-xs font-medium text-[var(--muted-foreground)] mb-1">Lampiran STNK</label>
+                        <label className="block text-xs font-medium text-[var(--muted-foreground)] mb-1">Lampiran Dokumen</label>
                         <label className="flex items-center justify-center w-full px-4 py-2 border-2 border-dashed border-[var(--border)] rounded-lg cursor-pointer hover:bg-[var(--muted)] transition-colors">
                           <Paperclip className="w-4 h-4 text-[var(--muted-foreground)] mr-2" />
                           <p className="text-sm text-[var(--foreground)] font-medium">
@@ -557,22 +578,6 @@ export default function UnitContractsPage() {
                         <label className="block text-xs font-medium text-[var(--muted-foreground)] mb-1">Budget Tahunan</label>
                         <input type="text" value={formData.budget_tahunan} onChange={handleBudgetChange} placeholder="Rp..." className="w-full px-3 py-2 border border-[var(--border)] rounded-lg bg-[var(--card)] focus:ring-2 focus:ring-[var(--ring)] outline-none text-sm" />
                       </div>
-                    </div>
-
-                    <div className="grid grid-cols-2 gap-2">
-                      <div>
-                        <label className="block text-xs font-medium text-[var(--foreground)] mb-1">Status Keaktifan</label>
-                        <CustomSelect 
-                          value={formData.status_unit} 
-                          onChange={(val) => setFormData({...formData, status_unit: val})}
-                          options={[
-                            {label: 'Aktif (Beroperasi)', value: 'Aktif'},
-                            {label: 'Tidak Aktif (Standby)', value: 'Tidak aktif'},
-                            {label: 'BD (Breakdown)', value: 'BD'}
-                          ]}
-                        />
-                      </div>
-                      <div className="hidden sm:block"></div>
                     </div>
 
                   </div>
