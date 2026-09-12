@@ -35,8 +35,7 @@ export default function UnitContractsPage() {
   const TYPE_UNIT = [
     { label: 'Double Cabin', value: 'Double Cabin' },
     { label: 'Single Cabin', value: 'Single Cabin' },
-    { label: 'Mini Station', value: 'Mini Station' },
-    { label: 'Dump Truck', value: 'Dump Truck' },
+    { label: 'Full Cabin', value: 'Full Cabin' },
     { label: 'Bus', value: 'Bus' },
     { label: 'Lainnya', value: 'Lainnya' }
   ];
