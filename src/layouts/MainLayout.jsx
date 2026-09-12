@@ -88,6 +88,7 @@ export function MainLayout() {
         subItems: [
           { label: 'Dashboard Invoice', path: '/invoice/dashboard' },
           { label: 'Invoice', path: '/invoice' },
+          { label: 'Reimbursement', path: '/docs/reimbursement' },
           { label: 'Standards', path: '/docs/standards' },
         ]
       },

@@ -392,6 +392,20 @@ export const api = {
     return this.post({ action: 'DELETE_CATERING_SCORING', id });
   },
 
+  // Reimbursement Tiket & Transport
+  async getReimbursements() {
+    return this.post({ action: 'GET_REIMBURSEMENTS' });
+  },
+  async createReimbursement(data) {
+    return this.post({ action: 'CREATE_REIMBURSEMENT', payload: { data } });
+  },
+  async updateReimbursement(id, data) {
+    return this.post({ action: 'UPDATE_REIMBURSEMENT', id, payload: { data } });
+  },
+  async deleteReimbursement(id) {
+    return this.post({ action: 'DELETE_REIMBURSEMENT', id });
+  },
+
   // Database Setup / Sheet Init
   async setupNewTables() {
     return this.post({ action: 'SETUP_NEW_TABLES' });

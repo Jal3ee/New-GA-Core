@@ -190,6 +190,28 @@ function setupCateringSheets() {
 
 /**
  * ============================================================================
+ * REIMBURSEMENTS (TIKET & TRANSPORT) INITIALIZATION
+ * ============================================================================
+ */
+function setupReimbursementsSheet() {
+  const ss = SpreadsheetApp.openById(SPREADSHEET_ID);
+  let sheet = ss.getSheetByName('tbl_docs_reimbursements');
+  if (!sheet) {
+    sheet = ss.insertSheet('tbl_docs_reimbursements');
+    sheet.appendRow([
+      'id', 'timestamp', 'nama', 'nik', 'no_hp', 'status',
+      'departemen', 'site', 'tgl_berangkat', 'tgl_pulang',
+      'url_bukti_cuti', 'url_nota_berangkat', 'url_nota_pulang',
+      'periode_tahun', 'periode_bulan', 'periode_ke',
+      'nominal', 'status_finance', 'tgl_pengajuan_finance', 'tgl_pencairan_finance',
+      'catatan', 'created_at', 'updated_at'
+    ]);
+  }
+  Logger.log('Reimbursements sheet initialized!');
+}
+
+/**
+ * ============================================================================
  * SYSTEM AUDIT LOG
  * ============================================================================
  */

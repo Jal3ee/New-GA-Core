@@ -213,11 +213,22 @@ function routeAction(body) {
     case 'DELETE_CATERING_SCORING':
       return deleteRecord('tbl_catering_scorings', body.id, actor);
 
+    // Reimbursements Tiket & Transport
+    case 'GET_REIMBURSEMENTS':
+      return getRecords('tbl_docs_reimbursements');
+    case 'CREATE_REIMBURSEMENT':
+      return createRecord('tbl_docs_reimbursements', body.payload.data, actor);
+    case 'UPDATE_REIMBURSEMENT':
+      return updateRecord('tbl_docs_reimbursements', body.id, body.payload.data, actor);
+    case 'DELETE_REIMBURSEMENT':
+      return deleteRecord('tbl_docs_reimbursements', body.id, actor);
+
     // Setup / Migration Helper
     case 'SETUP_NEW_TABLES':
       setupStandardsSheet();
       setupCateringSheets();
-      return jsonResponse({ ok: true, message: 'Standards and Catering sheets verified/created successfully' });
+      setupReimbursementsSheet();
+      return jsonResponse({ ok: true, message: 'Standards, Catering, and Reimbursements sheets verified/created successfully' });
 
     // Finance Portal
     case 'FINANCE_PORTAL_AUTH':
