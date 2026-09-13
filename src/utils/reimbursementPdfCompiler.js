@@ -23,7 +23,8 @@ export async function compileReimbursementPdf({
     includeCover: true,
     includeBuktiCuti: true,
     includeNotaBerangkat: true,
-    includeNotaPulang: true
+    includeNotaPulang: true,
+    periodLabel: ''
   },
   onProgress = null
 }) {
@@ -58,10 +59,14 @@ export async function compileReimbursementPdf({
     });
 
     // Header Title
-    coverPage.drawText('REKAPITULASI BERKAS REIMBURSEMENT TIKET & TRANSPORT', {
+    const titleText = options.periodLabel 
+      ? `REKAPITULASI REIMBURSEMENT - ${options.periodLabel.toUpperCase()}`
+      : 'REKAPITULASI BERKAS REIMBURSEMENT TIKET & TRANSPORT';
+
+    coverPage.drawText(titleText.substring(0, 52), {
       x: 40,
       y: height - 45,
-      size: 14,
+      size: 13,
       font: fontBold,
       color: rgb(15 / 255, 92 / 255, 86 / 255),
     });
@@ -101,7 +106,7 @@ export async function compileReimbursementPdf({
       color: rgb(51 / 255, 65 / 255, 85 / 255),
     });
 
-    coverPage.drawText(`Jumlah Berkas: ${selectedRecords.length} Karyawan`, {
+    coverPage.drawText(`Jumlah Berkas: ${selectedRecords.length} Karyawan (${options.periodLabel || 'Kolektif'})`, {
       x: 52,
       y: height - 105,
       size: 8.5,

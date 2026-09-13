@@ -27,7 +27,10 @@ import {
   UploadCloud,
   Layers,
   ArrowUpDown,
-  Printer
+  Printer,
+  ChevronRight,
+  Sparkles,
+  DollarSign
 } from 'lucide-react';
 import CustomSelect from '../../components/ui/CustomSelect';
 import initialReimbursementData from '../../data/initialReimbursementData.json';
@@ -36,6 +39,7 @@ import {
   openReimbursementPrintWindow,
   formatRupiah
 } from '../../utils/reimbursementPdfCompiler';
+import { exportPeriodToExcel } from '../../utils/reimbursementExportExcel';
 import { api as gasClient } from '../../lib/gasClient';
 
 const MONTHS = [
@@ -44,7 +48,7 @@ const MONTHS = [
 ];
 
 export default function ReimbursementPage() {
-  // State: Main records
+  // State: Raw employee reimbursement records
   const [records, setRecords] = useState(() => {
     try {
       const saved = localStorage.getItem('garda_reimbursements_data');
@@ -53,26 +57,43 @@ export default function ReimbursementPage() {
     return initialReimbursementData;
   });
 
-  // State: UI & Controls
+  // Period-level Finance Overrides (stored per period key)
+  const [periodFinanceMeta, setPeriodFinanceMeta] = useState(() => {
+    try {
+      const saved = localStorage.getItem('garda_period_finance_meta');
+      if (saved) return JSON.parse(saved);
+    } catch {}
+    return {};
+  });
+
+  // UI state
+  const [viewMode, setViewMode] = useState('periods'); // 'periods' (1 paket per periode) or 'individuals' (flat list)
   const [isDashboardVisible, setIsDashboardVisible] = useState(true);
-  const [selectedIds, setSelectedIds] = useState([]);
-  const [searchQuery, setSearchQuery] = useState('');
-  const [selectedMonth, setSelectedMonth] = useState('Januari');
+  const [selectedMonth, setSelectedMonth] = useState('all');
   const [selectedPeriodCut, setSelectedPeriodCut] = useState('all'); // 'all', 'p1', 'p2'
-  const [selectedSite, setSelectedSite] = useState('all');
   const [selectedStatusFinance, setSelectedStatusFinance] = useState('all');
-  const [startDateFilter, setStartDateFilter] = useState('');
-  const [endDateFilter, setEndDateFilter] = useState('');
+  const [searchQuery, setSearchQuery] = useState('');
   const [isLoading, setIsLoading] = useState(false);
 
-  // Modals
-  const [isCompileModalOpen, setIsCompileModalOpen] = useState(false);
-  const [isEditFinanceModalOpen, setIsEditFinanceModalOpen] = useState(false);
-  const [selectedRecordForDetail, setSelectedRecordForDetail] = useState(null);
-  const [isBatchEdit, setIsBatchEdit] = useState(false);
-  const [compileProgress, setCompileProgress] = useState(null);
+  // Drawer state: active selected period
+  const [activeDrawerPeriod, setActiveDrawerPeriod] = useState(null);
+  const [drawerSelectedIds, setDrawerSelectedIds] = useState([]);
 
-  // Compile options
+  // Modals
+  const [isPeriodEditModalOpen, setIsPeriodEditModalOpen] = useState(false);
+  const [targetPeriodForEdit, setTargetPeriodForEdit] = useState(null);
+  const [periodEditForm, setPeriodEditForm] = useState({
+    status_finance: 'Diajukan',
+    tgl_pengajuan_finance: '',
+    tgl_pencairan_finance: '',
+    catatan: ''
+  });
+
+  // PDF Compile modal
+  const [isCompileModalOpen, setIsCompileModalOpen] = useState(false);
+  const [compileScopeRecords, setCompileScopeRecords] = useState([]);
+  const [compileScopeTitle, setCompileScopeTitle] = useState('');
+  const [compileProgress, setCompileProgress] = useState(null);
   const [compileOptions, setCompileOptions] = useState({
     includeCover: true,
     includeBuktiCuti: true,
@@ -80,26 +101,18 @@ export default function ReimbursementPage() {
     includeNotaPulang: true
   });
 
-  // Finance edit form state
-  const [financeForm, setFinanceForm] = useState({
-    nominal: 0,
-    status_finance: 'Diajukan',
-    tgl_pengajuan_finance: '',
-    tgl_pencairan_finance: '',
-    catatan: ''
-  });
-
-  // File import ref
+  // CSV Import ref
   const fileImportRef = useRef(null);
 
   // Save to localStorage
   useEffect(() => {
     try {
       localStorage.setItem('garda_reimbursements_data', JSON.stringify(records));
+      localStorage.setItem('garda_period_finance_meta', JSON.stringify(periodFinanceMeta));
     } catch {}
-  }, [records]);
+  }, [records, periodFinanceMeta]);
 
-  // Sync with remote spreadsheet if configured
+  // Sync with remote spreadsheet
   const syncWithDatabase = async () => {
     setIsLoading(true);
     try {
@@ -111,8 +124,8 @@ export default function ReimbursementPage() {
         toast.info('Data reimbursement lokal aktif.');
       }
     } catch (err) {
-      console.warn('Sync failed, using local data:', err);
-      toast.info('Sinkronisasi selesai (menggunakan database lokal)');
+      console.warn('Sync fallback to local:', err);
+      toast.info('Sinkronisasi selesai (database lokal aktif).');
     } finally {
       setIsLoading(false);
     }
@@ -129,7 +142,6 @@ export default function ReimbursementPage() {
         const text = evt.target?.result;
         if (!text) return;
 
-        // Parse CSV
         const lines = text.split('\n').filter(l => l.trim().length > 0);
         const imported = [];
 
@@ -150,7 +162,6 @@ export default function ReimbursementPage() {
           const site = parts[39] || 'LBCT';
           const url_nota_pulang = parts[40] || '';
 
-          // Determine period
           const dayPart = parseInt(timestamp.split(' ')[0]?.split('/')?.[0] || '1', 10);
           const monthPart = parseInt(timestamp.split(' ')[0]?.split('/')?.[1] || '1', 10);
           const monthName = MONTHS[monthPart - 1] || 'Januari';
@@ -171,6 +182,7 @@ export default function ReimbursementPage() {
             url_bukti_cuti,
             url_nota_berangkat,
             url_nota_pulang,
+            periode_tahun: 2026,
             periode_bulan: monthName,
             periode_ke: periodeKe,
             nominal: 1250000,
@@ -183,9 +195,9 @@ export default function ReimbursementPage() {
 
         if (imported.length > 0) {
           setRecords(imported);
-          toast.success(`Berhasil mengimpor ${imported.length} data reimbursement dari file CSV!`);
+          toast.success(`Berhasil mengimpor ${imported.length} data reimbursement!`);
         } else {
-          toast.error('Tidak ditemukan baris reimbursement yang valid di dalam file CSV.');
+          toast.error('Tidak ditemukan data reimbursement yang valid di CSV.');
         }
       } catch (err) {
         toast.error('Gagal membaca file CSV: ' + err.message);
@@ -196,194 +208,230 @@ export default function ReimbursementPage() {
   };
 
   // -------------------------------------------------------------
-  // Filtered Records
+  // GROUPING: Build Period Batches (1 Paket per Periode)
   // -------------------------------------------------------------
-  const filteredRecords = useMemo(() => {
-    return records.filter(r => {
+  const periodBatches = useMemo(() => {
+    // Generate standard order of periods for 2026: Januari P1, P2, Februari P1, P2, ...
+    const batchMap = {};
+
+    MONTHS.forEach((m, mIdx) => {
+      ['Periode 1 (1-15)', 'Periode 2 (16-31)'].forEach((pCut, pIdx) => {
+        const key = `2026-${String(mIdx + 1).padStart(2, '0')}-${pIdx === 0 ? 'P1' : 'P2'}`;
+        const cutNumber = pIdx === 0 ? 1 : 2;
+        const dateRangeStr = pIdx === 0 
+          ? `01 ${m} 2026 - 15 ${m} 2026` 
+          : `16 ${m} 2026 - ${[3, 5, 8, 10].includes(mIdx) ? '30' : mIdx === 1 ? '28' : '31'} ${m} 2026`;
+
+        batchMap[key] = {
+          key,
+          tahun: 2026,
+          bulan: m,
+          monthIndex: mIdx,
+          cutNumber,
+          periode_ke: pCut,
+          label: `${m} 2026 - Periode ${cutNumber}`,
+          rentang_tanggal: dateRangeStr,
+          items: [],
+          total_nominal: 0,
+          status_finance: 'Draft',
+          tgl_pengajuan_finance: '',
+          tgl_pencairan_finance: '',
+          catatan: ''
+        };
+      });
+    });
+
+    // Populate with actual records
+    records.forEach(r => {
+      const mIdx = MONTHS.indexOf(r.periode_bulan);
+      if (mIdx === -1) return;
+
+      const isP1 = r.periode_ke?.includes('1-15');
+      const key = `2026-${String(mIdx + 1).padStart(2, '0')}-${isP1 ? 'P1' : 'P2'}`;
+
+      if (batchMap[key]) {
+        batchMap[key].items.push(r);
+        batchMap[key].total_nominal += (Number(r.nominal) || 0);
+
+        // Inherit dates/status from items if meta not manually set
+        if (!batchMap[key].tgl_pengajuan_finance && r.tgl_pengajuan_finance) {
+          batchMap[key].tgl_pengajuan_finance = r.tgl_pengajuan_finance;
+        }
+        if (!batchMap[key].tgl_pencairan_finance && r.tgl_pencairan_finance) {
+          batchMap[key].tgl_pencairan_finance = r.tgl_pencairan_finance;
+        }
+      }
+    });
+
+    // Apply periodFinanceMeta overrides and calculate overall batch status
+    return Object.values(batchMap).map(batch => {
+      const meta = periodFinanceMeta[batch.key] || {};
+
+      let status = meta.status_finance;
+      if (!status) {
+        if (batch.items.length === 0) {
+          status = 'Belum Ada Berkas';
+        } else if (batch.items.every(item => item.status_finance === 'Dicairkan')) {
+          status = 'Dicairkan';
+        } else if (batch.items.some(item => item.status_finance === 'Diajukan' || item.status_finance === 'Dicairkan')) {
+          status = 'Diajukan';
+        } else {
+          status = 'Draft';
+        }
+      }
+
+      return {
+        ...batch,
+        status_finance: status,
+        tgl_pengajuan_finance: meta.tgl_pengajuan_finance || batch.tgl_pengajuan_finance || '',
+        tgl_pencairan_finance: meta.tgl_pencairan_finance || batch.tgl_pencairan_finance || '',
+        catatan: meta.catatan || batch.catatan || ''
+      };
+    });
+  }, [records, periodFinanceMeta]);
+
+  // Filtered Period Batches
+  const filteredPeriodBatches = useMemo(() => {
+    return periodBatches.filter(batch => {
+      // Don't show empty periods in the future unless selected specifically
+      if (selectedMonth === 'all' && batch.items.length === 0 && batch.monthIndex > 8) return false;
+
       // Month
-      if (selectedMonth !== 'all' && r.periode_bulan !== selectedMonth) return false;
+      if (selectedMonth !== 'all' && batch.bulan !== selectedMonth) return false;
 
-      // Period Cut (1-15 vs 16-31)
-      if (selectedPeriodCut === 'p1' && !r.periode_ke?.includes('1-15')) return false;
-      if (selectedPeriodCut === 'p2' && !r.periode_ke?.includes('16-31')) return false;
-
-      // Site
-      if (selectedSite !== 'all' && r.site !== selectedSite) return false;
+      // Period Cut (1 or 2)
+      if (selectedPeriodCut === 'p1' && batch.cutNumber !== 1) return false;
+      if (selectedPeriodCut === 'p2' && batch.cutNumber !== 2) return false;
 
       // Status Finance
-      if (selectedStatusFinance !== 'all' && r.status_finance !== selectedStatusFinance) return false;
+      if (selectedStatusFinance !== 'all' && batch.status_finance !== selectedStatusFinance) return false;
 
-      // Date Range Filter (based on tgl_berangkat or timestamp)
-      if (startDateFilter) {
-        const start = new Date(startDateFilter);
-        const itemDateParts = (r.tgl_berangkat || '').split('/');
-        if (itemDateParts.length === 3) {
-          const itemDate = new Date(`${itemDateParts[2]}-${itemDateParts[1]}-${itemDateParts[0]}`);
-          if (itemDate < start) return false;
-        }
-      }
-      if (endDateFilter) {
-        const end = new Date(endDateFilter);
-        const itemDateParts = (r.tgl_berangkat || '').split('/');
-        if (itemDateParts.length === 3) {
-          const itemDate = new Date(`${itemDateParts[2]}-${itemDateParts[1]}-${itemDateParts[0]}`);
-          if (itemDate > end) return false;
-        }
-      }
-
-      // Search Query
+      // Search (matches month name or employee name inside this period)
       if (searchQuery.trim()) {
         const q = searchQuery.toLowerCase();
-        const matchNama = (r.nama || '').toLowerCase().includes(q);
-        const matchNik = (r.nik || '').toLowerCase().includes(q);
-        const matchDept = (r.departemen || '').toLowerCase().includes(q);
-        const matchPhone = (r.no_hp || '').toLowerCase().includes(q);
-        if (!matchNama && !matchNik && !matchDept && !matchPhone) return false;
+        const matchPeriod = batch.label.toLowerCase().includes(q);
+        const matchEmployee = batch.items.some(it =>
+          (it.nama || '').toLowerCase().includes(q) ||
+          (it.nik || '').toLowerCase().includes(q) ||
+          (it.departemen || '').toLowerCase().includes(q)
+        );
+        if (!matchPeriod && !matchEmployee) return false;
       }
 
       return true;
     });
-  }, [records, selectedMonth, selectedPeriodCut, selectedSite, selectedStatusFinance, startDateFilter, endDateFilter, searchQuery]);
+  }, [periodBatches, selectedMonth, selectedPeriodCut, selectedStatusFinance, searchQuery]);
 
-  // -------------------------------------------------------------
-  // Dashboard Analytics & KPI Calculations
-  // -------------------------------------------------------------
-  const analytics = useMemo(() => {
-    const totalCount = filteredRecords.length;
-    const totalNominal = filteredRecords.reduce((sum, r) => sum + (Number(r.nominal) || 0), 0);
+  // Macro KPI Metrics
+  const macroKPIs = useMemo(() => {
+    const activeBatches = periodBatches.filter(b => b.items.length > 0);
+    const totalPeriodsCount = activeBatches.length;
+    const totalEmployeesCount = activeBatches.reduce((sum, b) => sum + b.items.length, 0);
+    const totalNominalAll = activeBatches.reduce((sum, b) => sum + b.total_nominal, 0);
 
-    const dicairkanRecords = filteredRecords.filter(r => r.status_finance === 'Dicairkan');
-    const totalDicairkan = dicairkanRecords.reduce((sum, r) => sum + (Number(r.nominal) || 0), 0);
-    const persenCair = totalNominal > 0 ? ((totalDicairkan / totalNominal) * 100).toFixed(1) : 0;
+    const dicairkanBatches = activeBatches.filter(b => b.status_finance === 'Dicairkan');
+    const totalDicairkanNominal = dicairkanBatches.reduce((sum, b) => sum + b.total_nominal, 0);
+    const persenCair = totalNominalAll > 0 ? ((totalDicairkanNominal / totalNominalAll) * 100).toFixed(1) : 0;
 
-    const pendingRecords = filteredRecords.filter(r => r.status_finance === 'Diajukan');
-    const totalPending = pendingRecords.reduce((sum, r) => sum + (Number(r.nominal) || 0), 0);
-
-    // Period 1 (1-15) vs Period 2 (16-31)
-    const p1Records = filteredRecords.filter(r => r.periode_ke?.includes('1-15'));
-    const p2Records = filteredRecords.filter(r => r.periode_ke?.includes('16-31'));
-    const p1Nominal = p1Records.reduce((sum, r) => sum + (Number(r.nominal) || 0), 0);
-    const p2Nominal = p2Records.reduce((sum, r) => sum + (Number(r.nominal) || 0), 0);
-
-    // Top Claimers (Karyawan paling sering reimbursement)
-    const claimerMap = {};
-    filteredRecords.forEach(r => {
-      const key = r.nik ? `${r.nama} (${r.nik})` : r.nama;
-      if (!claimerMap[key]) {
-        claimerMap[key] = {
-          nama: r.nama,
-          nik: r.nik,
-          departemen: r.departemen,
-          site: r.site,
-          count: 0,
-          totalNominal: 0
-        };
-      }
-      claimerMap[key].count++;
-      claimerMap[key].totalNominal += (Number(r.nominal) || 0);
-    });
-
-    const topClaimers = Object.values(claimerMap)
-      .sort((a, b) => b.count - a.count || b.totalNominal - a.totalNominal)
-      .slice(0, 5);
-
-    // Department breakdown
-    const deptMap = {};
-    filteredRecords.forEach(r => {
-      const d = r.departemen || 'Lainnya';
-      deptMap[d] = (deptMap[d] || 0) + 1;
-    });
-
-    // Site breakdown
-    const siteMap = {};
-    filteredRecords.forEach(r => {
-      const s = r.site || 'Lainnya';
-      siteMap[s] = (siteMap[s] || 0) + 1;
-    });
+    const pendingBatches = activeBatches.filter(b => b.status_finance === 'Diajukan');
+    const totalPendingNominal = pendingBatches.reduce((sum, b) => sum + b.total_nominal, 0);
 
     return {
-      totalCount,
-      totalNominal,
-      totalDicairkan,
+      totalPeriodsCount,
+      totalEmployeesCount,
+      totalNominalAll,
+      totalDicairkanNominal,
       persenCair,
-      totalPending,
-      pendingCount: pendingRecords.length,
-      p1Count: p1Records.length,
-      p1Nominal,
-      p2Count: p2Records.length,
-      p2Nominal,
-      topClaimers,
-      deptMap,
-      siteMap
+      totalPendingNominal,
+      pendingCount: pendingBatches.length
     };
-  }, [filteredRecords]);
+  }, [periodBatches]);
 
   // -------------------------------------------------------------
-  // Selection Handlers
+  // Drawer Handlers
   // -------------------------------------------------------------
-  const isAllSelected = useMemo(() => {
-    if (filteredRecords.length === 0) return false;
-    return filteredRecords.every(r => selectedIds.includes(r.id));
-  }, [filteredRecords, selectedIds]);
+  const handleOpenPeriodDrawer = (batch) => {
+    setActiveDrawerPeriod(batch);
+    setDrawerSelectedIds(batch.items.map(it => it.id)); // select all in drawer by default
+  };
 
-  const handleToggleSelectAll = () => {
-    if (isAllSelected) {
-      // Remove visible records from selection
-      const visibleIds = new Set(filteredRecords.map(r => r.id));
-      setSelectedIds(prev => prev.filter(id => !visibleIds.has(id)));
+  const handleCloseDrawer = () => {
+    setActiveDrawerPeriod(null);
+    setDrawerSelectedIds([]);
+  };
+
+  const handleToggleDrawerSelectAll = () => {
+    if (!activeDrawerPeriod) return;
+    if (drawerSelectedIds.length === activeDrawerPeriod.items.length) {
+      setDrawerSelectedIds([]);
     } else {
-      // Add all visible records to selection
-      const newIds = new Set([...selectedIds, ...filteredRecords.map(r => r.id)]);
-      setSelectedIds(Array.from(newIds));
+      setDrawerSelectedIds(activeDrawerPeriod.items.map(it => it.id));
     }
   };
 
-  const handleToggleSelectRow = (id) => {
-    setSelectedIds(prev =>
+  const handleToggleDrawerItem = (id) => {
+    setDrawerSelectedIds(prev =>
       prev.includes(id) ? prev.filter(x => x !== id) : [...prev, id]
     );
   };
 
-  const handleClearSelection = () => {
-    setSelectedIds([]);
+  // -------------------------------------------------------------
+  // Excel Export Handler (Single Period)
+  // -------------------------------------------------------------
+  const handleExportPeriodExcel = (batch) => {
+    try {
+      exportPeriodToExcel(batch);
+      toast.success(`Rekapitulasi Excel untuk ${batch.label} berhasil diunduh!`);
+    } catch (err) {
+      toast.error('Gagal mengekspor Excel: ' + err.message);
+    }
   };
 
-  // Selected records array
-  const selectedRecords = useMemo(() => {
-    return records.filter(r => selectedIds.includes(r.id));
-  }, [records, selectedIds]);
+  // -------------------------------------------------------------
+  // PDF Compilation Trigger for 1 Period Package
+  // -------------------------------------------------------------
+  const handleTriggerPeriodPdfCompile = (batch, itemsToCompile = null) => {
+    const list = itemsToCompile || batch.items;
+    if (!list || list.length === 0) {
+      toast.error('Tidak ada berkas karyawan dalam periode ini.');
+      return;
+    }
+    setCompileScopeRecords(list);
+    setCompileScopeTitle(batch.label);
+    setIsCompileModalOpen(true);
+  };
 
-  // -------------------------------------------------------------
-  // PDF Compilation & Download Execution
-  // -------------------------------------------------------------
   const handleExecutePdfCompile = async () => {
-    if (selectedRecords.length === 0) {
-      toast.error('Pilih minimal 1 baris reimbursement untuk dikompilasi.');
+    if (compileScopeRecords.length === 0) {
+      toast.error('Tidak ada berkas yang dipilih.');
       return;
     }
 
     try {
-      setCompileProgress({ current: 1, total: selectedRecords.length + 1, text: 'Menyiapkan berkas...' });
-      
+      setCompileProgress({ current: 1, total: compileScopeRecords.length + 1, text: 'Menyiapkan berkas...' });
+
       const blob = await compileReimbursementPdf({
-        selectedRecords,
-        options: compileOptions,
+        selectedRecords: compileScopeRecords,
+        options: {
+          ...compileOptions,
+          periodLabel: compileScopeTitle
+        },
         onProgress: (current, total, text) => {
           setCompileProgress({ current, total, text });
         }
       });
 
-      // Trigger download
       const url = URL.createObjectURL(blob);
       const a = document.createElement('a');
       a.href = url;
-      a.download = `Kompilasi_Lampiran_Reimbursement_${selectedMonth}_${Date.now()}.pdf`;
+      const safeTitle = compileScopeTitle.replace(/[^a-zA-Z0-9_-]/g, '_');
+      a.download = `Kompilasi_Lampiran_${safeTitle}_${Date.now()}.pdf`;
       document.body.appendChild(a);
       a.click();
       document.body.removeChild(a);
       URL.revokeObjectURL(url);
 
-      toast.success(`Berhasil mengompilasi ${selectedRecords.length} berkas ke dalam 1 file PDF!`);
+      toast.success(`Berhasil mengompilasi paket PDF ${compileScopeTitle}!`);
       setIsCompileModalOpen(false);
       setCompileProgress(null);
     } catch (err) {
@@ -394,88 +442,79 @@ export default function ReimbursementPage() {
   };
 
   // -------------------------------------------------------------
-  // Finance Edit Handlers (Single / Batch)
+  // Period Finance Edit Handlers
   // -------------------------------------------------------------
-  const handleOpenEditSingle = (rec) => {
-    setIsBatchEdit(false);
-    setSelectedRecordForDetail(rec);
-    setFinanceForm({
-      nominal: rec.nominal || 0,
-      status_finance: rec.status_finance || 'Draft',
-      tgl_pengajuan_finance: rec.tgl_pengajuan_finance || new Date().toISOString().slice(0, 10),
-      tgl_pencairan_finance: rec.tgl_pencairan_finance || '',
-      catatan: rec.catatan || ''
+  const handleOpenPeriodFinanceEdit = (batch) => {
+    setTargetPeriodForEdit(batch);
+    setPeriodEditForm({
+      status_finance: batch.status_finance === 'Belum Ada Berkas' ? 'Draft' : batch.status_finance,
+      tgl_pengajuan_finance: batch.tgl_pengajuan_finance || new Date().toISOString().slice(0, 10),
+      tgl_pencairan_finance: batch.tgl_pencairan_finance || '',
+      catatan: batch.catatan || ''
     });
-    setIsEditFinanceModalOpen(true);
+    setIsPeriodEditModalOpen(true);
   };
 
-  const handleOpenBatchEdit = () => {
-    if (selectedIds.length === 0) {
-      toast.error('Pilih baris data terlebih dahulu.');
-      return;
-    }
-    setIsBatchEdit(true);
-    setFinanceForm({
-      nominal: 0,
-      status_finance: 'Diajukan',
-      tgl_pengajuan_finance: new Date().toISOString().slice(0, 10),
-      tgl_pencairan_finance: '',
-      catatan: ''
-    });
-    setIsEditFinanceModalOpen(true);
-  };
+  const handleSavePeriodFinance = () => {
+    if (!targetPeriodForEdit) return;
 
-  const handleSaveFinance = () => {
-    if (isBatchEdit) {
-      setRecords(prev =>
-        prev.map(r => {
-          if (!selectedIds.includes(r.id)) return r;
-          return {
-            ...r,
-            status_finance: financeForm.status_finance,
-            tgl_pengajuan_finance: financeForm.tgl_pengajuan_finance || r.tgl_pengajuan_finance,
-            tgl_pencairan_finance: financeForm.tgl_pencairan_finance || r.tgl_pencairan_finance,
-            catatan: financeForm.catatan ? financeForm.catatan : r.catatan
-          };
-        })
-      );
-      toast.success(`Status finance untuk ${selectedIds.length} data berhasil diperbarui.`);
-    } else if (selectedRecordForDetail) {
-      setRecords(prev =>
-        prev.map(r => {
-          if (r.id !== selectedRecordForDetail.id) return r;
-          return {
-            ...r,
-            nominal: Number(financeForm.nominal) || r.nominal,
-            status_finance: financeForm.status_finance,
-            tgl_pengajuan_finance: financeForm.tgl_pengajuan_finance,
-            tgl_pencairan_finance: financeForm.tgl_pencairan_finance,
-            catatan: financeForm.catatan
-          };
-        })
-      );
-      toast.success(`Data finance ${selectedRecordForDetail.nama} berhasil diperbarui.`);
+    // 1. Update period finance meta
+    setPeriodFinanceMeta(prev => ({
+      ...prev,
+      [targetPeriodForEdit.key]: {
+        status_finance: periodEditForm.status_finance,
+        tgl_pengajuan_finance: periodEditForm.tgl_pengajuan_finance,
+        tgl_pencairan_finance: periodEditForm.tgl_pencairan_finance,
+        catatan: periodEditForm.catatan
+      }
+    }));
+
+    // 2. Propagate to individual records belonging to this period
+    setRecords(prev =>
+      prev.map(r => {
+        const isThisPeriod = targetPeriodForEdit.items.some(it => it.id === r.id);
+        if (!isThisPeriod) return r;
+        return {
+          ...r,
+          status_finance: periodEditForm.status_finance,
+          tgl_pengajuan_finance: periodEditForm.tgl_pengajuan_finance,
+          tgl_pencairan_finance: periodEditForm.tgl_pencairan_finance,
+          catatan: periodEditForm.catatan
+        };
+      })
+    );
+
+    // If currently active in drawer, update active drawer copy too
+    if (activeDrawerPeriod && activeDrawerPeriod.key === targetPeriodForEdit.key) {
+      setActiveDrawerPeriod(prev => ({
+        ...prev,
+        status_finance: periodEditForm.status_finance,
+        tgl_pengajuan_finance: periodEditForm.tgl_pengajuan_finance,
+        tgl_pencairan_finance: periodEditForm.tgl_pencairan_finance,
+        catatan: periodEditForm.catatan,
+        items: prev.items.map(it => ({
+          ...it,
+          status_finance: periodEditForm.status_finance,
+          tgl_pengajuan_finance: periodEditForm.tgl_pengajuan_finance,
+          tgl_pencairan_finance: periodEditForm.tgl_pencairan_finance
+        }))
+      }));
     }
-    setIsEditFinanceModalOpen(false);
+
+    toast.success(`Status Finance untuk paket ${targetPeriodForEdit.label} berhasil diperbarui.`);
+    setIsPeriodEditModalOpen(false);
   };
 
   // Dropdown options
   const monthOptions = [
-    { value: 'all', label: 'Semua Bulan' },
-    ...MONTHS.map(m => ({ value: m, label: `Bulan ${m} 2026` }))
+    { value: 'all', label: 'Semua Bulan (2026)' },
+    ...MONTHS.map(m => ({ value: m, label: `Bulan ${m}` }))
   ];
 
-  const periodOptions = [
+  const periodCutOptions = [
     { value: 'all', label: 'Semua Periode (P1 & P2)' },
-    { value: 'p1', label: 'Periode 1 (Tanggal 1 - 15)' },
-    { value: 'p2', label: 'Periode 2 (Tanggal 16 - 31)' }
-  ];
-
-  const siteOptions = [
-    { value: 'all', label: 'Semua Site' },
-    { value: 'LBCT', label: 'Site LBCT' },
-    { value: 'IDMG', label: 'Site IDMG' },
-    { value: 'SPCT', label: 'Site SPCT' }
+    { value: 'p1', label: 'Periode 1 (Cut-off Tgl 1-15)' },
+    { value: 'p2', label: 'Periode 2 (Cut-off Tgl 16-31)' }
   ];
 
   const statusFinanceOptions = [
@@ -488,7 +527,7 @@ export default function ReimbursementPage() {
   return (
     <div className="space-y-6">
       {/* -------------------------------------------------------------
-          1. MINIMALIST HEADER (Matches Kontrak Page: No PT Badge, No Table Name)
+          1. MINIMALIST HEADER (Matches Kontrak Page Style)
       ------------------------------------------------------------- */}
       <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 border-b border-[var(--border)] pb-5">
         <div>
@@ -497,7 +536,7 @@ export default function ReimbursementPage() {
             Reimbursement Tiket & Transport
           </h1>
           <p className="text-sm text-[var(--muted-foreground)] mt-0.5">
-            Monitoring permohonan penggantian biaya tiket, verifikasi berkas lampiran, dan pencatatan pencairan Finance.
+            Monitoring pengajuan per periode (cut-off 2x sebulan), verifikasi lampiran, dan pencatatan pencairan Finance.
           </p>
         </div>
 
@@ -523,7 +562,7 @@ export default function ReimbursementPage() {
           <button
             onClick={() => fileImportRef.current?.click()}
             className="inline-flex items-center gap-1.5 px-3 py-2 text-sm font-medium rounded-lg border border-[var(--border)] bg-[var(--card)] hover:bg-[var(--muted)] text-[var(--foreground)] transition-colors shadow-xs"
-            title="Import data respons Form Google Sheets CSV"
+            title="Import data respons Form CSV"
           >
             <FileSpreadsheet className="w-4 h-4 text-emerald-600" />
             <span className="hidden sm:inline">Import CSV</span>
@@ -540,52 +579,46 @@ export default function ReimbursementPage() {
             <span className="hidden sm:inline">Sync</span>
           </button>
 
-          {/* Compile PDF Action */}
+          {/* View Mode Switcher */}
           <button
-            onClick={() => {
-              if (selectedIds.length === 0) {
-                // Select all visible by default if none selected
-                setSelectedIds(filteredRecords.map(r => r.id));
-              }
-              setIsCompileModalOpen(true);
-            }}
-            className="inline-flex items-center gap-2 px-4 py-2 text-sm font-medium rounded-lg bg-[var(--primary)] text-[var(--primary-foreground)] hover:opacity-90 shadow-sm transition-all"
+            onClick={() => setViewMode(viewMode === 'periods' ? 'individuals' : 'periods')}
+            className="inline-flex items-center gap-2 px-3.5 py-2 text-sm font-medium rounded-lg border border-[var(--border)] bg-[var(--card)] hover:bg-[var(--muted)] text-[var(--foreground)] transition-colors shadow-xs"
+            title="Ganti antara mode Paket Periode dan mode Daftar Perorangan"
           >
-            <FileDown className="w-4 h-4" />
-            <span>Compile PDF ({selectedIds.length > 0 ? selectedIds.length : filteredRecords.length})</span>
+            <Layers className="w-4 h-4 text-[var(--primary)]" />
+            <span>{viewMode === 'periods' ? 'Mode Perorangan' : 'Mode Paket Periode'}</span>
           </button>
         </div>
       </div>
 
       {/* -------------------------------------------------------------
-          2. COLLAPSIBLE MONITORING DASHBOARD
+          2. MACRO KPI MONITORING DASHBOARD (Collapsible)
       ------------------------------------------------------------- */}
       {isDashboardVisible && (
         <div className="space-y-4">
-          {/* Top 4 KPI Cards */}
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
             <div className="bg-[var(--card)] border border-[var(--border)] rounded-xl p-4 shadow-xs">
               <div className="text-xs font-semibold uppercase tracking-wider text-[var(--muted-foreground)]">
-                Total Pengajuan
+                Paket Periode Aktif
               </div>
               <div className="text-2xl font-bold font-mono text-[var(--primary)] mt-1">
-                {analytics.totalCount} <span className="text-sm font-normal text-[var(--muted-foreground)]">Klaim</span>
+                {macroKPIs.totalPeriodsCount} <span className="text-sm font-normal text-[var(--muted-foreground)]">Periode</span>
               </div>
               <div className="text-xs text-[var(--muted-foreground)] mt-1 flex items-center gap-1">
-                <Users className="w-3 h-3 text-[var(--primary)]" />
-                Periode {selectedMonth} (P1 & P2)
+                <Calendar className="w-3 h-3 text-[var(--primary)]" />
+                Total {macroKPIs.totalEmployeesCount} berkas permohonan
               </div>
             </div>
 
             <div className="bg-[var(--card)] border border-[var(--border)] rounded-xl p-4 shadow-xs">
               <div className="text-xs font-semibold uppercase tracking-wider text-[var(--muted-foreground)]">
-                Total Nilai Klaim
+                Total Akumulasi Klaim
               </div>
               <div className="text-2xl font-bold font-mono text-[var(--foreground)] mt-1">
-                {formatRupiah(analytics.totalNominal)}
+                {formatRupiah(macroKPIs.totalNominalAll)}
               </div>
               <div className="text-xs text-[var(--muted-foreground)] mt-1">
-                Estimasi penggantian tiket & transport
+                Seluruh pengajuan tiket & transport 2026
               </div>
             </div>
 
@@ -594,121 +627,24 @@ export default function ReimbursementPage() {
                 Sudah Dicairkan Finance
               </div>
               <div className="text-2xl font-bold font-mono text-emerald-600 mt-1">
-                {formatRupiah(analytics.totalDicairkan)}
+                {formatRupiah(macroKPIs.totalDicairkanNominal)}
               </div>
               <div className="text-xs text-emerald-700 mt-1 flex items-center gap-1 font-medium">
                 <CheckCircle2 className="w-3 h-3 text-emerald-600" />
-                {analytics.persenCair}% dari total permohonan
+                {macroKPIs.persenCair}% dari total permohonan
               </div>
             </div>
 
             <div className="bg-[var(--card)] border border-[var(--border)] rounded-xl p-4 shadow-xs">
               <div className="text-xs font-semibold uppercase tracking-wider text-[var(--muted-foreground)]">
-                Menunggu Finance
+                Paket Menunggu Finance
               </div>
               <div className="text-2xl font-bold font-mono text-amber-600 mt-1">
-                {formatRupiah(analytics.totalPending)}
+                {formatRupiah(macroKPIs.totalPendingNominal)}
               </div>
               <div className="text-xs text-amber-700 mt-1 flex items-center gap-1">
                 <Clock className="w-3 h-3 text-amber-600" />
-                {analytics.pendingCount} berkas dalam proses verifikasi
-              </div>
-            </div>
-          </div>
-
-          {/* Bi-Monthly Period Monitoring & Top Claimers Grid */}
-          <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
-            {/* 2-Cut Period Monitoring Card */}
-            <div className="bg-[var(--card)] border border-[var(--border)] rounded-xl p-4 shadow-xs flex flex-col justify-between">
-              <div>
-                <div className="flex items-center justify-between border-b border-[var(--border)] pb-2 mb-3">
-                  <h2 className="text-xs font-bold uppercase tracking-wider text-[var(--foreground)] flex items-center gap-1.5">
-                    <Calendar className="w-4 h-4 text-[var(--primary)]" />
-                    Monitoring 2 Periode ({selectedMonth})
-                  </h2>
-                  <span className="text-[10px] font-mono px-2 py-0.5 rounded bg-[var(--muted)] text-[var(--muted-foreground)]">
-                    Cut-off 2x/Bulan
-                  </span>
-                </div>
-
-                <div className="space-y-3">
-                  {/* Periode 1 (1-15) */}
-                  <div className="border border-[var(--border)] rounded-lg p-3 bg-[var(--muted)]/20">
-                    <div className="flex items-center justify-between mb-1">
-                      <span className="text-xs font-bold text-[var(--primary)]">Periode 1 (Tgl 1 - 15)</span>
-                      <span className="text-xs font-mono font-bold text-[var(--foreground)]">{analytics.p1Count} Berkas</span>
-                    </div>
-                    <div className="text-xs text-[var(--muted-foreground)]">
-                      Total Klaim: <strong className="text-[var(--foreground)]">{formatRupiah(analytics.p1Nominal)}</strong>
-                    </div>
-                    <div className="w-full bg-[var(--border)] h-1.5 rounded-full mt-2 overflow-hidden">
-                      <div
-                        className="bg-[var(--primary)] h-full"
-                        style={{ width: `${analytics.totalCount > 0 ? (analytics.p1Count / analytics.totalCount) * 100 : 0}%` }}
-                      />
-                    </div>
-                  </div>
-
-                  {/* Periode 2 (16-31) */}
-                  <div className="border border-[var(--border)] rounded-lg p-3 bg-[var(--muted)]/20">
-                    <div className="flex items-center justify-between mb-1">
-                      <span className="text-xs font-bold text-amber-700">Periode 2 (Tgl 16 - 31)</span>
-                      <span className="text-xs font-mono font-bold text-[var(--foreground)]">{analytics.p2Count} Berkas</span>
-                    </div>
-                    <div className="text-xs text-[var(--muted-foreground)]">
-                      Total Klaim: <strong className="text-[var(--foreground)]">{formatRupiah(analytics.p2Nominal)}</strong>
-                    </div>
-                    <div className="w-full bg-[var(--border)] h-1.5 rounded-full mt-2 overflow-hidden">
-                      <div
-                        className="bg-amber-600 h-full"
-                        style={{ width: `${analytics.totalCount > 0 ? (analytics.p2Count / analytics.totalCount) * 100 : 0}%` }}
-                      />
-                    </div>
-                  </div>
-                </div>
-              </div>
-
-              <div className="text-[11px] text-[var(--muted-foreground)] mt-3 pt-2 border-t border-[var(--border)]">
-                Pengajuan Finance dijadwalkan setiap tanggal 16 (P1) dan tanggal 1 bulan berikutnya (P2).
-              </div>
-            </div>
-
-            {/* Top Claimers (Karyawan Paling Sering) */}
-            <div className="bg-[var(--card)] border border-[var(--border)] rounded-xl p-4 shadow-xs lg:col-span-2">
-              <div className="flex items-center justify-between border-b border-[var(--border)] pb-2 mb-3">
-                <h2 className="text-xs font-bold uppercase tracking-wider text-[var(--foreground)] flex items-center gap-1.5">
-                  <Users className="w-4 h-4 text-[var(--primary)]" />
-                  Top Claimers (Karyawan Paling Sering Reimbursement)
-                </h2>
-                <span className="text-xs text-[var(--muted-foreground)]">Berdasarkan frekuensi permohonan</span>
-              </div>
-
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                {analytics.topClaimers.map((tc, idx) => (
-                  <div key={idx} className="flex items-center justify-between p-2.5 rounded-lg border border-[var(--border)] bg-[var(--card)] hover:bg-[var(--muted)]/20 transition-colors">
-                    <div className="flex items-center gap-3">
-                      <div className="w-7 h-7 rounded-full bg-[var(--primary)]/10 text-[var(--primary)] flex items-center justify-center font-bold text-xs shrink-0">
-                        {idx + 1}
-                      </div>
-                      <div>
-                        <div className="text-xs font-bold text-[var(--foreground)] truncate max-w-[150px]">
-                          {tc.nama}
-                        </div>
-                        <div className="text-[11px] text-[var(--muted-foreground)]">
-                          {tc.departemen} • {tc.site}
-                        </div>
-                      </div>
-                    </div>
-                    <div className="text-right">
-                      <span className="text-xs font-bold font-mono px-2 py-0.5 rounded bg-teal-50 text-teal-800 border border-teal-200">
-                        {tc.count}x Klaim
-                      </span>
-                      <div className="text-[10px] text-[var(--muted-foreground)] mt-0.5">
-                        {formatRupiah(tc.totalNominal)}
-                      </div>
-                    </div>
-                  </div>
-                ))}
+                {macroKPIs.pendingCount} periode dalam proses Finance
               </div>
             </div>
           </div>
@@ -718,234 +654,481 @@ export default function ReimbursementPage() {
       {/* -------------------------------------------------------------
           3. FILTER TOOLBAR
       ------------------------------------------------------------- */}
-      <div className="bg-[var(--card)] border border-[var(--border)] rounded-xl p-4 space-y-3 shadow-xs">
-        <div className="flex flex-wrap items-center justify-between gap-3">
-          <div className="flex flex-wrap items-center gap-3">
-            {/* Month Filter */}
-            <div className="w-44">
-              <CustomSelect
-                icon={Calendar}
-                value={selectedMonth}
-                onChange={setSelectedMonth}
-                options={monthOptions}
-                placeholder="Pilih Bulan..."
-              />
-            </div>
-
-            {/* Period 1-15 vs 16-31 Filter */}
-            <div className="w-52">
-              <CustomSelect
-                icon={Layers}
-                value={selectedPeriodCut}
-                onChange={setSelectedPeriodCut}
-                options={periodOptions}
-                placeholder="Pilih Periode..."
-              />
-            </div>
-
-            {/* Site Filter */}
-            <div className="w-40">
-              <CustomSelect
-                icon={Building}
-                value={selectedSite}
-                onChange={setSelectedSite}
-                options={siteOptions}
-                placeholder="Pilih Site..."
-              />
-            </div>
-
-            {/* Status Finance Filter */}
-            <div className="w-48">
-              <CustomSelect
-                icon={CheckCircle2}
-                value={selectedStatusFinance}
-                onChange={setSelectedStatusFinance}
-                options={statusFinanceOptions}
-                placeholder="Status Finance..."
-              />
-            </div>
+      <div className="bg-[var(--card)] border border-[var(--border)] rounded-xl p-4 flex flex-wrap items-center justify-between gap-3 shadow-xs">
+        <div className="flex flex-wrap items-center gap-3">
+          {/* Month Filter */}
+          <div className="w-48">
+            <CustomSelect
+              icon={Calendar}
+              value={selectedMonth}
+              onChange={setSelectedMonth}
+              options={monthOptions}
+              placeholder="Filter Bulan..."
+            />
           </div>
 
-          {/* Search Box */}
-          <div className="relative w-full sm:w-64">
-            <Search className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-[var(--muted-foreground)]" />
-            <input
-              type="text"
-              value={searchQuery}
-              onChange={(e) => setSearchQuery(e.target.value)}
-              placeholder="Cari Nama, NIK, Dept..."
-              className="w-full pl-9 pr-3 py-2 text-sm rounded-lg border border-[var(--border)] bg-[var(--card)] text-[var(--foreground)] focus:outline-none focus:ring-2 focus:ring-[var(--primary)] shadow-2xs"
+          {/* Period Cut Filter */}
+          <div className="w-52">
+            <CustomSelect
+              icon={Layers}
+              value={selectedPeriodCut}
+              onChange={setSelectedPeriodCut}
+              options={periodCutOptions}
+              placeholder="Filter Periode..."
             />
-            {searchQuery && (
-              <button
-                onClick={() => setSearchQuery('')}
-                className="absolute right-2.5 top-1/2 -translate-y-1/2 text-[var(--muted-foreground)] hover:text-[var(--foreground)]"
-              >
-                <X className="w-3.5 h-3.5" />
-              </button>
-            )}
+          </div>
+
+          {/* Status Finance Filter */}
+          <div className="w-52">
+            <CustomSelect
+              icon={CheckCircle2}
+              value={selectedStatusFinance}
+              onChange={setSelectedStatusFinance}
+              options={statusFinanceOptions}
+              placeholder="Status Finance..."
+            />
           </div>
         </div>
 
-        {/* Date Range Row */}
-        <div className="flex flex-wrap items-center gap-3 pt-2 border-t border-[var(--border)] text-xs text-[var(--muted-foreground)]">
-          <span className="font-semibold flex items-center gap-1 text-[var(--foreground)]">
-            <Filter className="w-3 h-3 text-[var(--primary)]" />
-            Rentang Tgl Perjalanan:
-          </span>
-          <div className="flex items-center gap-2">
-            <input
-              type="date"
-              value={startDateFilter}
-              onChange={(e) => setStartDateFilter(e.target.value)}
-              className="px-2.5 py-1.5 text-xs rounded-md border border-[var(--border)] bg-[var(--card)] text-[var(--foreground)] focus:outline-none focus:ring-1 focus:ring-[var(--primary)]"
-            />
-            <span>s/d</span>
-            <input
-              type="date"
-              value={endDateFilter}
-              onChange={(e) => setEndDateFilter(e.target.value)}
-              className="px-2.5 py-1.5 text-xs rounded-md border border-[var(--border)] bg-[var(--card)] text-[var(--foreground)] focus:outline-none focus:ring-1 focus:ring-[var(--primary)]"
-            />
-            {(startDateFilter || endDateFilter) && (
-              <button
-                onClick={() => {
-                  setStartDateFilter('');
-                  setEndDateFilter('');
-                }}
-                className="text-[var(--primary)] hover:underline ml-1 font-medium"
-              >
-                Reset Tanggal
-              </button>
-            )}
-          </div>
-
-          <div className="ml-auto text-xs font-mono text-[var(--muted-foreground)]">
-            Menampilkan <strong>{filteredRecords.length}</strong> dari {records.length} data reimbursement
-          </div>
+        {/* Search */}
+        <div className="relative w-full sm:w-64">
+          <Search className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-[var(--muted-foreground)]" />
+          <input
+            type="text"
+            value={searchQuery}
+            onChange={(e) => setSearchQuery(e.target.value)}
+            placeholder="Cari Periode / Karyawan..."
+            className="w-full pl-9 pr-3 py-2 text-sm rounded-lg border border-[var(--border)] bg-[var(--card)] text-[var(--foreground)] focus:outline-none focus:ring-2 focus:ring-[var(--primary)] shadow-2xs"
+          />
+          {searchQuery && (
+            <button
+              onClick={() => setSearchQuery('')}
+              className="absolute right-2.5 top-1/2 -translate-y-1/2 text-[var(--muted-foreground)] hover:text-[var(--foreground)]"
+            >
+              <X className="w-3.5 h-3.5" />
+            </button>
+          )}
         </div>
       </div>
 
       {/* -------------------------------------------------------------
-          4. DATA TABLE WITH MULTI-ROW SELECTION
+          4. PRIMARY VIEW: TABLE OF PERIOD PACKAGES (1 PAKET PER PERIODE)
       ------------------------------------------------------------- */}
-      <div className="bg-[var(--card)] border border-[var(--border)] rounded-xl shadow-xs overflow-hidden">
-        <div className="overflow-x-auto">
-          <table className="w-full text-left text-xs border-collapse">
-            <thead className="bg-[var(--muted)]/50 text-[var(--muted-foreground)] font-semibold border-b border-[var(--border)]">
-              <tr>
-                <th className="p-3 w-10 text-center">
-                  <button
-                    onClick={handleToggleSelectAll}
-                    className="p-1 hover:bg-[var(--muted)] rounded text-[var(--foreground)] transition-colors"
-                    title={isAllSelected ? 'Batalkan pilihan semua' : 'Pilih semua baris yang tampil'}
-                  >
-                    {isAllSelected ? (
-                      <CheckSquare className="w-4 h-4 text-[var(--primary)]" />
-                    ) : (
-                      <Square className="w-4 h-4 text-[var(--muted-foreground)]" />
-                    )}
-                  </button>
-                </th>
-                <th className="p-3 w-12 text-center">No</th>
-                <th className="p-3 min-w-[130px]">Tgl Form & Periode</th>
-                <th className="p-3 min-w-[180px]">Nama Karyawan & NIK</th>
-                <th className="p-3 min-w-[140px]">Departemen & Site</th>
-                <th className="p-3 min-w-[130px]">Tgl Perjalanan</th>
-                <th className="p-3 min-w-[170px]">Lampiran (X, Y, AO)</th>
-                <th className="p-3 min-w-[110px] text-right">Nilai Klaim</th>
-                <th className="p-3 min-w-[130px] text-center">Status Finance</th>
-                <th className="p-3 min-w-[130px]">Jadwal Finance</th>
-                <th className="p-3 w-20 text-center">Aksi</th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-[var(--border)] text-[var(--foreground)]">
-              {filteredRecords.length === 0 ? (
+      {viewMode === 'periods' ? (
+        <div className="bg-[var(--card)] border border-[var(--border)] rounded-xl shadow-xs overflow-hidden">
+          <div className="overflow-x-auto">
+            <table className="w-full text-left text-xs border-collapse">
+              <thead className="bg-[var(--muted)]/50 text-[var(--muted-foreground)] font-semibold border-b border-[var(--border)]">
                 <tr>
-                  <td colSpan={11} className="py-12 text-center text-[var(--muted-foreground)]">
-                    <FileText className="w-10 h-10 mx-auto text-[var(--muted-foreground)]/40 mb-2" />
-                    <p className="font-semibold text-sm">Tidak ada data reimbursement yang cocok dengan filter.</p>
-                    <p className="text-xs text-[var(--muted-foreground)] mt-1">Coba ubah filter bulan, periode, atau kata kunci pencarian Anda.</p>
-                  </td>
+                  <th className="p-3.5 w-12 text-center">No</th>
+                  <th className="p-3.5 min-w-[200px]">Paket Periode</th>
+                  <th className="p-3.5 min-w-[180px]">Rentang Waktu Submit</th>
+                  <th className="p-3.5 min-w-[120px] text-center">Jumlah Berkas</th>
+                  <th className="p-3.5 min-w-[140px] text-right">Total Nilai Paket</th>
+                  <th className="p-3.5 min-w-[130px] text-center">Status Finance</th>
+                  <th className="p-3.5 min-w-[150px]">Jadwal Finance</th>
+                  <th className="p-3.5 min-w-[260px] text-center">Aksi Paket Periode</th>
                 </tr>
-              ) : (
-                filteredRecords.map((r, idx) => {
-                  const isChecked = selectedIds.includes(r.id);
+              </thead>
+              <tbody className="divide-y divide-[var(--border)] text-[var(--foreground)]">
+                {filteredPeriodBatches.length === 0 ? (
+                  <tr>
+                    <td colSpan={8} className="py-12 text-center text-[var(--muted-foreground)]">
+                      <Calendar className="w-10 h-10 mx-auto text-[var(--muted-foreground)]/40 mb-2" />
+                      <p className="font-semibold text-sm">Tidak ada paket periode yang cocok dengan filter.</p>
+                      <p className="text-xs text-[var(--muted-foreground)] mt-1">Coba ubah filter bulan atau status finance.</p>
+                    </td>
+                  </tr>
+                ) : (
+                  filteredPeriodBatches.map((batch, idx) => {
+                    let statusBadgeClass = 'bg-slate-100 text-slate-700 border-slate-200';
+                    if (batch.status_finance === 'Dicairkan') {
+                      statusBadgeClass = 'bg-emerald-50 text-emerald-800 border-emerald-200';
+                    } else if (batch.status_finance === 'Diajukan') {
+                      statusBadgeClass = 'bg-amber-50 text-amber-800 border-amber-200';
+                    }
 
-                  let statusBadgeClass = 'bg-slate-100 text-slate-700 border-slate-200';
-                  if (r.status_finance === 'Dicairkan') {
-                    statusBadgeClass = 'bg-emerald-50 text-emerald-800 border-emerald-200';
-                  } else if (r.status_finance === 'Diajukan') {
-                    statusBadgeClass = 'bg-amber-50 text-amber-800 border-amber-200';
-                  }
+                    const hasItems = batch.items.length > 0;
 
-                  return (
-                    <tr
-                      key={r.id || idx}
-                      className={`hover:bg-[var(--muted)]/30 transition-colors ${isChecked ? 'bg-[var(--primary)]/5' : ''}`}
+                    return (
+                      <tr
+                        key={batch.key}
+                        className="hover:bg-[var(--muted)]/30 transition-colors group cursor-pointer"
+                        onClick={() => hasItems && handleOpenPeriodDrawer(batch)}
+                      >
+                        {/* No */}
+                        <td className="p-3.5 text-center font-mono text-[var(--muted-foreground)]">
+                          {idx + 1}
+                        </td>
+
+                        {/* Paket Periode */}
+                        <td className="p-3.5">
+                          <div className="font-bold text-sm text-[var(--foreground)] flex items-center gap-1.5">
+                            <span className="w-2 h-2 rounded-full bg-[var(--primary)]" />
+                            {batch.label}
+                          </div>
+                          <div className="text-[11px] text-[var(--muted-foreground)] mt-0.5">
+                            Cut-off: {batch.periode_ke}
+                          </div>
+                        </td>
+
+                        {/* Rentang Tanggal */}
+                        <td className="p-3.5 font-mono text-[11px]">
+                          <div className="flex items-center gap-1 text-[var(--foreground)]">
+                            <Calendar className="w-3.5 h-3.5 text-[var(--primary)]" />
+                            <span>{batch.rentang_tanggal}</span>
+                          </div>
+                        </td>
+
+                        {/* Jumlah Berkas */}
+                        <td className="p-3.5 text-center">
+                          <span className={`inline-flex items-center gap-1 px-2.5 py-1 rounded-full font-bold font-mono text-xs ${hasItems ? 'bg-[var(--primary)]/10 text-[var(--primary)]' : 'bg-slate-100 text-slate-500'}`}>
+                            <Users className="w-3 h-3" />
+                            {batch.items.length} Berkas
+                          </span>
+                        </td>
+
+                        {/* Total Nilai */}
+                        <td className="p-3.5 text-right font-mono font-bold text-sm text-[var(--primary)]">
+                          {formatRupiah(batch.total_nominal)}
+                        </td>
+
+                        {/* Status Finance */}
+                        <td className="p-3.5 text-center">
+                          <span className={`inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-[11px] font-semibold border ${statusBadgeClass}`}>
+                            {batch.status_finance === 'Dicairkan' && <CheckCircle2 className="w-3 h-3 text-emerald-600" />}
+                            {batch.status_finance === 'Diajukan' && <Clock className="w-3 h-3 text-amber-600" />}
+                            {batch.status_finance}
+                          </span>
+                        </td>
+
+                        {/* Jadwal Finance */}
+                        <td className="p-3.5 font-mono text-[10px]">
+                          <div>Diajukan: <strong>{batch.tgl_pengajuan_finance || '-'}</strong></div>
+                          <div className="text-emerald-700">Pencairan: <strong>{batch.tgl_pencairan_finance || '-'}</strong></div>
+                        </td>
+
+                        {/* Aksi Paket Periode */}
+                        <td className="p-3.5 text-center" onClick={(e) => e.stopPropagation()}>
+                          <div className="flex items-center justify-center gap-1.5">
+                            {/* Detail Drawer Button */}
+                            <button
+                              onClick={() => handleOpenPeriodDrawer(batch)}
+                              disabled={!hasItems}
+                              className="inline-flex items-center gap-1 px-2.5 py-1 text-xs font-semibold rounded-md border border-[var(--border)] bg-[var(--card)] hover:bg-[var(--muted)] text-[var(--foreground)] disabled:opacity-40 transition-colors"
+                              title="Buka rincian seluruh berkas karyawan pada periode ini"
+                            >
+                              <Eye className="w-3.5 h-3.5 text-[var(--primary)]" />
+                              <span>Detail</span>
+                            </button>
+
+                            {/* Update Finance Button */}
+                            <button
+                              onClick={() => handleOpenPeriodFinanceEdit(batch)}
+                              disabled={!hasItems}
+                              className="inline-flex items-center gap-1 px-2.5 py-1 text-xs font-semibold rounded-md border border-[var(--border)] bg-[var(--card)] hover:bg-[var(--muted)] text-[var(--foreground)] disabled:opacity-40 transition-colors"
+                              title="Update status dan jadwal Finance 1 paket periode ini"
+                            >
+                              <Edit className="w-3.5 h-3.5 text-amber-600" />
+                              <span>Finance</span>
+                            </button>
+
+                            {/* Unduh Rekapan Excel */}
+                            <button
+                              onClick={() => handleExportPeriodExcel(batch)}
+                              disabled={!hasItems}
+                              className="inline-flex items-center gap-1 px-2.5 py-1 text-xs font-semibold rounded-md border border-emerald-300 bg-emerald-50 hover:bg-emerald-100 text-emerald-800 disabled:opacity-40 transition-colors"
+                              title="Unduh file Rekapan Excel (.xlsx) untuk diserahkan ke Finance"
+                            >
+                              <FileSpreadsheet className="w-3.5 h-3.5" />
+                              <span>Excel</span>
+                            </button>
+
+                            {/* Compile PDF Button */}
+                            <button
+                              onClick={() => handleTriggerPeriodPdfCompile(batch)}
+                              disabled={!hasItems}
+                              className="inline-flex items-center gap-1 px-2.5 py-1 text-xs font-bold rounded-md bg-[var(--primary)] text-white hover:opacity-90 disabled:opacity-40 transition-all shadow-2xs"
+                              title="Compile seluruh lampiran (Bukti Cuti, Nota Berangkat, Nota Pulang) periode ini ke 1 file PDF"
+                            >
+                              <DownloadCloud className="w-3.5 h-3.5" />
+                              <span>PDF</span>
+                            </button>
+                          </div>
+                        </td>
+                      </tr>
+                    );
+                  })
+                )}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      ) : (
+        /* -------------------------------------------------------------
+            ALTERNATIVE VIEW: FLAT LIST OF ALL INDIVIDUALS
+        ------------------------------------------------------------- */
+        <div className="bg-[var(--card)] border border-[var(--border)] rounded-xl shadow-xs overflow-hidden">
+          <div className="p-3 bg-[var(--muted)]/20 border-b border-[var(--border)] flex items-center justify-between text-xs">
+            <span className="font-semibold text-[var(--foreground)]">
+              Tampilan Daftar Perorangan (Semua Karyawan)
+            </span>
+            <button
+              onClick={() => setViewMode('periods')}
+              className="text-[var(--primary)] font-bold hover:underline"
+            >
+              Kembali ke Mode Paket Periode
+            </button>
+          </div>
+          <div className="overflow-x-auto">
+            <table className="w-full text-left text-xs border-collapse">
+              <thead className="bg-[var(--muted)]/50 text-[var(--muted-foreground)] font-semibold border-b border-[var(--border)]">
+                <tr>
+                  <th className="p-3 w-12 text-center">No</th>
+                  <th className="p-3">Tgl Form & Periode</th>
+                  <th className="p-3">Nama Karyawan & NIK</th>
+                  <th className="p-3">Departemen & Site</th>
+                  <th className="p-3">Tgl Perjalanan</th>
+                  <th className="p-3">Lampiran (X, Y, AO)</th>
+                  <th className="p-3 text-right">Nilai Klaim</th>
+                  <th className="p-3 text-center">Status Finance</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-[var(--border)] text-[var(--foreground)]">
+                {records.slice(0, 100).map((r, idx) => (
+                  <tr key={r.id || idx} className="hover:bg-[var(--muted)]/30">
+                    <td className="p-3 text-center font-mono text-[var(--muted-foreground)]">{idx + 1}</td>
+                    <td className="p-3">
+                      <div>{r.timestamp?.split(' ')[0]}</div>
+                      <div className="text-[10px] text-[var(--primary)] font-bold">{r.periode_bulan} • {r.periode_ke}</div>
+                    </td>
+                    <td className="p-3">
+                      <div className="font-bold">{r.nama}</div>
+                      <div className="text-[10px] font-mono text-[var(--muted-foreground)]">NIK: {r.nik}</div>
+                    </td>
+                    <td className="p-3">
+                      <div>{r.departemen}</div>
+                      <div className="text-[10px] text-[var(--muted-foreground)]">Site {r.site}</div>
+                    </td>
+                    <td className="p-3 font-mono text-[11px]">
+                      <div>{r.tgl_berangkat} s/d {r.tgl_pulang}</div>
+                    </td>
+                    <td className="p-3">
+                      <div className="flex gap-1">
+                        {r.url_bukti_cuti && (
+                          <a href={r.url_bukti_cuti} target="_blank" rel="noreferrer" className="px-1.5 py-0.5 rounded text-[10px] bg-teal-50 text-teal-800 border border-teal-200">
+                            Cuti (X)
+                          </a>
+                        )}
+                        {r.url_nota_berangkat && (
+                          <a href={r.url_nota_berangkat} target="_blank" rel="noreferrer" className="px-1.5 py-0.5 rounded text-[10px] bg-sky-50 text-sky-800 border border-sky-200">
+                            Pergi (Y)
+                          </a>
+                        )}
+                        {r.url_nota_pulang && (
+                          <a href={r.url_nota_pulang} target="_blank" rel="noreferrer" className="px-1.5 py-0.5 rounded text-[10px] bg-indigo-50 text-indigo-800 border border-indigo-200">
+                            Pulang (AO)
+                          </a>
+                        )}
+                      </div>
+                    </td>
+                    <td className="p-3 text-right font-mono font-bold text-[var(--primary)]">{formatRupiah(r.nominal)}</td>
+                    <td className="p-3 text-center">
+                      <span className="px-2 py-0.5 rounded-full text-[10px] font-semibold bg-slate-100 text-slate-700">
+                        {r.status_finance || 'Draft'}
+                      </span>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      )}
+
+      {/* -------------------------------------------------------------
+          5. RIGHT DRAWER: DETAIL RINCIAN KARYAWAN 1 PERIODE
+      ------------------------------------------------------------- */}
+      {activeDrawerPeriod && (
+        <div className="fixed inset-0 z-50 overflow-hidden">
+          {/* Backdrop */}
+          <div
+            onClick={handleCloseDrawer}
+            className="absolute inset-0 bg-black/40 backdrop-blur-2xs transition-opacity"
+          />
+
+          <div className="fixed inset-y-0 right-0 max-w-full flex pl-10">
+            <div className="w-screen max-w-2xl bg-[var(--card)] border-l border-[var(--border)] shadow-2xl flex flex-col animate-in slide-in-from-right duration-300">
+              {/* Drawer Header */}
+              <div className="p-5 border-b border-[var(--border)] bg-[var(--muted)]/20">
+                <div className="flex items-start justify-between gap-3">
+                  <div>
+                    <span className="text-[10px] font-mono font-bold uppercase tracking-wider px-2 py-0.5 rounded bg-[var(--primary)]/10 text-[var(--primary)]">
+                      Paket Periode Terpilih
+                    </span>
+                    <h2 className="text-lg font-bold text-[var(--foreground)] mt-1">
+                      {activeDrawerPeriod.label}
+                    </h2>
+                    <p className="text-xs text-[var(--muted-foreground)]">
+                      Rentang Form: {activeDrawerPeriod.rentang_tanggal} • {activeDrawerPeriod.items.length} Karyawan Terdaftar
+                    </p>
+                  </div>
+
+                  <button
+                    onClick={handleCloseDrawer}
+                    className="p-1 rounded-lg text-[var(--muted-foreground)] hover:text-[var(--foreground)] hover:bg-[var(--muted)]"
+                  >
+                    <X className="w-5 h-5" />
+                  </button>
+                </div>
+
+                {/* Drawer KPI Snapshot Bar */}
+                <div className="grid grid-cols-3 gap-3 mt-4 pt-3 border-t border-[var(--border)]">
+                  <div>
+                    <div className="text-[10px] font-medium text-[var(--muted-foreground)] uppercase">Total Klaim Periode</div>
+                    <div className="text-sm font-bold font-mono text-[var(--primary)]">
+                      {formatRupiah(activeDrawerPeriod.total_nominal)}
+                    </div>
+                  </div>
+                  <div>
+                    <div className="text-[10px] font-medium text-[var(--muted-foreground)] uppercase">Status Finance</div>
+                    <div className="text-xs font-bold text-[var(--foreground)]">
+                      {activeDrawerPeriod.status_finance}
+                    </div>
+                  </div>
+                  <div>
+                    <div className="text-[10px] font-medium text-[var(--muted-foreground)] uppercase">Jadwal Pencairan</div>
+                    <div className="text-xs font-mono font-semibold text-emerald-700">
+                      {activeDrawerPeriod.tgl_pencairan_finance || 'Belum Dijadwalkan'}
+                    </div>
+                  </div>
+                </div>
+
+                {/* Quick Action Strip inside Drawer Header */}
+                <div className="flex flex-wrap items-center gap-2 mt-4">
+                  {/* Compile PDF Button */}
+                  <button
+                    onClick={() => {
+                      const selectedInDrawer = activeDrawerPeriod.items.filter(it => drawerSelectedIds.includes(it.id));
+                      handleTriggerPeriodPdfCompile(activeDrawerPeriod, selectedInDrawer.length > 0 ? selectedInDrawer : activeDrawerPeriod.items);
+                    }}
+                    className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-bold rounded-lg bg-[var(--primary)] text-white hover:opacity-90 shadow-2xs"
+                  >
+                    <DownloadCloud className="w-3.5 h-3.5" />
+                    <span>Compile PDF Paket ({drawerSelectedIds.length})</span>
+                  </button>
+
+                  {/* Unduh Rekapan Excel Button */}
+                  <button
+                    onClick={() => handleExportPeriodExcel(activeDrawerPeriod)}
+                    className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold rounded-lg border border-emerald-300 bg-emerald-50 hover:bg-emerald-100 text-emerald-800 shadow-2xs"
+                  >
+                    <FileSpreadsheet className="w-3.5 h-3.5" />
+                    <span>Unduh Excel Rekapan</span>
+                  </button>
+
+                  {/* Edit Finance Button */}
+                  <button
+                    onClick={() => handleOpenPeriodFinanceEdit(activeDrawerPeriod)}
+                    className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold rounded-lg border border-[var(--border)] bg-[var(--card)] hover:bg-[var(--muted)] text-[var(--foreground)] shadow-2xs"
+                  >
+                    <Edit className="w-3.5 h-3.5 text-amber-600" />
+                    <span>Update Finance</span>
+                  </button>
+                </div>
+              </div>
+
+              {/* Drawer Body: Employee Table */}
+              <div className="flex-1 overflow-y-auto p-5 space-y-4">
+                <div className="flex items-center justify-between text-xs text-[var(--muted-foreground)] border-b border-[var(--border)] pb-2">
+                  <div className="flex items-center gap-2">
+                    <button
+                      onClick={handleToggleDrawerSelectAll}
+                      className="p-1 hover:bg-[var(--muted)] rounded text-[var(--foreground)]"
                     >
-                      {/* Checkbox */}
-                      <td className="p-3 text-center">
-                        <button
-                          onClick={() => handleToggleSelectRow(r.id)}
-                          className="p-1 hover:bg-[var(--muted)] rounded text-[var(--foreground)] transition-colors"
-                        >
-                          {isChecked ? (
-                            <CheckSquare className="w-4 h-4 text-[var(--primary)]" />
-                          ) : (
-                            <Square className="w-4 h-4 text-[var(--muted-foreground)]" />
-                          )}
-                        </button>
-                      </td>
+                      {drawerSelectedIds.length === activeDrawerPeriod.items.length ? (
+                        <CheckSquare className="w-4 h-4 text-[var(--primary)]" />
+                      ) : (
+                        <Square className="w-4 h-4 text-[var(--muted-foreground)]" />
+                      )}
+                    </button>
+                    <span className="font-semibold text-[var(--foreground)]">
+                      {drawerSelectedIds.length} dari {activeDrawerPeriod.items.length} Karyawan Terpilih
+                    </span>
+                  </div>
 
-                      {/* No */}
-                      <td className="p-3 text-center font-mono text-[var(--muted-foreground)]">
-                        {idx + 1}
-                      </td>
+                  <span className="text-[11px] font-mono">
+                    Sub-total: {formatRupiah(
+                      activeDrawerPeriod.items
+                        .filter(it => drawerSelectedIds.includes(it.id))
+                        .reduce((sum, it) => sum + (Number(it.nominal) || 0), 0)
+                    )}
+                  </span>
+                </div>
 
-                      {/* Timestamp & Periode */}
-                      <td className="p-3">
-                        <div className="font-medium text-[var(--foreground)]">{r.timestamp?.split(' ')[0] || '-'}</div>
-                        <div className="text-[10px] font-mono text-[var(--primary)] font-semibold">
-                          {r.periode_bulan} • {r.periode_ke?.includes('1-15') ? 'P1' : 'P2'}
+                <div className="space-y-3">
+                  {activeDrawerPeriod.items.map((emp, empIdx) => {
+                    const isChecked = drawerSelectedIds.includes(emp.id);
+
+                    return (
+                      <div
+                        key={emp.id || empIdx}
+                        className={`border border-[var(--border)] rounded-xl p-3.5 transition-all ${isChecked ? 'bg-[var(--card)] shadow-xs border-[var(--primary)]/40 ring-1 ring-[var(--primary)]/20' : 'bg-[var(--muted)]/10 opacity-70'}`}
+                      >
+                        <div className="flex items-start justify-between gap-3">
+                          <div className="flex items-start gap-3">
+                            <button
+                              onClick={() => handleToggleDrawerItem(emp.id)}
+                              className="mt-0.5 text-[var(--foreground)] p-0.5 hover:bg-[var(--muted)] rounded"
+                            >
+                              {isChecked ? (
+                                <CheckSquare className="w-4 h-4 text-[var(--primary)]" />
+                              ) : (
+                                <Square className="w-4 h-4 text-[var(--muted-foreground)]" />
+                              )}
+                            </button>
+
+                            <div>
+                              <div className="font-bold text-xs text-[var(--foreground)]">
+                                {emp.nama}
+                              </div>
+                              <div className="text-[11px] font-mono text-[var(--muted-foreground)]">
+                                NIK: {emp.nik || '-'} • HP: {emp.no_hp || '-'}
+                              </div>
+                              <div className="text-[11px] text-[var(--muted-foreground)] mt-0.5">
+                                {emp.departemen} • Site <strong className="text-[var(--primary)]">{emp.site}</strong>
+                              </div>
+                              <div className="text-[10px] text-[var(--muted-foreground)] font-mono mt-1">
+                                Perjalanan: {emp.tgl_berangkat || '-'} s/d {emp.tgl_pulang || '-'}
+                              </div>
+                            </div>
+                          </div>
+
+                          <div className="text-right shrink-0">
+                            <div className="font-mono font-bold text-xs text-[var(--primary)]">
+                              {formatRupiah(emp.nominal)}
+                            </div>
+                            <span className="text-[10px] font-semibold px-2 py-0.5 rounded-full bg-slate-100 text-slate-700 mt-1 inline-block">
+                              {emp.status_finance || 'Draft'}
+                            </span>
+                          </div>
                         </div>
-                      </td>
 
-                      {/* Nama & NIK */}
-                      <td className="p-3">
-                        <div className="font-bold text-[var(--foreground)]">{r.nama}</div>
-                        <div className="text-[11px] font-mono text-[var(--muted-foreground)]">
-                          NIK: {r.nik || '-'} {r.no_hp ? `• ${r.no_hp}` : ''}
-                        </div>
-                      </td>
+                        {/* Document Attachment Links */}
+                        <div className="mt-3 pt-2.5 border-t border-[var(--border)] flex flex-wrap gap-1.5 items-center">
+                          <span className="text-[10px] font-semibold text-[var(--muted-foreground)] mr-1">
+                            Lampiran:
+                          </span>
 
-                      {/* Departemen & Site */}
-                      <td className="p-3">
-                        <div className="font-medium">{r.departemen || '-'}</div>
-                        <div className="text-[10px] font-semibold text-[var(--muted-foreground)]">
-                          Site <span className="text-[var(--primary)]">{r.site || '-'}</span> ({r.status || 'CUTI'})
-                        </div>
-                      </td>
-
-                      {/* Tgl Perjalanan */}
-                      <td className="p-3 font-mono text-[11px]">
-                        <div>Pegi: {r.tgl_berangkat || '-'}</div>
-                        <div className="text-[var(--muted-foreground)]">Plng: {r.tgl_pulang || '-'}</div>
-                      </td>
-
-                      {/* Lampiran Badges with links */}
-                      <td className="p-3">
-                        <div className="flex flex-wrap gap-1">
                           {/* Col X: Bukti Cuti */}
-                          {r.url_bukti_cuti ? (
+                          {emp.url_bukti_cuti ? (
                             <a
-                              href={r.url_bukti_cuti}
+                              href={emp.url_bukti_cuti}
                               target="_blank"
                               rel="noreferrer"
-                              className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] bg-teal-50 text-teal-800 border border-teal-200 hover:underline"
-                              title="Lihat Bukti Cuti Sunfish (Kolom X)"
+                              className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-[10px] font-medium bg-teal-50 text-teal-800 border border-teal-200 hover:underline"
                             >
-                              <span>Cuti (X)</span>
+                              <span>Bukti Cuti (Col X)</span>
                               <ExternalLink className="w-2.5 h-2.5" />
                             </a>
                           ) : (
@@ -953,132 +1136,158 @@ export default function ReimbursementPage() {
                           )}
 
                           {/* Col Y: Nota Keberangkatan */}
-                          {r.url_nota_berangkat ? (
+                          {emp.url_nota_berangkat ? (
                             <a
-                              href={r.url_nota_berangkat}
+                              href={emp.url_nota_berangkat}
                               target="_blank"
                               rel="noreferrer"
-                              className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] bg-sky-50 text-sky-800 border border-sky-200 hover:underline"
-                              title="Lihat Nota Keberangkatan (Kolom Y)"
+                              className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-[10px] font-medium bg-sky-50 text-sky-800 border border-sky-200 hover:underline"
                             >
-                              <span>Pergi (Y)</span>
+                              <span>Nota Berangkat (Col Y)</span>
                               <ExternalLink className="w-2.5 h-2.5" />
                             </a>
                           ) : (
-                            <span className="text-[10px] text-slate-400">No Pergi</span>
+                            <span className="text-[10px] text-slate-400">No Nota Pergi</span>
                           )}
 
                           {/* Col AO: Nota Kepulangan */}
-                          {r.url_nota_pulang ? (
+                          {emp.url_nota_pulang ? (
                             <a
-                              href={r.url_nota_pulang}
+                              href={emp.url_nota_pulang}
                               target="_blank"
                               rel="noreferrer"
-                              className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] bg-indigo-50 text-indigo-800 border border-indigo-200 hover:underline"
-                              title="Lihat Nota Kepulangan (Kolom AO)"
+                              className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-[10px] font-medium bg-indigo-50 text-indigo-800 border border-indigo-200 hover:underline"
                             >
-                              <span>Pulang (AO)</span>
+                              <span>Nota Pulang (Col AO)</span>
                               <ExternalLink className="w-2.5 h-2.5" />
                             </a>
                           ) : null}
                         </div>
-                      </td>
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
 
-                      {/* Nilai Klaim */}
-                      <td className="p-3 text-right font-mono font-bold text-[var(--primary)]">
-                        {formatRupiah(r.nominal)}
-                      </td>
-
-                      {/* Status Finance */}
-                      <td className="p-3 text-center">
-                        <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-semibold border ${statusBadgeClass}`}>
-                          {r.status_finance === 'Dicairkan' && <CheckCircle2 className="w-3 h-3 text-emerald-600" />}
-                          {r.status_finance === 'Diajukan' && <Clock className="w-3 h-3 text-amber-600" />}
-                          {r.status_finance || 'Draft'}
-                        </span>
-                      </td>
-
-                      {/* Jadwal Finance */}
-                      <td className="p-3 font-mono text-[10px]">
-                        <div>Aju: {r.tgl_pengajuan_finance || '-'}</div>
-                        <div className="text-emerald-700 font-semibold">Cair: {r.tgl_pencairan_finance || '-'}</div>
-                      </td>
-
-                      {/* Aksi */}
-                      <td className="p-3 text-center">
-                        <div className="flex items-center justify-center gap-1">
-                          <button
-                            onClick={() => handleOpenEditSingle(r)}
-                            className="p-1 rounded text-[var(--muted-foreground)] hover:text-[var(--primary)] hover:bg-[var(--muted)]"
-                            title="Edit Data Finance & Nominal"
-                          >
-                            <Edit className="w-3.5 h-3.5" />
-                          </button>
-                        </div>
-                      </td>
-                    </tr>
-                  );
-                })
-              )}
-            </tbody>
-          </table>
-        </div>
-      </div>
-
-      {/* -------------------------------------------------------------
-          5. STICKY FLOATING ACTION BAR (When Rows Selected)
-      ------------------------------------------------------------- */}
-      {selectedIds.length > 0 && (
-        <div className="fixed bottom-6 left-1/2 -translate-x-1/2 z-40 bg-[var(--card)] border border-[var(--border)] shadow-xl rounded-full px-5 py-2.5 flex items-center gap-4 animate-in fade-in slide-in-from-bottom-4">
-          <div className="text-xs font-semibold text-[var(--foreground)] flex items-center gap-2">
-            <span className="w-6 h-6 rounded-full bg-[var(--primary)] text-white flex items-center justify-center text-xs font-mono font-bold">
-              {selectedIds.length}
-            </span>
-            <span>Data Terpilih</span>
+              {/* Drawer Footer */}
+              <div className="p-4 border-t border-[var(--border)] bg-[var(--muted)]/20 flex items-center justify-between">
+                <div className="text-xs text-[var(--muted-foreground)]">
+                  {drawerSelectedIds.length} berkas siap diproses
+                </div>
+                <button
+                  onClick={handleCloseDrawer}
+                  className="px-4 py-2 text-xs font-semibold rounded-lg border border-[var(--border)] bg-[var(--card)] hover:bg-[var(--muted)] text-[var(--foreground)]"
+                >
+                  Tutup Rincian
+                </button>
+              </div>
+            </div>
           </div>
-
-          <div className="h-4 w-px bg-[var(--border)]" />
-
-          {/* Quick Print Preview */}
-          <button
-            onClick={() => openReimbursementPrintWindow({ selectedRecords })}
-            className="inline-flex items-center gap-1.5 text-xs font-semibold text-[var(--foreground)] hover:text-[var(--primary)] px-2.5 py-1 rounded-md hover:bg-[var(--muted)] transition-colors"
-          >
-            <Printer className="w-3.5 h-3.5" />
-            <span>Print View</span>
-          </button>
-
-          {/* Compile PDF Button */}
-          <button
-            onClick={() => setIsCompileModalOpen(true)}
-            className="inline-flex items-center gap-1.5 text-xs font-bold bg-[var(--primary)] text-[var(--primary-foreground)] px-4 py-1.5 rounded-full hover:opacity-90 transition-all shadow-xs"
-          >
-            <DownloadCloud className="w-4 h-4" />
-            <span>Compile & Download PDF</span>
-          </button>
-
-          {/* Batch Edit Finance Button */}
-          <button
-            onClick={handleOpenBatchEdit}
-            className="inline-flex items-center gap-1.5 text-xs font-semibold text-[var(--foreground)] hover:text-[var(--primary)] px-2.5 py-1 rounded-md hover:bg-[var(--muted)] transition-colors"
-          >
-            <Edit className="w-3.5 h-3.5" />
-            <span>Update Finance</span>
-          </button>
-
-          {/* Clear Selection */}
-          <button
-            onClick={handleClearSelection}
-            className="p-1 rounded-full text-[var(--muted-foreground)] hover:text-[var(--foreground)] hover:bg-[var(--muted)]"
-            title="Batalkan Pilihan"
-          >
-            <X className="w-4 h-4" />
-          </button>
         </div>
       )}
 
       {/* -------------------------------------------------------------
-          6. MODAL: COMPILE PDF OPTIONS
+          6. MODAL: UPDATE FINANCE LEVEL PAKET PERIODE
+      ------------------------------------------------------------- */}
+      {isPeriodEditModalOpen && targetPeriodForEdit && (
+        <div className="fixed inset-0 z-50 bg-black/50 flex items-center justify-center p-4">
+          <div className="bg-[var(--card)] border border-[var(--border)] rounded-2xl w-full max-w-md overflow-hidden shadow-2xl animate-in zoom-in-95">
+            <div className="p-5 border-b border-[var(--border)] flex items-center justify-between">
+              <div>
+                <h3 className="text-base font-bold text-[var(--foreground)]">
+                  Update Finance Paket Periode
+                </h3>
+                <p className="text-xs text-[var(--muted-foreground)] mt-0.5">
+                  {targetPeriodForEdit.label} ({targetPeriodForEdit.items.length} Berkas • {formatRupiah(targetPeriodForEdit.total_nominal)})
+                </p>
+              </div>
+              <button
+                onClick={() => setIsPeriodEditModalOpen(false)}
+                className="text-[var(--muted-foreground)] hover:text-[var(--foreground)] p-1 rounded-lg hover:bg-[var(--muted)]"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            <div className="p-5 space-y-3.5">
+              <div>
+                <label className="block text-xs font-semibold text-[var(--foreground)] mb-1">
+                  Status Finance untuk 1 Paket Ini
+                </label>
+                <select
+                  value={periodEditForm.status_finance}
+                  onChange={(e) => setPeriodEditForm(p => ({ ...p, status_finance: e.target.value }))}
+                  className="w-full px-3 py-2 text-xs rounded-lg border border-[var(--border)] bg-[var(--card)] text-[var(--foreground)] font-semibold"
+                >
+                  <option value="Draft">Draft (Belum Diajukan)</option>
+                  <option value="Diajukan">Diajukan ke Finance</option>
+                  <option value="Dicairkan">Sudah Dicairkan (Lunas)</option>
+                </select>
+              </div>
+
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-xs font-semibold text-[var(--foreground)] mb-1">
+                    Tanggal Pengajuan
+                  </label>
+                  <input
+                    type="date"
+                    value={periodEditForm.tgl_pengajuan_finance}
+                    onChange={(e) => setPeriodEditForm(p => ({ ...p, tgl_pengajuan_finance: e.target.value }))}
+                    className="w-full px-2.5 py-1.5 text-xs rounded-lg border border-[var(--border)] bg-[var(--card)] text-[var(--foreground)]"
+                  />
+                </div>
+                <div>
+                  <label className="block text-xs font-semibold text-[var(--foreground)] mb-1">
+                    Tanggal Pencairan
+                  </label>
+                  <input
+                    type="date"
+                    value={periodEditForm.tgl_pencairan_finance}
+                    onChange={(e) => setPeriodEditForm(p => ({ ...p, tgl_pencairan_finance: e.target.value }))}
+                    className="w-full px-2.5 py-1.5 text-xs rounded-lg border border-[var(--border)] bg-[var(--card)] text-[var(--foreground)]"
+                  />
+                </div>
+              </div>
+
+              <div>
+                <label className="block text-xs font-semibold text-[var(--foreground)] mb-1">
+                  Catatan / No. Batch Finance
+                </label>
+                <textarea
+                  rows={2}
+                  value={periodEditForm.catatan}
+                  onChange={(e) => setPeriodEditForm(p => ({ ...p, catatan: e.target.value }))}
+                  placeholder="Catatan penyerahan berkas atau referensi pencairan Finance..."
+                  className="w-full px-3 py-2 text-xs rounded-lg border border-[var(--border)] bg-[var(--card)] text-[var(--foreground)]"
+                />
+              </div>
+
+              <div className="text-[11px] text-[var(--muted-foreground)] bg-[var(--muted)]/40 p-3 rounded-lg border border-[var(--border)] leading-relaxed">
+                ℹ️ Status dan tanggal yang diisi di sini akan otomatis diterapkan ke seluruh <strong>{targetPeriodForEdit.items.length} berkas karyawan</strong> di dalam paket periode ini.
+              </div>
+            </div>
+
+            <div className="p-4 border-t border-[var(--border)] bg-[var(--muted)]/10 flex items-center justify-end gap-2">
+              <button
+                onClick={() => setIsPeriodEditModalOpen(false)}
+                className="px-4 py-2 text-xs font-medium rounded-lg border border-[var(--border)] text-[var(--foreground)] hover:bg-[var(--muted)]"
+              >
+                Batal
+              </button>
+              <button
+                onClick={handleSavePeriodFinance}
+                className="px-4 py-2 text-xs font-bold rounded-lg bg-[var(--primary)] text-white hover:opacity-90"
+              >
+                Simpan Perubahan Paket
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* -------------------------------------------------------------
+          7. MODAL: COMPILE PDF UNTUK 1 PAKET PERIODE
       ------------------------------------------------------------- */}
       {isCompileModalOpen && (
         <div className="fixed inset-0 z-50 bg-black/50 flex items-center justify-center p-4">
@@ -1086,10 +1295,10 @@ export default function ReimbursementPage() {
             <div className="p-5 border-b border-[var(--border)] flex items-center justify-between">
               <div>
                 <h3 className="text-base font-bold text-[var(--foreground)]">
-                  Compile & Download Lampiran PDF
+                  Compile & Download PDF {compileScopeTitle}
                 </h3>
                 <p className="text-xs text-[var(--muted-foreground)] mt-0.5">
-                  Gabungkan {selectedRecords.length} berkas reimbursement menjadi 1 dokumen PDF rapi.
+                  Menggabungkan {compileScopeRecords.length} berkas karyawan menjadi 1 paket dokumen PDF.
                 </p>
               </div>
               <button
@@ -1114,7 +1323,7 @@ export default function ReimbursementPage() {
                       onChange={(e) => setCompileOptions(p => ({ ...p, includeCover: e.target.checked }))}
                       className="rounded border-[var(--border)] text-[var(--primary)] focus:ring-[var(--primary)]"
                     />
-                    <span className="font-semibold text-[var(--foreground)]">Halaman Cover & Ringkasan Rekapitulasi</span>
+                    <span className="font-semibold text-[var(--foreground)]">Halaman Cover & Ringkasan Rekapitulasi Periode</span>
                   </label>
 
                   <label className="flex items-center gap-2.5 text-xs cursor-pointer">
@@ -1166,7 +1375,7 @@ export default function ReimbursementPage() {
               )}
 
               <div className="text-[11px] text-[var(--muted-foreground)] leading-relaxed bg-[var(--muted)]/40 p-3 rounded-lg border border-[var(--border)]">
-                ℹ️ Setiap halaman lampiran akan otomatis ditempel strip header warna Teal di bagian atas yang memuat <strong>Nama Karyawan, NIK, Departemen, dan Jenis Dokumen</strong> sesuai standar General Affairs.
+                ℹ️ Setiap halaman lampiran akan otomatis ditempel strip header warna Teal di bagian atas yang memuat <strong>Nama Karyawan, NIK, Departemen, dan Jenis Dokumen</strong>.
               </div>
             </div>
 
@@ -1185,116 +1394,6 @@ export default function ReimbursementPage() {
               >
                 <DownloadCloud className="w-4 h-4" />
                 <span>{compileProgress ? 'Sedang Memproses...' : 'Proses & Unduh PDF'}</span>
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* -------------------------------------------------------------
-          7. MODAL: EDIT FINANCE (SINGLE / BATCH)
-      ------------------------------------------------------------- */}
-      {isEditFinanceModalOpen && (
-        <div className="fixed inset-0 z-50 bg-black/50 flex items-center justify-center p-4">
-          <div className="bg-[var(--card)] border border-[var(--border)] rounded-2xl w-full max-w-md overflow-hidden shadow-2xl animate-in zoom-in-95">
-            <div className="p-5 border-b border-[var(--border)] flex items-center justify-between">
-              <div>
-                <h3 className="text-base font-bold text-[var(--foreground)]">
-                  {isBatchEdit ? `Update Finance (${selectedIds.length} Data)` : `Edit Finance - ${selectedRecordForDetail?.nama}`}
-                </h3>
-                <p className="text-xs text-[var(--muted-foreground)] mt-0.5">
-                  Perbarui status pengajuan dan tanggal pencairan dari Finance.
-                </p>
-              </div>
-              <button
-                onClick={() => setIsEditFinanceModalOpen(false)}
-                className="text-[var(--muted-foreground)] hover:text-[var(--foreground)] p-1 rounded-lg hover:bg-[var(--muted)]"
-              >
-                <X className="w-5 h-5" />
-              </button>
-            </div>
-
-            <div className="p-5 space-y-3.5">
-              {!isBatchEdit && (
-                <div>
-                  <label className="block text-xs font-semibold text-[var(--foreground)] mb-1">
-                    Nominal Reimbursement (Rp)
-                  </label>
-                  <input
-                    type="number"
-                    value={financeForm.nominal}
-                    onChange={(e) => setFinanceForm(p => ({ ...p, nominal: e.target.value }))}
-                    className="w-full px-3 py-2 text-xs rounded-lg border border-[var(--border)] bg-[var(--card)] text-[var(--foreground)] font-mono font-bold"
-                  />
-                </div>
-              )}
-
-              <div>
-                <label className="block text-xs font-semibold text-[var(--foreground)] mb-1">
-                  Status Finance
-                </label>
-                <select
-                  value={financeForm.status_finance}
-                  onChange={(e) => setFinanceForm(p => ({ ...p, status_finance: e.target.value }))}
-                  className="w-full px-3 py-2 text-xs rounded-lg border border-[var(--border)] bg-[var(--card)] text-[var(--foreground)]"
-                >
-                  <option value="Draft">Draft (Belum Diajukan)</option>
-                  <option value="Diajukan">Diajukan ke Finance</option>
-                  <option value="Dicairkan">Sudah Dicairkan (Lunas)</option>
-                </select>
-              </div>
-
-              <div className="grid grid-cols-2 gap-3">
-                <div>
-                  <label className="block text-xs font-semibold text-[var(--foreground)] mb-1">
-                    Tanggal Pengajuan
-                  </label>
-                  <input
-                    type="date"
-                    value={financeForm.tgl_pengajuan_finance}
-                    onChange={(e) => setFinanceForm(p => ({ ...p, tgl_pengajuan_finance: e.target.value }))}
-                    className="w-full px-2.5 py-1.5 text-xs rounded-lg border border-[var(--border)] bg-[var(--card)] text-[var(--foreground)]"
-                  />
-                </div>
-                <div>
-                  <label className="block text-xs font-semibold text-[var(--foreground)] mb-1">
-                    Tanggal Pencairan
-                  </label>
-                  <input
-                    type="date"
-                    value={financeForm.tgl_pencairan_finance}
-                    onChange={(e) => setFinanceForm(p => ({ ...p, tgl_pencairan_finance: e.target.value }))}
-                    className="w-full px-2.5 py-1.5 text-xs rounded-lg border border-[var(--border)] bg-[var(--card)] text-[var(--foreground)]"
-                  />
-                </div>
-              </div>
-
-              <div>
-                <label className="block text-xs font-semibold text-[var(--foreground)] mb-1">
-                  Catatan / Keterangan Finance
-                </label>
-                <textarea
-                  rows={2}
-                  value={financeForm.catatan}
-                  onChange={(e) => setFinanceForm(p => ({ ...p, catatan: e.target.value }))}
-                  placeholder="Keterangan transfer, no batch, atau catatan verifikasi..."
-                  className="w-full px-3 py-2 text-xs rounded-lg border border-[var(--border)] bg-[var(--card)] text-[var(--foreground)]"
-                />
-              </div>
-            </div>
-
-            <div className="p-4 border-t border-[var(--border)] bg-[var(--muted)]/10 flex items-center justify-end gap-2">
-              <button
-                onClick={() => setIsEditFinanceModalOpen(false)}
-                className="px-4 py-2 text-xs font-medium rounded-lg border border-[var(--border)] text-[var(--foreground)] hover:bg-[var(--muted)]"
-              >
-                Batal
-              </button>
-              <button
-                onClick={handleSaveFinance}
-                className="px-4 py-2 text-xs font-bold rounded-lg bg-[var(--primary)] text-white hover:opacity-90"
-              >
-                Simpan Perubahan
               </button>
             </div>
           </div>
