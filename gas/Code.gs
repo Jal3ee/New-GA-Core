@@ -213,6 +213,18 @@ function routeAction(body) {
     case 'DELETE_CATERING_SCORING':
       return deleteRecord('tbl_catering_scorings', body.id, actor);
 
+    // Catering Incidents, Findings & Corrective Actions
+    case 'GET_CATERING_INCIDENTS':
+      return getRecords('tbl_catering_incidents');
+    case 'CREATE_CATERING_INCIDENT':
+      return createRecord('tbl_catering_incidents', body.payload.data, actor);
+    case 'UPDATE_CATERING_INCIDENT':
+      return updateRecord('tbl_catering_incidents', body.id, body.payload.data, actor);
+    case 'DELETE_CATERING_INCIDENT':
+      return deleteRecord('tbl_catering_incidents', body.id, actor);
+    case 'BATCH_IMPORT_CATERING_INCIDENTS':
+      return batchAppendRecords('tbl_catering_incidents', body.payload.records, actor, body.payload.mode || 'append');
+
     // Reimbursements Tiket & Transport
     case 'GET_REIMBURSEMENTS':
       return getRecords('tbl_docs_reimbursements');
@@ -222,13 +234,15 @@ function routeAction(body) {
       return updateRecord('tbl_docs_reimbursements', body.id, body.payload.data, actor);
     case 'DELETE_REIMBURSEMENT':
       return deleteRecord('tbl_docs_reimbursements', body.id, actor);
+    case 'BATCH_IMPORT_REIMBURSEMENTS':
+      return batchAppendRecords('tbl_docs_reimbursements', body.payload.records, actor, body.payload.mode || 'append');
 
     // Setup / Migration Helper
     case 'SETUP_NEW_TABLES':
       setupStandardsSheet();
       setupCateringSheets();
       setupReimbursementsSheet();
-      return jsonResponse({ ok: true, message: 'Standards, Catering, and Reimbursements sheets verified/created successfully' });
+      return jsonResponse({ ok: true, message: 'Standards, Catering, Incidents, and Reimbursements sheets verified/created successfully' });
 
     // Finance Portal
     case 'FINANCE_PORTAL_AUTH':
@@ -240,6 +254,8 @@ function routeAction(body) {
       } catch (e) {
         return jsonResponse({ ok: false, error: 'UPLOAD_FAILED', message: e.message });
       }
+    case 'TEST_INVOICE_WHATSAPP':
+      return jsonResponse(testSendInvoiceNotification());
     default:
       return jsonResponse({ ok: false, error: 'UNKNOWN_ACTION', message: 'Action not found' });
   }

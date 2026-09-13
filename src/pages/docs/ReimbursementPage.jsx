@@ -119,13 +119,46 @@ export default function ReimbursementPage() {
       const res = await gasClient.getReimbursements();
       if (res?.ok && Array.isArray(res.data) && res.data.length > 0) {
         setRecords(res.data);
-        toast.success(`Berhasil sinkronisasi ${res.data.length} data dari spreadsheet!`);
+        toast.success(`Berhasil menarik ${res.data.length} data reimbursement dari spreadsheet!`);
       } else {
-        toast.info('Data reimbursement lokal aktif.');
+        toast.info('Data spreadsheet belum ada data / menggunakan data lokal.');
       }
     } catch (err) {
       console.warn('Sync fallback to local:', err);
       toast.info('Sinkronisasi selesai (database lokal aktif).');
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  // Auto-sync on component mount
+  useEffect(() => {
+    syncWithDatabase();
+  }, []);
+
+  // Push local records to Spreadsheet tbl_docs_reimbursements
+  const handlePushToDatabase = async () => {
+    if (!records || records.length === 0) {
+      toast.error('Tidak ada data reimbursement untuk diunggah.');
+      return;
+    }
+
+    const confirmPush = window.confirm(
+      `Unggah ${records.length} data reimbursement ke spreadsheet database (tbl_docs_reimbursements)? Data di spreadsheet akan diperbarui.`
+    );
+    if (!confirmPush) return;
+
+    setIsLoading(true);
+    try {
+      const res = await gasClient.batchImportReimbursements(records, 'replace');
+      if (res?.ok) {
+        toast.success(`Berhasil mengunggah ${res.count || records.length} data ke spreadsheet!`);
+      } else {
+        toast.error('Gagal mengunggah: ' + (res?.error || 'Koneksi gagal'));
+      }
+    } catch (err) {
+      console.error('Push error:', err);
+      toast.error('Gagal mengunggah ke spreadsheet: ' + err.message);
     } finally {
       setIsLoading(false);
     }
@@ -568,15 +601,26 @@ export default function ReimbursementPage() {
             <span className="hidden sm:inline">Import CSV</span>
           </button>
 
-          {/* Refresh / Sync */}
+          {/* Refresh / Tarik dari Spreadsheet */}
           <button
             onClick={syncWithDatabase}
             disabled={isLoading}
-            className="inline-flex items-center gap-1.5 px-3 py-2 text-sm font-medium rounded-lg border border-[var(--border)] bg-[var(--card)] hover:bg-[var(--muted)] text-[var(--foreground)] transition-colors disabled:opacity-50"
-            title="Sinkronisasi Data"
+            className="inline-flex items-center gap-1.5 px-3 py-2 text-sm font-medium rounded-lg border border-[var(--border)] bg-[var(--card)] hover:bg-[var(--muted)] text-[var(--foreground)] transition-colors disabled:opacity-50 shadow-xs"
+            title="Tarik data terbaru dari Google Spreadsheet"
           >
             <RotateCcw className={`w-4 h-4 ${isLoading ? 'animate-spin text-[var(--primary)]' : ''}`} />
-            <span className="hidden sm:inline">Sync</span>
+            <span className="hidden sm:inline">Tarik Spreadsheet</span>
+          </button>
+
+          {/* Upload / Push ke Spreadsheet */}
+          <button
+            onClick={handlePushToDatabase}
+            disabled={isLoading}
+            className="inline-flex items-center gap-1.5 px-3 py-2 text-sm font-medium rounded-lg border border-[var(--primary)]/30 bg-[var(--primary)]/10 hover:bg-[var(--primary)]/20 text-[var(--primary)] transition-colors disabled:opacity-50 shadow-xs"
+            title="Kirim dan sinkronkan seluruh data ke Google Spreadsheet tbl_docs_reimbursements"
+          >
+            <UploadCloud className="w-4 h-4" />
+            <span className="hidden sm:inline">Push ke Spreadsheet</span>
           </button>
 
           {/* View Mode Switcher */}
@@ -720,14 +764,14 @@ export default function ReimbursementPage() {
             <table className="w-full text-left text-xs border-collapse">
               <thead className="bg-[var(--muted)]/50 text-[var(--muted-foreground)] font-semibold border-b border-[var(--border)]">
                 <tr>
-                  <th className="p-3.5 w-12 text-center">No</th>
-                  <th className="p-3.5 min-w-[200px]">Paket Periode</th>
-                  <th className="p-3.5 min-w-[180px]">Rentang Waktu Submit</th>
-                  <th className="p-3.5 min-w-[120px] text-center">Jumlah Berkas</th>
-                  <th className="p-3.5 min-w-[140px] text-right">Total Nilai Paket</th>
-                  <th className="p-3.5 min-w-[130px] text-center">Status Finance</th>
-                  <th className="p-3.5 min-w-[150px]">Jadwal Finance</th>
-                  <th className="p-3.5 min-w-[260px] text-center">Aksi Paket Periode</th>
+                  <th className="py-3 px-2.5 w-8 text-center">No</th>
+                  <th className="py-3 px-3 whitespace-nowrap">Paket Periode</th>
+                  <th className="py-3 px-3 whitespace-nowrap">Rentang Form</th>
+                  <th className="py-3 px-2.5 text-center whitespace-nowrap">Jumlah Berkas</th>
+                  <th className="py-3 px-3 text-right whitespace-nowrap">Total Nilai Paket</th>
+                  <th className="py-3 px-2.5 text-center whitespace-nowrap">Status Finance</th>
+                  <th className="py-3 px-3 whitespace-nowrap">Jadwal Finance</th>
+                  <th className="py-3 px-3 text-center whitespace-nowrap w-[240px]">Aksi Paket Periode</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-[var(--border)] text-[var(--foreground)]">
@@ -757,65 +801,65 @@ export default function ReimbursementPage() {
                         onClick={() => hasItems && handleOpenPeriodDrawer(batch)}
                       >
                         {/* No */}
-                        <td className="p-3.5 text-center font-mono text-[var(--muted-foreground)]">
+                        <td className="py-2.5 px-2.5 text-center font-mono text-[var(--muted-foreground)]">
                           {idx + 1}
                         </td>
 
                         {/* Paket Periode */}
-                        <td className="p-3.5">
-                          <div className="font-bold text-sm text-[var(--foreground)] flex items-center gap-1.5">
-                            <span className="w-2 h-2 rounded-full bg-[var(--primary)]" />
+                        <td className="py-2.5 px-3">
+                          <div className="font-bold text-xs text-[var(--foreground)] flex items-center gap-1.5 whitespace-nowrap">
+                            <span className="w-2 h-2 rounded-full bg-[var(--primary)] shrink-0" />
                             {batch.label}
                           </div>
-                          <div className="text-[11px] text-[var(--muted-foreground)] mt-0.5">
+                          <div className="text-[10px] text-[var(--muted-foreground)] mt-0.5 whitespace-nowrap">
                             Cut-off: {batch.periode_ke}
                           </div>
                         </td>
 
                         {/* Rentang Tanggal */}
-                        <td className="p-3.5 font-mono text-[11px]">
+                        <td className="py-2.5 px-3 font-mono text-[11px] whitespace-nowrap">
                           <div className="flex items-center gap-1 text-[var(--foreground)]">
-                            <Calendar className="w-3.5 h-3.5 text-[var(--primary)]" />
+                            <Calendar className="w-3.5 h-3.5 text-[var(--primary)] shrink-0" />
                             <span>{batch.rentang_tanggal}</span>
                           </div>
                         </td>
 
                         {/* Jumlah Berkas */}
-                        <td className="p-3.5 text-center">
-                          <span className={`inline-flex items-center gap-1 px-2.5 py-1 rounded-full font-bold font-mono text-xs ${hasItems ? 'bg-[var(--primary)]/10 text-[var(--primary)]' : 'bg-slate-100 text-slate-500'}`}>
-                            <Users className="w-3 h-3" />
+                        <td className="py-2.5 px-2.5 text-center whitespace-nowrap">
+                          <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full font-bold font-mono text-[11px] ${hasItems ? 'bg-[var(--primary)]/10 text-[var(--primary)]' : 'bg-slate-100 text-slate-500'}`}>
+                            <Users className="w-3 h-3 shrink-0" />
                             {batch.items.length} Berkas
                           </span>
                         </td>
 
                         {/* Total Nilai */}
-                        <td className="p-3.5 text-right font-mono font-bold text-sm text-[var(--primary)]">
+                        <td className="py-2.5 px-3 text-right font-mono font-bold text-xs text-[var(--primary)] whitespace-nowrap">
                           {formatRupiah(batch.total_nominal)}
                         </td>
 
                         {/* Status Finance */}
-                        <td className="p-3.5 text-center">
-                          <span className={`inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-[11px] font-semibold border ${statusBadgeClass}`}>
-                            {batch.status_finance === 'Dicairkan' && <CheckCircle2 className="w-3 h-3 text-emerald-600" />}
-                            {batch.status_finance === 'Diajukan' && <Clock className="w-3 h-3 text-amber-600" />}
+                        <td className="py-2.5 px-2.5 text-center whitespace-nowrap">
+                          <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-semibold border ${statusBadgeClass}`}>
+                            {batch.status_finance === 'Dicairkan' && <CheckCircle2 className="w-3 h-3 text-emerald-600 shrink-0" />}
+                            {batch.status_finance === 'Diajukan' && <Clock className="w-3 h-3 text-amber-600 shrink-0" />}
                             {batch.status_finance}
                           </span>
                         </td>
 
                         {/* Jadwal Finance */}
-                        <td className="p-3.5 font-mono text-[10px]">
-                          <div>Diajukan: <strong>{batch.tgl_pengajuan_finance || '-'}</strong></div>
-                          <div className="text-emerald-700">Pencairan: <strong>{batch.tgl_pencairan_finance || '-'}</strong></div>
+                        <td className="py-2.5 px-3 font-mono text-[10px] whitespace-nowrap">
+                          <div className="text-[var(--foreground)]">Ajuan: <span className="font-semibold">{batch.tgl_pengajuan_finance || '-'}</span></div>
+                          <div className="text-emerald-700">Cair: <span className="font-semibold">{batch.tgl_pencairan_finance || '-'}</span></div>
                         </td>
 
                         {/* Aksi Paket Periode */}
-                        <td className="p-3.5 text-center" onClick={(e) => e.stopPropagation()}>
-                          <div className="flex items-center justify-center gap-1.5">
+                        <td className="py-2.5 px-3 text-center whitespace-nowrap" onClick={(e) => e.stopPropagation()}>
+                          <div className="flex items-center justify-center gap-1.5 flex-nowrap">
                             {/* Detail Drawer Button */}
                             <button
                               onClick={() => handleOpenPeriodDrawer(batch)}
                               disabled={!hasItems}
-                              className="inline-flex items-center gap-1 px-2.5 py-1 text-xs font-semibold rounded-md border border-[var(--border)] bg-[var(--card)] hover:bg-[var(--muted)] text-[var(--foreground)] disabled:opacity-40 transition-colors"
+                              className="inline-flex items-center gap-1 px-2.5 py-1 text-xs font-semibold rounded-md border border-[var(--border)] bg-[var(--card)] hover:bg-[var(--muted)] text-[var(--foreground)] disabled:opacity-40 transition-colors shadow-2xs shrink-0"
                               title="Buka rincian seluruh berkas karyawan pada periode ini"
                             >
                               <Eye className="w-3.5 h-3.5 text-[var(--primary)]" />
@@ -826,10 +870,10 @@ export default function ReimbursementPage() {
                             <button
                               onClick={() => handleOpenPeriodFinanceEdit(batch)}
                               disabled={!hasItems}
-                              className="inline-flex items-center gap-1 px-2.5 py-1 text-xs font-semibold rounded-md border border-[var(--border)] bg-[var(--card)] hover:bg-[var(--muted)] text-[var(--foreground)] disabled:opacity-40 transition-colors"
+                              className="inline-flex items-center gap-1 px-2.5 py-1 text-xs font-semibold rounded-md border border-amber-300/80 bg-amber-50/70 hover:bg-amber-100 text-amber-900 disabled:opacity-40 transition-colors shadow-2xs shrink-0"
                               title="Update status dan jadwal Finance 1 paket periode ini"
                             >
-                              <Edit className="w-3.5 h-3.5 text-amber-600" />
+                              <Edit className="w-3.5 h-3.5 text-amber-700" />
                               <span>Finance</span>
                             </button>
 
@@ -837,10 +881,10 @@ export default function ReimbursementPage() {
                             <button
                               onClick={() => handleExportPeriodExcel(batch)}
                               disabled={!hasItems}
-                              className="inline-flex items-center gap-1 px-2.5 py-1 text-xs font-semibold rounded-md border border-emerald-300 bg-emerald-50 hover:bg-emerald-100 text-emerald-800 disabled:opacity-40 transition-colors"
+                              className="inline-flex items-center gap-1 px-2.5 py-1 text-xs font-semibold rounded-md border border-emerald-300 bg-emerald-50 hover:bg-emerald-100 text-emerald-800 disabled:opacity-40 transition-colors shadow-2xs shrink-0"
                               title="Unduh file Rekapan Excel (.xlsx) untuk diserahkan ke Finance"
                             >
-                              <FileSpreadsheet className="w-3.5 h-3.5" />
+                              <FileSpreadsheet className="w-3.5 h-3.5 text-emerald-700" />
                               <span>Excel</span>
                             </button>
 
@@ -848,7 +892,7 @@ export default function ReimbursementPage() {
                             <button
                               onClick={() => handleTriggerPeriodPdfCompile(batch)}
                               disabled={!hasItems}
-                              className="inline-flex items-center gap-1 px-2.5 py-1 text-xs font-bold rounded-md bg-[var(--primary)] text-white hover:opacity-90 disabled:opacity-40 transition-all shadow-2xs"
+                              className="inline-flex items-center gap-1 px-2.5 py-1 text-xs font-bold rounded-md bg-[var(--primary)] text-white hover:opacity-90 disabled:opacity-40 transition-all shadow-2xs shrink-0"
                               title="Compile seluruh lampiran (Bukti Cuti, Nota Berangkat, Nota Pulang) periode ini ke 1 file PDF"
                             >
                               <DownloadCloud className="w-3.5 h-3.5" />
@@ -884,57 +928,83 @@ export default function ReimbursementPage() {
             <table className="w-full text-left text-xs border-collapse">
               <thead className="bg-[var(--muted)]/50 text-[var(--muted-foreground)] font-semibold border-b border-[var(--border)]">
                 <tr>
-                  <th className="p-3 w-12 text-center">No</th>
-                  <th className="p-3">Tgl Form & Periode</th>
-                  <th className="p-3">Nama Karyawan & NIK</th>
-                  <th className="p-3">Departemen & Site</th>
-                  <th className="p-3">Tgl Perjalanan</th>
-                  <th className="p-3">Lampiran (X, Y, AO)</th>
-                  <th className="p-3 text-right">Nilai Klaim</th>
-                  <th className="p-3 text-center">Status Finance</th>
+                  <th className="py-3 px-3 w-10 text-center">No</th>
+                  <th className="py-3 px-3.5 whitespace-nowrap min-w-[130px]">Tgl Form & Periode</th>
+                  <th className="py-3 px-3.5 whitespace-nowrap min-w-[160px]">Nama Karyawan & NIK</th>
+                  <th className="py-3 px-3.5 whitespace-nowrap min-w-[180px]">Departemen & Site</th>
+                  <th className="py-3 px-3 whitespace-nowrap min-w-[140px]">Tgl Perjalanan</th>
+                  <th className="py-3 px-3 text-center whitespace-nowrap min-w-[150px]">Lampiran (X, Y, AO)</th>
+                  <th className="py-3 px-3.5 text-right whitespace-nowrap min-w-[120px]">Nilai Klaim</th>
+                  <th className="py-3 px-3 text-center whitespace-nowrap min-w-[110px]">Status Finance</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-[var(--border)] text-[var(--foreground)]">
                 {records.slice(0, 100).map((r, idx) => (
-                  <tr key={r.id || idx} className="hover:bg-[var(--muted)]/30">
-                    <td className="p-3 text-center font-mono text-[var(--muted-foreground)]">{idx + 1}</td>
-                    <td className="p-3">
-                      <div>{r.timestamp?.split(' ')[0]}</div>
+                  <tr key={r.id || idx} className="hover:bg-[var(--muted)]/30 transition-colors">
+                    <td className="py-3 px-3 text-center font-mono text-[var(--muted-foreground)]">{idx + 1}</td>
+                    <td className="py-3 px-3.5 whitespace-nowrap">
+                      <div className="font-mono text-[11px] text-[var(--foreground)]">{r.timestamp?.split(' ')[0]}</div>
                       <div className="text-[10px] text-[var(--primary)] font-bold">{r.periode_bulan} • {r.periode_ke}</div>
                     </td>
-                    <td className="p-3">
-                      <div className="font-bold">{r.nama}</div>
+                    <td className="py-3 px-3.5 whitespace-nowrap">
+                      <div className="font-bold text-xs text-[var(--foreground)]">{r.nama}</div>
                       <div className="text-[10px] font-mono text-[var(--muted-foreground)]">NIK: {r.nik}</div>
                     </td>
-                    <td className="p-3">
-                      <div>{r.departemen}</div>
-                      <div className="text-[10px] text-[var(--muted-foreground)]">Site {r.site}</div>
+                    <td className="py-3 px-3.5">
+                      <div className="text-xs text-[var(--foreground)] truncate max-w-[200px]" title={r.departemen}>{r.departemen}</div>
+                      <div className="text-[10px] text-[var(--muted-foreground)]">Site <strong className="text-[var(--foreground)]">{r.site}</strong></div>
                     </td>
-                    <td className="p-3 font-mono text-[11px]">
+                    <td className="py-3 px-3 font-mono text-[11px] whitespace-nowrap">
                       <div>{r.tgl_berangkat} s/d {r.tgl_pulang}</div>
                     </td>
-                    <td className="p-3">
-                      <div className="flex gap-1">
-                        {r.url_bukti_cuti && (
-                          <a href={r.url_bukti_cuti} target="_blank" rel="noreferrer" className="px-1.5 py-0.5 rounded text-[10px] bg-teal-50 text-teal-800 border border-teal-200">
-                            Cuti (X)
+                    <td className="py-3 px-3 text-center whitespace-nowrap">
+                      <div className="flex items-center justify-center gap-1">
+                        {r.url_bukti_cuti ? (
+                          <a
+                            href={r.url_bukti_cuti}
+                            target="_blank"
+                            rel="noreferrer"
+                            className="px-2 py-0.5 rounded text-[10px] font-medium bg-teal-50 text-teal-800 border border-teal-200 hover:bg-teal-100 transition-colors shadow-2xs"
+                            title="Buka Bukti Cuti (Kolom X)"
+                          >
+                            Cuti
                           </a>
+                        ) : (
+                          <span className="text-[10px] text-slate-300">-</span>
                         )}
-                        {r.url_nota_berangkat && (
-                          <a href={r.url_nota_berangkat} target="_blank" rel="noreferrer" className="px-1.5 py-0.5 rounded text-[10px] bg-sky-50 text-sky-800 border border-sky-200">
-                            Pergi (Y)
+                        {r.url_nota_berangkat ? (
+                          <a
+                            href={r.url_nota_berangkat}
+                            target="_blank"
+                            rel="noreferrer"
+                            className="px-2 py-0.5 rounded text-[10px] font-medium bg-sky-50 text-sky-800 border border-sky-200 hover:bg-sky-100 transition-colors shadow-2xs"
+                            title="Buka Nota Berangkat (Kolom Y)"
+                          >
+                            Pergi
                           </a>
+                        ) : (
+                          <span className="text-[10px] text-slate-300">-</span>
                         )}
-                        {r.url_nota_pulang && (
-                          <a href={r.url_nota_pulang} target="_blank" rel="noreferrer" className="px-1.5 py-0.5 rounded text-[10px] bg-indigo-50 text-indigo-800 border border-indigo-200">
-                            Pulang (AO)
+                        {r.url_nota_pulang ? (
+                          <a
+                            href={r.url_nota_pulang}
+                            target="_blank"
+                            rel="noreferrer"
+                            className="px-2 py-0.5 rounded text-[10px] font-medium bg-indigo-50 text-indigo-800 border border-indigo-200 hover:bg-indigo-100 transition-colors shadow-2xs"
+                            title="Buka Nota Pulang (Kolom AO)"
+                          >
+                            Pulang
                           </a>
+                        ) : (
+                          <span className="text-[10px] text-slate-300">-</span>
                         )}
                       </div>
                     </td>
-                    <td className="p-3 text-right font-mono font-bold text-[var(--primary)]">{formatRupiah(r.nominal)}</td>
-                    <td className="p-3 text-center">
-                      <span className="px-2 py-0.5 rounded-full text-[10px] font-semibold bg-slate-100 text-slate-700">
+                    <td className="py-3 px-3.5 text-right font-mono font-bold text-xs text-[var(--primary)] whitespace-nowrap">
+                      {formatRupiah(r.nominal)}
+                    </td>
+                    <td className="py-3 px-3 text-center whitespace-nowrap">
+                      <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-semibold border ${r.status_finance === 'Dicairkan' ? 'bg-emerald-50 text-emerald-800 border-emerald-200' : r.status_finance === 'Diajukan' ? 'bg-amber-50 text-amber-800 border-amber-200' : 'bg-slate-100 text-slate-700 border-slate-200'}`}>
                         {r.status_finance || 'Draft'}
                       </span>
                     </td>

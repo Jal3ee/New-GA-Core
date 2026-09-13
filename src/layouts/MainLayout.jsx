@@ -80,6 +80,7 @@ export function MainLayout() {
         icon: Utensils,
         subItems: [
           { label: 'Scoring & Food Index', path: '/catering/scoring' },
+          { label: 'Temuan & Tindakan', path: '/catering/incidents' },
         ]
       },
       {
@@ -436,7 +437,7 @@ export function MainLayout() {
 
         {/* Scrollable Page Content */}
         <main className="flex-1 overflow-y-auto p-4 md:p-8 relative">
-          <div className="max-w-7xl mx-auto animate-in fade-in slide-in-from-bottom-4 duration-500 ease-out">
+          <div className="w-full max-w-[1680px] mx-auto animate-in fade-in slide-in-from-bottom-4 duration-500 ease-out">
             <Outlet />
           </div>
         </main>

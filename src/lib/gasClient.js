@@ -100,7 +100,7 @@ export async function gasFetch(action, payload = {}, options = {}) {
 
   for (let attempt = 1; attempt <= maxRetries; attempt++) {
     try {
-      const responseData = await enqueueRequest(async () => {
+      const executeFetch = async () => {
         const controller = new AbortController();
         const timeoutId = setTimeout(() => controller.abort(), 300_000); // 5 menit timeout untuk upload
 
@@ -169,7 +169,12 @@ export async function gasFetch(action, payload = {}, options = {}) {
         }
 
         return data;
-      });
+      };
+
+      // Read GET_* actions run in parallel without queuing bottleneck; writes/uploads queue to prevent race conditions
+      const isReadAction = action.startsWith('GET_');
+      const shouldQueue = options.queue !== undefined ? options.queue : (!isReadAction || hasFile);
+      const responseData = shouldQueue ? await enqueueRequest(executeFetch) : await executeFetch();
 
       return responseData;
 
@@ -312,6 +317,9 @@ export const api = {
   async downloadFile(fileId) {
     return this.post({ action: 'DOWNLOAD_FILE', payload: { fileId } });
   },
+  async testInvoiceWhatsApp() {
+    return this.post({ action: 'TEST_INVOICE_WHATSAPP' });
+  },
 
   // Transport Ticketing
   async getTicketingRecords() {
@@ -392,6 +400,23 @@ export const api = {
     return this.post({ action: 'DELETE_CATERING_SCORING', id });
   },
 
+  // Catering Incidents & Actions Tracker
+  async getCateringIncidents() {
+    return this.post({ action: 'GET_CATERING_INCIDENTS' });
+  },
+  async createCateringIncident(data) {
+    return this.post({ action: 'CREATE_CATERING_INCIDENT', payload: { data } });
+  },
+  async updateCateringIncident(id, data) {
+    return this.post({ action: 'UPDATE_CATERING_INCIDENT', id, payload: { data } });
+  },
+  async deleteCateringIncident(id) {
+    return this.post({ action: 'DELETE_CATERING_INCIDENT', id });
+  },
+  async batchImportCateringIncidents(records, mode = 'append') {
+    return this.post({ action: 'BATCH_IMPORT_CATERING_INCIDENTS', payload: { records, mode } });
+  },
+
   // Reimbursement Tiket & Transport
   async getReimbursements() {
     return this.post({ action: 'GET_REIMBURSEMENTS' });
@@ -404,6 +429,9 @@ export const api = {
   },
   async deleteReimbursement(id) {
     return this.post({ action: 'DELETE_REIMBURSEMENT', id });
+  },
+  async batchImportReimbursements(records, mode = 'append') {
+    return this.post({ action: 'BATCH_IMPORT_REIMBURSEMENTS', payload: { records, mode } });
   },
 
   // Database Setup / Sheet Init

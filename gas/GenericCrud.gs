@@ -73,6 +73,15 @@ function createRecord(sheetName, payload, actorEmail) {
     } catch (auditErr) {
       Logger.log("Audit log failed: " + auditErr.message);
     }
+
+    // Trigger notifikasi WhatsApp jika invoice dibuat
+    if (sheetName === 'tbl_docs_invoices') {
+      try {
+        checkAndNotifyInvoiceStatus(null, after);
+      } catch (notifErr) {
+        Logger.log("Invoice notify error on create: " + notifErr.message);
+      }
+    }
     
     return jsonResponse({ ok: true, data: after });
   } finally {
@@ -144,6 +153,15 @@ function updateRecord(sheetName, id, payload, actorEmail) {
           writeAuditLog(actorEmail, 'UPDATE', sheetName, id, before, after);
         } catch (auditErr) {
           Logger.log("Audit log failed: " + auditErr.message);
+        }
+
+        // Trigger notifikasi WhatsApp jika invoice mencapai FA GL atau Paid
+        if (sheetName === 'tbl_docs_invoices') {
+          try {
+            checkAndNotifyInvoiceStatus(before, after);
+          } catch (notifErr) {
+            Logger.log("Invoice notify error on update: " + notifErr.message);
+          }
         }
         
         return jsonResponse({ ok: true, data: after });

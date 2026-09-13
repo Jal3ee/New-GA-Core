@@ -6,41 +6,6 @@ import { motion } from 'framer-motion';
 import { Activity, Clock, FileText, DollarSign, ArrowRight, BarChart3, AlertCircle, Building2, Store } from 'lucide-react';
 import { differenceInHours, subDays } from 'date-fns';
 
-const MOCK_INVOICES = Array.from({ length: 45 }).map((_, i) => {
-  const vendors = ['Gemoy', 'Moms Ainun', 'Medali Mart', 'Berkah Laundry', 'Sandaga', 'Ila Miawa'];
-  const sites = ['LBCT', 'IDMG', 'SPCT'];
-  const isPaid = Math.random() > 0.4;
-  const now = new Date();
-  
-  // Create randomized workflow dates
-  const tglBerkas = subDays(now, Math.floor(Math.random() * 20) + 2);
-  const adminGa = new Date(tglBerkas.getTime() + (Math.random() * 10 + 2) * 3600000);
-  const gaGl = new Date(adminGa.getTime() + (Math.random() * 24 + 5) * 3600000);
-  const gaSpv = new Date(gaGl.getTime() + (Math.random() * 12 + 2) * 3600000);
-  const gaSect = new Date(gaSpv.getTime() + (Math.random() * 24 + 10) * 3600000);
-  const gaDept = new Date(gaSect.getTime() + (Math.random() * 12 + 5) * 3600000);
-  const sm = new Date(gaDept.getTime() + (Math.random() * 48 + 12) * 3600000);
-  const acc = new Date(sm.getTime() + (Math.random() * 24 + 10) * 3600000);
-  const faGl = new Date(acc.getTime() + (Math.random() * 48 + 12) * 3600000);
-
-  return {
-    id: `mock-${i}`,
-    vendor: vendors[Math.floor(Math.random() * vendors.length)],
-    site: sites[Math.floor(Math.random() * sites.length)],
-    nilai: `Rp ${(Math.floor(Math.random() * 100) + 10) * 100000}`,
-    status_pembayaran: isPaid ? 'Paid' : 'Open',
-    tgl_berkas: tglBerkas.toISOString(),
-    tracking_admin_ga: adminGa.toISOString(),
-    tracking_ga_gl: gaGl.toISOString(),
-    tracking_ga_spv: gaSpv.toISOString(),
-    tracking_ga_sect_head: gaSect.toISOString(),
-    tracking_ga_dept_head: gaDept.toISOString(),
-    tracking_site_manager: sm.toISOString(),
-    tracking_accounting: acc.toISOString(),
-    tracking_fa_gl: isPaid ? faGl.toISOString() : null,
-  };
-});
-
 export default function InvoiceDashboardPage() {
   const [invoices, setInvoices] = useState([]);
   const { showLoading, hideLoading } = useGlobalLoading();
@@ -126,7 +91,7 @@ export default function InvoiceDashboardPage() {
     let totalTotalHours = 0;
     let completedLeadTimes = 0;
 
-    const dataToProcess = invoices.length > 0 ? invoices : MOCK_INVOICES;
+    const dataToProcess = invoices || [];
 
     dataToProcess.forEach(inv => {
       const val = parseNilai(inv.nilai);
@@ -206,8 +171,7 @@ export default function InvoiceDashboardPage() {
       topVendors,
       topSites,
       maxVendorVal,
-      maxSiteVal,
-      isMock: invoices.length === 0
+      maxSiteVal
     };
   }, [invoices]);
 
@@ -218,10 +182,10 @@ export default function InvoiceDashboardPage() {
           <h1 className="text-2xl font-bold text-[var(--foreground)] tracking-tight font-display">Dashboard Invoices</h1>
           <p className="text-sm text-[var(--muted-foreground)] mt-1">Analitik lead time dan nilai tagihan dokumen</p>
         </div>
-        {metrics.isMock && (
-          <div className="bg-amber-50 border border-amber-200 text-amber-700 px-4 py-2 rounded-lg text-sm font-medium flex items-center">
-            <AlertCircle className="w-4 h-4 mr-2" />
-            Menampilkan Data Simulasi (Belum ada tagihan asli)
+        {invoices.length === 0 && (
+          <div className="bg-slate-50 border border-slate-200 text-slate-600 px-4 py-2 rounded-lg text-sm font-medium flex items-center">
+            <AlertCircle className="w-4 h-4 mr-2 text-slate-400" />
+            Belum ada data invoice di database spreadsheet
           </div>
         )}
       </div>

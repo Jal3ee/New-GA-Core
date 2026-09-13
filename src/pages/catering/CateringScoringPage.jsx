@@ -1,4 +1,5 @@
 import React, { useState, useMemo, useEffect, useRef } from 'react';
+import { Link } from 'react-router-dom';
 import { toast } from 'sonner';
 import {
   Utensils,
@@ -95,178 +96,6 @@ const WEEKS = [
   { value: 'W4', label: 'W4 (Minggu Ke-4)' }
 ];
 
-// Initial realistic inspection seeds for test/demo
-const INITIAL_SCORINGS_DEMO = [
-  {
-    id: 'SC-202601-001',
-    vendor_id: 'VEND-ABS',
-    vendor_name: 'CV ABS',
-    catering_name: 'Catering GAS',
-    site: 'LBCT',
-    kitchen_type: 'A1',
-    year: 2026,
-    month: 'Januari',
-    week: 'W1',
-    inspection_date: '2026-01-07',
-    auditor_name: 'Fauzan GA',
-    total_score: 54,
-    max_score: 59,
-    food_index_percent: 91.5,
-    grade: 'Sangat Baik (A)',
-    findings_notes: 'Penyimpanan sayur sudah baik. Chiller suhu 5°C. Ada 2 talenan tergores perlu diganti.',
-    corrective_actions: 'Ganti talenan baru dalam 3 hari kerja.',
-    photos: [],
-    created_at: '2026-01-07T10:30:00Z'
-  },
-  {
-    id: 'SC-202601-002',
-    vendor_id: 'VEND-ABS',
-    vendor_name: 'CV ABS',
-    catering_name: 'Catering GAS',
-    site: 'LBCT',
-    kitchen_type: 'A1',
-    year: 2026,
-    month: 'Januari',
-    week: 'W3',
-    inspection_date: '2026-01-21',
-    auditor_name: 'Fauzan GA',
-    total_score: 56,
-    max_score: 59,
-    food_index_percent: 94.9,
-    grade: 'Sangat Baik (A)',
-    findings_notes: 'Talenan sudah diganti. Kondisi dapur sangat bersih dan higienis.',
-    corrective_actions: 'Pertahankan sanitasi.',
-    photos: [],
-    created_at: '2026-01-21T11:00:00Z'
-  },
-  {
-    id: 'SC-202601-003',
-    vendor_id: 'VEND-MOMS',
-    vendor_name: 'CV Moms Ainun',
-    catering_name: "Catering Mom's",
-    site: 'IDMG',
-    kitchen_type: 'A2',
-    year: 2026,
-    month: 'Januari',
-    week: 'W2',
-    inspection_date: '2026-01-14',
-    auditor_name: 'Fikri GA',
-    total_score: 53,
-    max_score: 60,
-    food_index_percent: 88.3,
-    grade: 'Baik (B)',
-    findings_notes: 'Kitchen hood berfungsi baik. Petugas perlu disiplin memakai masker saat packing.',
-    corrective_actions: 'Briefing APD wajib setiap pagi.',
-    photos: [],
-    created_at: '2026-01-14T09:45:00Z'
-  },
-  {
-    id: 'SC-202601-004',
-    vendor_id: 'VEND-MOMS',
-    vendor_name: 'CV Moms Ainun',
-    catering_name: "Catering Mom's",
-    site: 'IDMG',
-    kitchen_type: 'A2',
-    year: 2026,
-    month: 'Januari',
-    week: 'W4',
-    inspection_date: '2026-01-28',
-    auditor_name: 'Fikri GA',
-    total_score: 55,
-    max_score: 60,
-    food_index_percent: 91.7,
-    grade: 'Sangat Baik (A)',
-    findings_notes: 'Penggunaan masker packing tertib 100%. Makanan hangat saat distribusi.',
-    corrective_actions: 'Pertahankan konsistensi APD.',
-    photos: [],
-    created_at: '2026-01-28T14:15:00Z'
-  },
-  {
-    id: 'SC-202601-005',
-    vendor_id: 'VEND-SANDAGA',
-    vendor_name: 'PT Sandaga Perkasa',
-    catering_name: 'Catering Sandaga',
-    site: 'SPCT',
-    kitchen_type: 'A3',
-    year: 2026,
-    month: 'Januari',
-    week: 'W1',
-    inspection_date: '2026-01-08',
-    auditor_name: 'Bambang HSE/GA',
-    total_score: 57,
-    max_score: 62,
-    food_index_percent: 91.9,
-    grade: 'Sangat Baik (A)',
-    findings_notes: 'Ruang butcher dingin dan bersih. Steel gloves digunakan dengan baik.',
-    corrective_actions: 'Lakukan kalibrasi termometer chiller.',
-    photos: [],
-    created_at: '2026-01-08T10:00:00Z'
-  },
-  {
-    id: 'SC-202601-006',
-    vendor_id: 'VEND-SANDAGA',
-    vendor_name: 'PT Sandaga Perkasa',
-    catering_name: 'Catering Sandaga',
-    site: 'SPCT',
-    kitchen_type: 'A3',
-    year: 2026,
-    month: 'Januari',
-    week: 'W3',
-    inspection_date: '2026-01-22',
-    auditor_name: 'Bambang HSE/GA',
-    total_score: 59,
-    max_score: 62,
-    food_index_percent: 95.2,
-    grade: 'Sangat Baik (A)',
-    findings_notes: 'Semua item checklist terpenuhi prima. Sanitasi umum rapi.',
-    corrective_actions: 'Pertahankan predikat bintang.',
-    photos: [],
-    created_at: '2026-01-22T10:30:00Z'
-  },
-  {
-    id: 'SC-202601-007',
-    vendor_id: 'VEND-MANGGALA',
-    vendor_name: 'CV Manggala Raya',
-    catering_name: 'Catering Manggala raya',
-    site: 'LBCT',
-    kitchen_type: 'A2',
-    year: 2026,
-    month: 'Januari',
-    week: 'W2',
-    inspection_date: '2026-01-15',
-    auditor_name: 'Fauzan GA',
-    total_score: 51,
-    max_score: 60,
-    food_index_percent: 85.0,
-    grade: 'Baik (B)',
-    findings_notes: 'Bak sampah sempat tidak tertutup rapat saat pengolahan sibuk.',
-    corrective_actions: 'Pastikan tutup bak sampah selalu tertutup rapat.',
-    photos: [],
-    created_at: '2026-01-15T11:30:00Z'
-  },
-  {
-    id: 'SC-202601-008',
-    vendor_id: 'VEND-MANGGALA',
-    vendor_name: 'CV Manggala Raya',
-    catering_name: 'Catering Manggala raya',
-    site: 'LBCT',
-    kitchen_type: 'A2',
-    year: 2026,
-    month: 'Januari',
-    week: 'W4',
-    inspection_date: '2026-01-29',
-    auditor_name: 'Fauzan GA',
-    total_score: 54,
-    max_score: 60,
-    food_index_percent: 90.0,
-    grade: 'Sangat Baik (A)',
-    findings_notes: 'Tutup bak sampah sudah terpasang rapi, kebersihan lantai meningkat.',
-    corrective_actions: 'Monitor berkala.',
-    photos: [],
-    created_at: '2026-01-29T10:15:00Z'
-  }
-];
-
 export default function CateringScoringPage() {
   // State
   const [vendors, setVendors] = useState(() => {
@@ -280,9 +109,15 @@ export default function CateringScoringPage() {
   const [scorings, setScorings] = useState(() => {
     try {
       const saved = localStorage.getItem('garda_catering_scorings');
-      if (saved) return JSON.parse(saved);
+      if (saved) {
+        const parsed = JSON.parse(saved);
+        // Purge legacy demo seed IDs if present in localStorage
+        if (Array.isArray(parsed) && !parsed.some(p => p.id === 'SC-202601-001')) {
+          return parsed;
+        }
+      }
     } catch {}
-    return INITIAL_SCORINGS_DEMO;
+    return [];
   });
 
   const [selectedYear, setSelectedYear] = useState(2026);
@@ -342,14 +177,15 @@ export default function CateringScoringPage() {
       if (vRes.status === 'fulfilled' && vRes.value?.ok && Array.isArray(vRes.value.data) && vRes.value.data.length > 0) {
         setVendors(vRes.value.data);
       }
-      if (sRes.status === 'fulfilled' && sRes.value?.ok && Array.isArray(sRes.value.data) && sRes.value.data.length > 0) {
-        setScorings(sRes.value.data.map(item => ({
+      if (sRes.status === 'fulfilled' && sRes.value?.ok) {
+        const remoteScorings = Array.isArray(sRes.value.data) ? sRes.value.data : [];
+        setScorings(remoteScorings.map(item => ({
           ...item,
           photos: item.photos_json ? JSON.parse(item.photos_json) : (item.photos || [])
         })));
-        toast.success(`Berhasil sinkronisasi ${sRes.value.data.length} data inspeksi dari spreadsheet!`);
-      } else {
-        toast.info('Data lokal katering aktif.');
+        if (remoteScorings.length > 0) {
+          toast.success(`Berhasil sinkronisasi ${remoteScorings.length} data inspeksi dari spreadsheet!`);
+        }
       }
     } catch (err) {
       console.warn('Sync catering failed:', err);
@@ -357,6 +193,11 @@ export default function CateringScoringPage() {
       setIsLoading(false);
     }
   };
+
+  // Auto-fetch on component mount
+  useEffect(() => {
+    syncWithDatabase();
+  }, []);
 
   // Helper to calculate total max score for a kitchen type
   const getKitchenTypeDefaultMax = (kitchenType) => {
@@ -729,6 +570,21 @@ export default function CateringScoringPage() {
 
   return (
     <div className="space-y-6">
+      {/* Module Top Navigation Switcher */}
+      <div className="flex items-center justify-between border-b border-[var(--border)] pb-3">
+        <div className="flex items-center gap-2">
+          <div className="px-4 py-2 text-sm font-bold rounded-lg bg-[var(--primary)] text-white shadow-xs">
+            Scoring & Food Index
+          </div>
+          <Link
+            to="/catering/incidents"
+            className="px-4 py-2 text-sm font-semibold rounded-lg text-[var(--muted-foreground)] hover:text-[var(--foreground)] hover:bg-[var(--muted)]/50 transition-colors"
+          >
+            Temuan & Tindakan / Sanksi
+          </Link>
+        </div>
+      </div>
+
       {/* Header */}
       <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 border-b border-[var(--border)] pb-5">
         <div>

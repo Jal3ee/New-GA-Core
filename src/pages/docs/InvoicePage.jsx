@@ -235,7 +235,11 @@ export default function InvoicePage() {
     try {
       const res = await gasClient.updateInvoice(targetId, trackingDraft);
       if (res.ok) {
-        toast.success('Status tracking berhasil disimpan!');
+        if (trackingDraft.tracking_fa_gl && !trackingModalInvoice.tracking_fa_gl) {
+          toast.success('Tracking FA GL disimpan & notifikasi WA otomatis dikirim ke grup!');
+        } else {
+          toast.success('Status tracking berhasil disimpan!');
+        }
         setTrackingModalInvoice(null);
       } else {
         toast.error(res.message || 'Gagal update status tracking');

@@ -25,6 +25,7 @@ const FinancePortal       = lazy(() => import('./pages/portal/FinancePortal'));
 const TicketingPage       = lazy(() => import('./pages/transport/TicketingPage'));
 const SopPage             = lazy(() => import('./pages/docs/SopPage'));
 const CateringScoringPage = lazy(() => import('./pages/catering/CateringScoringPage'));
+const CateringIncidentsPage = lazy(() => import('./pages/catering/CateringIncidentsPage'));
 const ReimbursementPage   = lazy(() => import('./pages/docs/ReimbursementPage'));
 
 function App() {
@@ -59,6 +60,7 @@ function App() {
                 {/* Catering */}
                 <Route path="/catering" element={<Navigate to="/catering/scoring" replace />} />
                 <Route path="/catering/scoring" element={<CateringScoringPage />} />
+                <Route path="/catering/incidents" element={<CateringIncidentsPage />} />
                 
                 {/* Docs */}
                 <Route path="/invoice/dashboard" element={<InvoiceDashboardPage />} />

@@ -75,7 +75,11 @@ export default function FinancePortal() {
     try {
       const res = await gasClient.updateInvoice(invoice.id, { [key]: today });
       if (res.ok) {
-        toast.success(`Berhasil set tanggal penerimaan ${role}`);
+        if (role === 'FA GL') {
+          toast.success(`Berhasil set tanggal FA GL & notifikasi WA dikirim ke grup!`);
+        } else {
+          toast.success(`Berhasil set tanggal penerimaan ${role}`);
+        }
       } else {
         toast.error(res.message || 'Gagal update tanggal');
         fetchInvoices();
@@ -90,7 +94,7 @@ export default function FinancePortal() {
 
   const handleUpdatePaymentStatus = async (invoice, newStatus) => {
     const confirmMsg = newStatus === 'PAID' 
-      ? 'Tandai invoice ini sebagai PAID (Lunas)?' 
+      ? 'Tandai invoice ini sebagai PAID (Lunas)? Notifikasi WA akan otomatis dikirim ke grup finance.' 
       : 'Kembalikan status invoice ini ke OPEN?';
     if (!window.confirm(confirmMsg)) return;
     
@@ -100,7 +104,11 @@ export default function FinancePortal() {
     try {
       const res = await gasClient.updateInvoice(invoice.id, { status_pembayaran: newStatus });
       if (res.ok) {
-        toast.success(`Status invoice berhasil diubah ke ${newStatus}`);
+        if (newStatus === 'PAID') {
+          toast.success(`Status invoice berhasil diubah ke PAID & notifikasi WA dikirim ke grup!`);
+        } else {
+          toast.success(`Status invoice berhasil diubah ke ${newStatus}`);
+        }
       } else {
         toast.error(res.message || 'Gagal mengubah status');
         fetchInvoices();

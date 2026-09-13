@@ -303,3 +303,168 @@ function setupFormTrigger() {
     
   Logger.log("Trigger Form WhatsApp berhasil dibuat!");
 }
+
+/**
+ * ============================================================================
+ * INVOICE FA GL & PAID NOTIFICATIONS
+ * Target WhatsApp Group: 120363410250789471@g.us
+ * ============================================================================
+ */
+const INVOICE_FA_GL_PAID_GROUP_ID = '120363410250789471@g.us';
+
+/**
+ * Memeriksa perubahan status invoice (apakah mencapai FA GL atau status Paid)
+ * dan mengirimkan notifikasi resmi ke grup WA tujuan.
+ * @param {Object} before Objek baris invoice sebelum update (bisa null jika create)
+ * @param {Object} after Objek baris invoice setelah update
+ */
+function checkAndNotifyInvoiceStatus(before, after) {
+  if (!after) return;
+  const targetGroup = INVOICE_FA_GL_PAID_GROUP_ID;
+
+  const formatRupiah = (val) => {
+    if (!val) return 'Rp 0';
+    if (typeof val === 'number') {
+      return 'Rp ' + val.toLocaleString('id-ID');
+    }
+    const num = String(val).replace(/\D/g, '');
+    return num ? 'Rp ' + Number(num).toLocaleString('id-ID') : String(val);
+  };
+
+  const formatDateStr = (d) => {
+    if (!d) return '-';
+    try {
+      const dateObj = new Date(d);
+      if (isNaN(dateObj.getTime())) return String(d);
+      return Utilities.formatDate(dateObj, "GMT+8", "dd MMM yyyy");
+    } catch(e) {
+      return String(d);
+    }
+  };
+
+  const vendorName = after.vendor || '-';
+  const siteName = after.site || '-';
+  const invoiceNilai = formatRupiah(after.nilai);
+  const invoiceId = after.id || '-';
+  const periode = (after.periode_start && after.periode_end) 
+    ? `${formatDateStr(after.periode_start)} s/d ${formatDateStr(after.periode_end)}` 
+    : (after.tgl_berkas ? formatDateStr(after.tgl_berkas) : '-');
+
+  // Trigger 1: FA GL tercapai / terisi baru
+  const isNewlyFaGl = Boolean(after.tracking_fa_gl) && (!before || !before.tracking_fa_gl);
+
+  // Trigger 2: Status pembayaran menjadi PAID
+  const isNewlyPaid = String(after.status_pembayaran || '').toLowerCase() === 'paid' && 
+                      (!before || String(before.status_pembayaran || '').toLowerCase() !== 'paid');
+
+  // Skenario 1: FA GL sekaligus PAID dalam 1 kali update
+  if (isNewlyPaid && isNewlyFaGl) {
+    const paidDate = after.updated_at ? formatDateStr(after.updated_at) : formatDateStr(new Date());
+    const message = 
+      `🎉 *INVOICE: SELESAI FA GL & TELAH DIBAYAR (PAID)* 🎉\n\n` +
+      `*Vendor:* ${vendorName}\n` +
+      `*Site:* Site ${siteName}\n` +
+      `*Nilai Tagihan:* *${invoiceNilai}*\n` +
+      `*ID Berkas:* ${invoiceId}\n` +
+      `*Periode Berkas:* ${periode}\n` +
+      `*Tanggal Masuk FA GL:* ${formatDateStr(after.tracking_fa_gl)}\n` +
+      `*Status Pembayaran:* *PAID (LUNAS)*\n` +
+      `*Waktu Update:* ${paidDate}\n\n` +
+      `_Invoice telah diverifikasi FA GL dan pembayaran telah selesai diproses._\n` +
+      `_Notifikasi Otomatis Sistem GA Core_`;
+
+    sendWhatsAppMessage(targetGroup, message);
+    Logger.log(`Notifikasi INVOICE FA GL & PAID dikirim ke ${targetGroup} untuk ${vendorName}`);
+  } 
+  // Skenario 2: Status baru berubah menjadi PAID
+  else if (isNewlyPaid) {
+    const paidDate = after.updated_at ? formatDateStr(after.updated_at) : formatDateStr(new Date());
+    const message = 
+      `💸 *INVOICE TELAH DIBAYAR (PAID)* 💸\n\n` +
+      `*Vendor:* ${vendorName}\n` +
+      `*Site:* Site ${siteName}\n` +
+      `*Nilai Tagihan:* *${invoiceNilai}*\n` +
+      `*ID Berkas:* ${invoiceId}\n` +
+      `*Periode Berkas:* ${periode}\n` +
+      `*Status Pembayaran:* *PAID (LUNAS)*\n` +
+      `*Waktu Pembayaran:* ${paidDate}\n` +
+      (after.tracking_fa_gl ? `*Tgl FA GL:* ${formatDateStr(after.tracking_fa_gl)}\n` : '') +
+      `\n_Pembayaran tagihan invoice telah selesai diverifikasi oleh Finance & Accounting._\n` +
+      `_Notifikasi Otomatis Sistem GA Core_`;
+
+    sendWhatsAppMessage(targetGroup, message);
+    Logger.log(`Notifikasi INVOICE PAID dikirim ke ${targetGroup} untuk ${vendorName}`);
+  }
+  // Skenario 3: Status baru sampai di tahap FA GL
+  else if (isNewlyFaGl) {
+    const tglFaGl = formatDateStr(after.tracking_fa_gl);
+    const message = 
+      `📋 *UPDATE INVOICE: TELAH SAMPAI DI FA GL* 📋\n\n` +
+      `*Vendor:* ${vendorName}\n` +
+      `*Site:* Site ${siteName}\n` +
+      `*Nilai Tagihan:* *${invoiceNilai}*\n` +
+      `*ID Berkas:* ${invoiceId}\n` +
+      `*Periode Berkas:* ${periode}\n` +
+      `*Tahap Verifikasi:* *FA GL (Finance & Accounting Group Leader)*\n` +
+      `*Tanggal Terima FA GL:* ${tglFaGl}\n` +
+      `*Status Pembayaran:* ${after.status_pembayaran || 'Open'}\n\n` +
+      `_Dokumen invoice telah memasuki tahap verifikasi akhir FA GL untuk proses pembayaran._\n` +
+      `_Notifikasi Otomatis Sistem GA Core_`;
+
+    sendWhatsAppMessage(targetGroup, message);
+    Logger.log(`Notifikasi INVOICE FA GL dikirim ke ${targetGroup} untuk ${vendorName}`);
+  }
+}
+
+/**
+ * Tes pengiriman notifikasi invoice ke grup WA FA GL / Paid
+ */
+function testSendInvoiceNotification() {
+  const dummyInvoice = {
+    id: 'INV-TEST-001',
+    vendor: 'CV Sandaga Perkasa (TEST)',
+    site: 'LBCT',
+    nilai: 122418000,
+    periode_start: '2026-01-01',
+    periode_end: '2026-01-31',
+    tgl_berkas: '2026-01-05',
+    tracking_fa_gl: new Date().toISOString(),
+    status_pembayaran: 'PAID',
+    updated_at: new Date().toISOString()
+  };
+
+  Logger.log("Mengirim pesan uji coba invoice ke grup: " + INVOICE_FA_GL_PAID_GROUP_ID);
+  checkAndNotifyInvoiceStatus(null, dummyInvoice);
+  return { ok: true, message: "Pesan uji coba telah dikirim ke grup " + INVOICE_FA_GL_PAID_GROUP_ID };
+}
+
+/**
+ * Trigger otomatis saat ada edit manual langsung di sheet tbl_docs_invoices
+ */
+function onInvoiceSheetEdit(e) {
+  try {
+    if (!e || !e.range) return;
+    const sheet = e.range.getSheet();
+    if (sheet.getName() !== 'tbl_docs_invoices') return;
+
+    const row = e.range.getRow();
+    if (row < 2) return; // Header row
+
+    const headers = sheet.getRange(1, 1, 1, sheet.getLastColumn()).getValues()[0];
+    const rowValues = sheet.getRange(row, 1, 1, headers.length).getValues()[0];
+    
+    const after = {};
+    headers.forEach((h, idx) => { after[h] = rowValues[idx]; });
+
+    const editedCol = e.range.getColumn();
+    const editedHeader = headers[editedCol - 1];
+
+    if (editedHeader === 'tracking_fa_gl' || editedHeader === 'status_pembayaran') {
+      const before = { ...after };
+      before[editedHeader] = e.oldValue || '';
+      checkAndNotifyInvoiceStatus(before, after);
+    }
+  } catch (err) {
+    Logger.log("Error onInvoiceSheetEdit: " + err.toString());
+  }
+}

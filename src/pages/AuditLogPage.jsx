@@ -34,13 +34,35 @@ export default function AuditLogPage() {
   }, []);
 
   const filteredLogs = logs.filter(l => {
-    const matchesSearch = (l.user_email || '').toLowerCase().includes(searchTerm.toLowerCase()) ||
-                          (l.action || '').toLowerCase().includes(searchTerm.toLowerCase()) ||
-                          (l.resource || '').toLowerCase().includes(searchTerm.toLowerCase());
-    const matchesAction = filterAction === 'Semua' || l.action === filterAction;
-    const matchesModule = filterModule === 'Semua' || l.resource === filterModule;
+    if (!l) return false;
+    const emailStr = String(l.user_email ?? '');
+    const actionStr = String(l.action ?? '');
+    const resourceStr = String(l.resource ?? '');
+    const searchLower = (searchTerm || '').toLowerCase();
+
+    const matchesSearch = emailStr.toLowerCase().includes(searchLower) ||
+                          actionStr.toLowerCase().includes(searchLower) ||
+                          resourceStr.toLowerCase().includes(searchLower);
+    const matchesAction = filterAction === 'Semua' || actionStr === filterAction;
+    const matchesModule = filterModule === 'Semua' || resourceStr === filterModule;
     return matchesSearch && matchesAction && matchesModule;
   });
+
+  // Extract available modules dynamically from logs
+  const availableModules = React.useMemo(() => {
+    const set = new Set(logs.map(l => l.resource).filter(Boolean));
+    return ['Semua', ...Array.from(set)];
+  }, [logs]);
+
+  const renderJsonPretty = (val) => {
+    if (!val || val === '{}') return null;
+    try {
+      const parsed = typeof val === 'object' ? val : JSON.parse(val);
+      return JSON.stringify(parsed, null, 2);
+    } catch {
+      return String(val);
+    }
+  };
 
   const getActionColor = (action) => {
     switch (action) {
@@ -93,12 +115,8 @@ export default function AuditLogPage() {
           <CustomSelect 
             value={filterModule} 
             onChange={setFilterModule}
-            className="sm:w-40 z-20"
-            options={[
-              { value: 'Semua', label: 'Semua Modul' },
-              { value: 'tbl_users', label: 'tbl_users' },
-              { value: 'tbl_events', label: 'tbl_events' }
-            ]}
+            className="sm:w-48 z-20"
+            options={availableModules.map(m => ({ value: m, label: m }))}
           />
         </div>
       </div>
@@ -213,31 +231,31 @@ export default function AuditLogPage() {
                  </div>
                </div>
 
-               {selectedLog.before_json && selectedLog.before_json !== '{}' && (
-                 <div className="space-y-2">
-                   <h3 className="text-sm font-medium flex items-center text-red-600 dark:text-red-400">
-                     Data Sebelumnya (Before)
-                   </h3>
-                   <div className="text-xs p-3 bg-[#1e1e1e] text-[#d4d4d4] rounded-[var(--radius-md)] overflow-x-auto shadow-inner custom-scrollbar">
-                     <pre className="font-mono">
-                       {JSON.stringify(JSON.parse(selectedLog.before_json), null, 2)}
-                     </pre>
-                   </div>
-                 </div>
-               )}
+                {renderJsonPretty(selectedLog.before_json) && (
+                  <div className="space-y-2">
+                    <h3 className="text-sm font-medium flex items-center text-red-600 dark:text-red-400">
+                      Data Sebelumnya (Before)
+                    </h3>
+                    <div className="text-xs p-3 bg-[#1e1e1e] text-[#d4d4d4] rounded-[var(--radius-md)] overflow-x-auto shadow-inner custom-scrollbar">
+                      <pre className="font-mono">
+                        {renderJsonPretty(selectedLog.before_json)}
+                      </pre>
+                    </div>
+                  </div>
+                )}
 
-               {selectedLog.after_json && selectedLog.after_json !== '{}' && (
-                 <div className="space-y-2 mt-4">
-                   <h3 className="text-sm font-medium flex items-center text-green-600 dark:text-green-400">
-                     Data Baru (After)
-                   </h3>
-                   <div className="text-xs p-3 bg-[#1e1e1e] text-[#d4d4d4] rounded-[var(--radius-md)] overflow-x-auto shadow-inner custom-scrollbar">
-                     <pre className="font-mono">
-                       {JSON.stringify(JSON.parse(selectedLog.after_json), null, 2)}
-                     </pre>
-                   </div>
-                 </div>
-               )}
+                {renderJsonPretty(selectedLog.after_json) && (
+                  <div className="space-y-2 mt-4">
+                    <h3 className="text-sm font-medium flex items-center text-green-600 dark:text-green-400">
+                      Data Baru (After)
+                    </h3>
+                    <div className="text-xs p-3 bg-[#1e1e1e] text-[#d4d4d4] rounded-[var(--radius-md)] overflow-x-auto shadow-inner custom-scrollbar">
+                      <pre className="font-mono">
+                        {renderJsonPretty(selectedLog.after_json)}
+                      </pre>
+                    </div>
+                  </div>
+                )}
             </div>
             <div className="p-4 border-t border-[var(--border)] shrink-0 flex justify-end">
               <button

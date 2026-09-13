@@ -184,6 +184,19 @@ function setupCateringSheets() {
       'created_at', 'updated_at'
     ]);
   }
+
+  // 3. Catering Incidents, Findings & Actions Tracker
+  let incSheet = ss.getSheetByName('tbl_catering_incidents');
+  if (!incSheet) {
+    incSheet = ss.insertSheet('tbl_catering_incidents');
+    incSheet.appendRow([
+      'id', 'report_number', 'incident_date', 'site', 'vendor_id', 'vendor_name', 'catering_name',
+      'category', 'severity', 'title', 'description', 'reporter_name',
+      'evidence_urls', 'action_type', 'action_details', 'penalty_amount',
+      'target_completion_date', 'actual_completion_date', 'action_evidence_urls',
+      'status', 'verification_notes', 'created_at', 'updated_at'
+    ]);
+  }
   
   Logger.log('Catering sheets initialized!');
 }
