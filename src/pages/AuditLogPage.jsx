@@ -66,10 +66,11 @@ export default function AuditLogPage() {
 
   const getActionColor = (action) => {
     switch (action) {
-      case 'CREATE': return 'bg-green-100 text-green-800 border-green-200 dark:bg-green-900/30 dark:text-green-400 dark:border-green-800';
-      case 'UPDATE': return 'bg-blue-100 text-blue-800 border-blue-200 dark:bg-blue-900/30 dark:text-blue-400 dark:border-blue-800';
-      case 'DELETE': return 'bg-red-100 text-red-800 border-red-200 dark:bg-red-900/30 dark:text-red-400 dark:border-red-800';
-      default: return 'bg-gray-100 text-gray-800 border-gray-200 dark:bg-gray-800 dark:text-gray-300 dark:border-gray-700';
+      case 'CREATE': return 'bg-[#1F9463]/10 text-[#1F9463] border-[#1F9463]/30'; // Emerald
+      case 'UPDATE': return 'bg-[#3D7DBF]/10 text-[#3D7DBF] border-[#3D7DBF]/30'; // Sky
+      case 'DELETE': return 'bg-[#D6483D]/10 text-[#D6483D] border-[#D6483D]/30'; // Ruby
+      case 'LOGIN':  return 'bg-[#C4841F]/10 text-[#C4841F] border-[#C4841F]/30'; // Brass
+      default: return 'bg-[var(--muted)] text-[var(--muted-foreground)] border-[var(--border)]';
     }
   };
 

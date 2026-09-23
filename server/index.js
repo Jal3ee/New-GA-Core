@@ -382,6 +382,36 @@ app.post('/api/notifications/whatsapp', async (req, res) => {
   res.json({ ok: true, result });
 });
 
+// Helper pencatatan audit log otomatis (Zero over-engineering - Ponytail rule)
+async function recordAuditLog(req, action, entityType, entityId, details) {
+  try {
+    let userNik = 'SYSTEM';
+    let userName = 'System Automator';
+    let userId = null;
+    let site = 'ALL';
+
+    const authHeader = req.headers['authorization'];
+    if (authHeader && authHeader.startsWith('Bearer ')) {
+      const verified = verifySessionToken(authHeader.split(' ')[1]);
+      if (verified && verified.valid && verified.user) {
+        userNik = verified.user.nik || userNik;
+        userName = verified.user.name || userName;
+        userId = verified.user.id || null;
+        site = verified.user.site || site;
+      }
+    }
+
+    const ip = req.headers['x-forwarded-for'] || req.socket?.remoteAddress || '127.0.0.1';
+    await query(
+      `INSERT INTO audit_logs (user_id, user_nik, user_name, site, action, entity_type, entity_id, details, ip_address)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9);`,
+      [userId, userNik, userName, site, action, entityType, String(entityId || ''), JSON.stringify(details || {}), String(ip).substring(0, 50)]
+    );
+  } catch (err) {
+    console.warn('[Audit-Log-Error]:', err.message);
+  }
+}
+
 // ====================================================================
 // UNIVERSAL GA CORE POSTGRESQL 16 DISPATCHER (100% Bebas Spreadsheet)
 // ====================================================================
@@ -393,7 +423,7 @@ app.post('/api/action', async (req, res) => {
     // 1. AUTH / LOGIN (DENGAN CRYPTOGRAPHIC JWT SIGNATURE)
     if (action === 'LOGIN') {
       const result = await query(
-        'SELECT id, nik, nama as name, email, password_hash, role, site, department FROM users WHERE (nik = $1 OR email = $1) AND is_active = TRUE;',
+        'SELECT id, nik, nama as name, email, password_hash, role, site, department, birthdate, is_active FROM users WHERE (nik = $1 OR email = $1) AND is_active = TRUE;',
         [nik]
       );
       if (result.rows.length === 0) {
@@ -408,6 +438,8 @@ app.post('/api/action', async (req, res) => {
 
       const token = createSessionToken(user, req);
       delete user.password_hash;
+      user.status = user.is_active ? 'Active' : 'Inactive';
+      await recordAuditLog(req, 'LOGIN', 'Authentication', user.nik, { status: 'Success', nik: user.nik });
       return res.json({ ok: true, data: user, token });
     }
 
@@ -443,30 +475,52 @@ app.post('/api/action', async (req, res) => {
 
     // 2. USERS
     if (action === 'GET_USERS') {
-      const result = await query('SELECT id, nik, nama as name, email, role, site, department, is_active FROM users ORDER BY id ASC;');
+      const result = await query(`
+        SELECT id, nik, nama as name, email, role, site, department, birthdate, is_active,
+               CASE WHEN is_active THEN 'Active' ELSE 'Inactive' END as status
+        FROM users 
+        ORDER BY id ASC;
+      `);
       return res.json({ ok: true, data: result.rows });
     }
     if (action === 'CREATE_USER') {
-      const u = payload || data || req.body;
+      const u = payload?.data || payload || data || req.body;
+      const isActive = u.status ? (u.status === 'Active' || u.status === 'aktif') : (u.is_active !== false);
       const result = await query(
-        `INSERT INTO users (nik, nama, email, password_hash, role, site, department)
-         VALUES ($1, $2, $3, $4, $5, $6, $7) RETURNING id, nik, nama as name, email, role, site;`,
-        [u.nik, u.name || u.nama, u.email || null, u.password || 'demo_hash_agm', u.role || 'pic_lapangan', u.site || 'ALL', u.department || 'GA']
+        `INSERT INTO users (nik, nama, email, password_hash, role, site, department, birthdate, is_active)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9) 
+         RETURNING id, nik, nama as name, email, role, site, department, birthdate, is_active,
+                   CASE WHEN is_active THEN 'Active' ELSE 'Inactive' END as status;`,
+        [u.nik, u.name || u.nama, u.email || null, u.password || 'demo_hash_agm', u.role || 'Karyawan', u.site || 'ALL', u.department || 'General Affairs', u.birthdate || null, isActive]
       );
+      await recordAuditLog(req, 'CREATE', 'User Management', result.rows[0].nik, { nik: u.nik, name: u.name || u.nama, role: u.role });
       return res.json({ ok: true, data: result.rows[0] });
     }
     if (action === 'UPDATE_USER') {
-      const u = payload || data || req.body;
+      const u = payload?.data || payload || data || req.body;
       const targetId = id || u.id;
+      const isActive = u.status ? (u.status === 'Active' || u.status === 'aktif') : (u.is_active !== undefined ? u.is_active : null);
       const result = await query(
-        `UPDATE users SET nama = COALESCE($1, nama), email = COALESCE($2, email), role = COALESCE($3, role), site = COALESCE($4, site), updated_at = CURRENT_TIMESTAMP
-         WHERE id = $5 RETURNING id, nik, nama as name, email, role, site;`,
-        [u.name || u.nama, u.email, u.role, u.site, targetId]
+        `UPDATE users 
+         SET nama = COALESCE($1, nama), 
+             email = COALESCE($2, email), 
+             role = COALESCE($3, role), 
+             site = COALESCE($4, site), 
+             birthdate = COALESCE($5, birthdate),
+             is_active = COALESCE($6, is_active),
+             updated_at = CURRENT_TIMESTAMP
+         WHERE id = $7 
+         RETURNING id, nik, nama as name, email, role, site, department, birthdate, is_active,
+                   CASE WHEN is_active THEN 'Active' ELSE 'Inactive' END as status;`,
+        [u.name || u.nama, u.email, u.role, u.site, u.birthdate, isActive, targetId]
       );
+      await recordAuditLog(req, 'UPDATE', 'User Management', targetId, { role: u.role, site: u.site, status: u.status });
       return res.json({ ok: true, data: result.rows[0] });
     }
     if (action === 'DELETE_USER') {
-      await query('DELETE FROM users WHERE id = $1;', [id]);
+      const targetId = id || payload?.id || req.body.id;
+      await query('DELETE FROM users WHERE id = $1;', [targetId]);
+      await recordAuditLog(req, 'DELETE', 'User Management', targetId, { id: targetId });
       return res.json({ ok: true });
     }
 
@@ -485,6 +539,7 @@ app.post('/api/action', async (req, res) => {
          RETURNING *;`,
         [inv.invoice_number || inv.invoiceNumber, inv.vendor_name || inv.vendorName, inv.category || 'General', inv.period, inv.site || 'ALL', Number(inv.amount) || 0, inv.status || 'Review GA', inv.due_date || inv.dueDate || null, inv.invoice_date || inv.invoiceDate || null, inv.file_url || inv.fileUrl || null, inv.file_size_bytes || inv.fileSizeBytes || 0, inv.file_name || inv.fileName || null, inv.notes || null]
       );
+      await recordAuditLog(req, 'CREATE', 'Invoices', result.rows[0].invoice_number, { invoice_number: inv.invoice_number || inv.invoiceNumber, vendor: inv.vendor_name, amount: inv.amount });
       return res.json({ ok: true, data: result.rows[0] });
     }
     if (action === 'UPDATE_INVOICE') {
@@ -501,10 +556,12 @@ app.post('/api/action', async (req, res) => {
          WHERE id = $6 OR invoice_number = $7 RETURNING *;`,
         [inv.status || inv.status_pembayaran || null, inv.file_url || inv.fileUrl || null, inv.file_size_bytes || null, inv.file_name || null, inv.tracking_stages ? JSON.stringify(inv.tracking_stages) : null, isNaN(Number(targetId)) ? -1 : Number(targetId), String(targetId)]
       );
+      await recordAuditLog(req, 'UPDATE', 'Invoices', targetId, { status: inv.status });
       return res.json({ ok: true, data: result.rows[0] || {} });
     }
     if (action === 'DELETE_INVOICE') {
       await query('DELETE FROM invoices WHERE id = $1 OR invoice_number = $2;', [isNaN(Number(id)) ? -1 : Number(id), String(id)]);
+      await recordAuditLog(req, 'DELETE', 'Invoices', id, { id });
       return res.json({ ok: true });
     }
 
@@ -520,6 +577,7 @@ app.post('/api/action', async (req, res) => {
          VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15) RETURNING *;`,
         [t.booking_code, t.ticket_number, t.nik || '000', t.passenger_name || 'Penumpang', t.department, t.site, t.transport_type || 'Pesawat', t.route_from || 'BDJ', t.route_to || 'JKT', t.departure_date || new Date(), t.return_date || null, Number(t.cost) || 0, t.status || 'Issued', t.attachment_url || null, t.notes || null]
       );
+      await recordAuditLog(req, 'CREATE', 'Ticketing Records', result.rows[0].ticket_number || result.rows[0].booking_code, { passenger: t.passenger_name, cost: t.cost });
       return res.json({ ok: true, data: result.rows[0] });
     }
     if (action === 'BATCH_IMPORT_TICKETING') {
@@ -531,10 +589,12 @@ app.post('/api/action', async (req, res) => {
           [t.booking_code || null, t.ticket_number || null, t.nik || '000', t.passenger_name || 'Penumpang', t.department || 'GA', t.site || 'ALL', t.transport_type || 'Pesawat', t.route_from || 'BDJ', t.route_to || 'JKT', t.departure_date || new Date(), t.return_date || null, Number(t.cost) || 0, t.status || 'Issued']
         );
       }
+      await recordAuditLog(req, 'CREATE', 'Ticketing Records', 'import', { count: records.length });
       return res.json({ ok: true, count: records.length });
     }
     if (action === 'DELETE_TICKETING_RECORD') {
       await query('DELETE FROM tickets WHERE id = $1;', [id]);
+      await recordAuditLog(req, 'DELETE', 'Ticketing Records', id, { id });
       return res.json({ ok: true });
     }
 
@@ -569,6 +629,7 @@ app.post('/api/action', async (req, res) => {
          VALUES ($1, $2, $3, $4, $5, $6, $7) RETURNING *;`,
         [b.name, b.site || 'LBCT', totalRooms, totalBeds, b.gender || 'Male', b.status || 'Active', JSON.stringify(config)]
       );
+      await recordAuditLog(req, 'CREATE', 'Mess Buildings', result.rows[0].id, { name: b.name, site: b.site, total_rooms: totalRooms });
       return res.json({ ok: true, data: result.rows[0] });
     }
 
@@ -606,12 +667,14 @@ app.post('/api/action', async (req, res) => {
          WHERE id = $8 RETURNING *;`,
         [b.name, b.site, totalRooms, totalBeds, b.gender, b.status, JSON.stringify(config), targetId]
       );
+      await recordAuditLog(req, 'UPDATE', 'Mess Buildings', targetId, { name: b.name, total_rooms: totalRooms });
       return res.json({ ok: true, data: result.rows[0] });
     }
 
     if (action === 'DELETE_MESS_BUILDING') {
       const targetId = id || payload?.id || req.body.id;
       await query('DELETE FROM mess_buildings WHERE id = $1;', [targetId]);
+      await recordAuditLog(req, 'DELETE', 'Mess Buildings', targetId, { id: targetId });
       return res.json({ ok: true, data: { deleted: true } });
     }
 
@@ -650,6 +713,7 @@ app.post('/api/action', async (req, res) => {
           );
         }
       }
+      await recordAuditLog(req, 'UPDATE', 'Mess Stays', 'batch', { actions_count: actionsList.length });
       return res.json({ ok: true, data: { success: true } });
     }
 
@@ -665,6 +729,7 @@ app.post('/api/action', async (req, res) => {
          VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10) RETURNING *;`,
         [vc.vendor_name, vc.contract_number, vc.service_type || 'General', vc.site || 'ALL', vc.start_date || new Date(), vc.end_date || new Date(), Number(vc.contract_value) || 0, vc.status || 'Active', vc.file_url || null, vc.notes || null]
       );
+      await recordAuditLog(req, 'CREATE', 'Vendor Contracts', result.rows[0].id, { vendor: vc.vendor_name, number: vc.contract_number });
       return res.json({ ok: true, data: result.rows[0] });
     }
     if (action === 'GET_UNIT_CONTRACTS') {
@@ -678,6 +743,7 @@ app.post('/api/action', async (req, res) => {
          VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10) RETURNING *;`,
         [uc.unit_code, uc.unit_type, uc.vendor_name, uc.site || 'ALL', uc.start_date || new Date(), uc.end_date || new Date(), Number(uc.monthly_rate) || 0, uc.status || 'Active', uc.file_url || null, uc.notes || null]
       );
+      await recordAuditLog(req, 'CREATE', 'Unit Contracts', result.rows[0].id, { unit: uc.unit_code, vendor: uc.vendor_name });
       return res.json({ ok: true, data: result.rows[0] });
     }
 
@@ -696,7 +762,14 @@ app.post('/api/action', async (req, res) => {
          RETURNING *;`,
         [s.doc_code || s.code, s.title, s.doc_type || 'SOP', s.department || 'GA', s.revision_number || 'Rev. 00', s.effective_date || null, s.file_url || s.fileUrl || null, s.file_size_bytes || 0, s.status || 'Active', s.notes || null]
       );
+      await recordAuditLog(req, 'CREATE', 'SOP Documents', result.rows[0].doc_code, { title: s.title, code: s.doc_code });
       return res.json({ ok: true, data: result.rows[0] });
+    }
+    if (action === 'DELETE_SOP_DOCUMENT') {
+      const targetId = id || payload?.id;
+      await query('DELETE FROM standards WHERE id = $1 OR doc_code = $2;', [isNaN(Number(targetId)) ? -1 : Number(targetId), String(targetId)]);
+      await recordAuditLog(req, 'DELETE', 'SOP Documents', targetId, { id: targetId });
+      return res.json({ ok: true });
     }
 
     // 8. CATERING
@@ -707,6 +780,16 @@ app.post('/api/action', async (req, res) => {
     if (action === 'GET_CATERING_SCORINGS') {
       const result = await query('SELECT * FROM catering_scorings ORDER BY week_period DESC;');
       return res.json({ ok: true, data: result.rows });
+    }
+    if (action === 'CREATE_CATERING_SCORING') {
+      const cs = payload?.data || data || req.body;
+      const result = await query(
+        `INSERT INTO catering_scorings (vendor_id, vendor_name, site, week_period, total_score, status, notes)
+         VALUES ($1, $2, $3, $4, $5, $6, $7) RETURNING *;`,
+        [cs.vendor_id || null, cs.vendor_name || 'Vendor', cs.site || 'LBCT', cs.week_period || 'W1', Number(cs.total_score) || 0, cs.status || 'Verified', cs.notes || null]
+      );
+      await recordAuditLog(req, 'CREATE', 'Catering Scoring', result.rows[0].id, { vendor: cs.vendor_name, score: cs.total_score });
+      return res.json({ ok: true, data: result.rows[0] });
     }
     if (action === 'GET_CATERING_INCIDENTS') {
       const result = await query('SELECT * FROM catering_incidents ORDER BY date DESC;');
@@ -725,18 +808,70 @@ app.post('/api/action', async (req, res) => {
          VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11) RETURNING *;`,
         [r.claim_number, r.employee_nik, r.employee_name, r.site || 'LBCT', r.category || 'Transport', Number(r.amount) || 0, r.status || 'Submitted', r.claim_date || new Date(), r.file_url || null, JSON.stringify(r.items || []), r.notes || null]
       );
+      await recordAuditLog(req, 'CREATE', 'Reimbursements', result.rows[0].claim_number, { employee: r.employee_name, amount: r.amount });
       return res.json({ ok: true, data: result.rows[0] });
     }
 
-    // 10. EVENTS
+    // 10. EVENTS (CALENDAR OF EVENT)
     if (action === 'GET_EVENTS') {
-      const result = await query('SELECT id, title, start_date as start, end_date as "end", all_day as "allDay", category, description FROM events ORDER BY start_date ASC;');
+      const result = await query(`
+        SELECT id, title, start_date as start, end_date as "end", start_date as start_time, end_date as end_time,
+               all_day as "allDay", category, description, pic, status, recurrence_rule, notes, checklist_json
+        FROM events 
+        ORDER BY start_date ASC;
+      `);
       return res.json({ ok: true, data: result.rows });
     }
+    if (action === 'CREATE_EVENT') {
+      const e = payload?.data || payload || data || req.body;
+      const result = await query(
+        `INSERT INTO events (title, start_date, end_date, all_day, category, description, pic, status, recurrence_rule, notes, checklist_json)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11) RETURNING *;`,
+        [e.title, e.start_time || e.start_date || e.start || new Date(), e.end_time || e.end_date || e.end || null, e.all_day || false, e.category || 'General', e.description || e.notes || null, Array.isArray(e.pic) ? e.pic.join(', ') : (e.pic || null), e.status || 'Open', e.recurrence_rule || null, e.notes || null, JSON.stringify(e.checklist_json || e.checklist || [])]
+      );
+      await recordAuditLog(req, 'CREATE', 'Calendar Event', result.rows[0].id, { title: e.title, start: e.start_time });
+      return res.json({ ok: true, data: result.rows[0] });
+    }
+    if (action === 'UPDATE_EVENT') {
+      const e = payload?.data || payload || data || req.body;
+      const targetId = id || e.id || req.body.id;
+      const result = await query(
+        `UPDATE events 
+         SET title = COALESCE($1, title),
+             start_date = COALESCE($2, start_date),
+             end_date = COALESCE($3, end_date),
+             category = COALESCE($4, category),
+             description = COALESCE($5, description),
+             pic = COALESCE($6, pic),
+             status = COALESCE($7, status),
+             recurrence_rule = COALESCE($8, recurrence_rule),
+             notes = COALESCE($9, notes),
+             checklist_json = COALESCE($10, checklist_json),
+             updated_at = CURRENT_TIMESTAMP
+         WHERE id = $11 RETURNING *;`,
+        [e.title, e.start_time || e.start_date || null, e.end_time || e.end_date || null, e.category, e.description, Array.isArray(e.pic) ? e.pic.join(', ') : e.pic, e.status, e.recurrence_rule, e.notes, e.checklist_json ? JSON.stringify(e.checklist_json) : null, targetId]
+      );
+      await recordAuditLog(req, 'UPDATE', 'Calendar Event', targetId, { title: e.title, status: e.status });
+      return res.json({ ok: true, data: result.rows[0] });
+    }
+    if (action === 'DELETE_EVENT') {
+      const targetId = id || payload?.id || req.body.id;
+      await query('DELETE FROM events WHERE id = $1;', [targetId]);
+      await recordAuditLog(req, 'DELETE', 'Calendar Event', targetId, { id: targetId });
+      return res.json({ ok: true });
+    }
 
-    // 11. AUDIT LOGS
+    // 11. AUDIT LOGS (FULL AUDIT TRAIL)
     if (action === 'GET_AUDIT_LOGS') {
-      const result = await query('SELECT * FROM audit_logs ORDER BY created_at DESC LIMIT 500;');
+      const result = await query(`
+        SELECT id, user_id, user_nik, user_name,
+               COALESCE(user_name, user_nik, 'System') as user_email,
+               action, entity_type as resource, entity_type, entity_id, site,
+               details, ip_address, created_at as timestamp, created_at
+        FROM audit_logs 
+        ORDER BY created_at DESC 
+        LIMIT 500;
+      `);
       return res.json({ ok: true, data: result.rows });
     }
 

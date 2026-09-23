@@ -29,6 +29,7 @@ CREATE TABLE IF NOT EXISTS users (
     role VARCHAR(50) DEFAULT 'pic_lapangan', -- 'admin', 'ga_admin', 'ga_gl', 'pic_lapangan'
     site VARCHAR(50) DEFAULT 'ALL',          -- 'LBCT', 'IDMG', 'SPCT', 'ALL'
     department VARCHAR(100) DEFAULT 'General Affairs',
+    birthdate DATE,
     is_active BOOLEAN DEFAULT TRUE,
     created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP
@@ -283,6 +284,11 @@ CREATE TABLE IF NOT EXISTS events (
     all_day BOOLEAN DEFAULT FALSE,
     category VARCHAR(50) DEFAULT 'General',
     description TEXT,
+    pic TEXT,
+    status VARCHAR(50) DEFAULT 'Open',
+    recurrence_rule VARCHAR(100),
+    notes TEXT,
+    checklist_json JSONB DEFAULT '[]'::jsonb,
     created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP
 );

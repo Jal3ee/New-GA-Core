@@ -47,12 +47,12 @@ export default function CalendarPage() {
       if (usersRes.ok) {
         const users = usersRes.data || [];
         
-        // Extract active employees for PIC tagging
-        const employees = users.filter(u => u.role === 'Karyawan' && u.status === 'Active');
+        // Extract active employees for PIC tagging (mendukung is_active boolean dan status string)
+        const employees = users.filter(u => u.is_active === true || u.status === 'Active' || u.status === 'aktif');
         setActiveEmployees(employees);
 
         users.forEach(u => {
-          if (u.birthdate) {
+          if (u.birthdate && (u.is_active === true || u.status === 'Active')) {
             combinedEvents.push({
               id: `birthday-${u.id}`,
               title: `🎉 Ultah ${u.name}`,

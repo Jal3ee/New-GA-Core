@@ -194,9 +194,9 @@ export default function EventFormModal({ isOpen, onClose, onSave, initialData = 
                   <button
                     type="button"
                     onClick={() => togglePic('All')}
-                    className={`px-3 py-1.5 text-xs font-medium rounded-full transition-colors border ${
+                    className={`px-3 py-1.5 text-xs font-semibold rounded-full transition-all border ${
                       currentPic.includes('All')
-                        ? 'bg-[var(--primary)] text-white border-[var(--primary)]'
+                        ? 'bg-[#C4841F] text-white border-[#C4841F] shadow-sm'
                         : 'bg-[var(--background)] text-[var(--muted-foreground)] border-[var(--border)] hover:bg-[var(--muted)] hover:text-[var(--foreground)]'
                     }`}
                   >
@@ -209,9 +209,9 @@ export default function EventFormModal({ isOpen, onClose, onSave, initialData = 
                         key={emp.id}
                         type="button"
                         onClick={() => togglePic(emp.name)}
-                        className={`px-3 py-1.5 text-xs font-medium rounded-full transition-colors border ${
+                        className={`px-3 py-1.5 text-xs font-medium rounded-full transition-all border ${
                           isSelected
-                            ? 'bg-[var(--primary)]/10 text-[var(--primary)] border-[var(--primary)]/30'
+                            ? 'bg-[var(--primary)] text-white border-[var(--primary)] shadow-sm font-semibold'
                             : 'bg-[var(--background)] text-[var(--muted-foreground)] border-[var(--border)] hover:bg-[var(--muted)] hover:text-[var(--foreground)]'
                         }`}
                       >
@@ -220,7 +220,7 @@ export default function EventFormModal({ isOpen, onClose, onSave, initialData = 
                     );
                   })}
                   {activeEmployees.length === 0 && (
-                    <span className="text-xs text-[var(--muted-foreground)] italic p-1">Tidak ada karyawan aktif.</span>
+                    <span className="text-xs text-[var(--muted-foreground)] italic p-1">Memuat atau belum ada karyawan aktif.</span>
                   )}
                 </div>
                 {/* Hidden input to register pic field for validation if needed */}
