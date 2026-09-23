@@ -27,6 +27,7 @@ const SopPage             = lazy(() => import('./pages/docs/SopPage'));
 const CateringScoringPage = lazy(() => import('./pages/catering/CateringScoringPage'));
 const CateringIncidentsPage = lazy(() => import('./pages/catering/CateringIncidentsPage'));
 const ReimbursementPage   = lazy(() => import('./pages/docs/ReimbursementPage'));
+const BhpMessPage         = lazy(() => import('./pages/mess/BhpMessPage'));
 
 function App() {
   return (
@@ -45,6 +46,7 @@ function App() {
                 <Route path="/mess/matrix" element={<MessMatrixPage />} />
                 <Route path="/mess/setup" element={<MessSetupPage />} />
                 <Route path="/mess/transfer" element={<MessTransferPage />} />
+                <Route path="/mess/bhp" element={<BhpMessPage />} />
                 <Route path="/karyawan" element={<KaryawanPage />} />
                 <Route path="/audit-log" element={<AuditLogPage />} />
                 <Route path="/profile" element={<ProfilePage />} />

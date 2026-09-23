@@ -42,28 +42,78 @@ function enqueueRequest(fn) {
   return next;
 }
 
+const PG_API_URL = import.meta.env.VITE_PG_API_URL || '/api';
+
 export async function gasFetch(action, payload = {}, options = {}) {
   const { maxRetries = 3, retryDelay = 800 } = options;
+  const token = typeof sessionStorage !== 'undefined' ? sessionStorage.getItem('garda_jwt_token') : null;
 
-  let hasFile = false;
-  let fileObj = null;
-  let fileName = '';
+  // 1. UPLOAD BERKAS LANGSUNG KE SISTEM / DRIVE (100% TANPA GAS)
+  if (action === 'UPLOAD_FILE') {
+    let fileObj = null;
+    let fileName = '';
 
-  // Check if there is a File in the payload data
-  if (payload.payload && payload.payload.data && payload.payload.data.fileData instanceof File) {
-    hasFile = true;
-    fileObj = payload.payload.data.fileData;
-    fileName = payload.payload.data.fileName || fileObj.name;
-    delete payload.payload.data.fileData; // remove from JSON
-    delete payload.payload.data.fileName;
+    if (payload.payload && payload.payload.data && payload.payload.data.fileData instanceof File) {
+      fileObj = payload.payload.data.fileData;
+      fileName = payload.payload.data.fileName || fileObj.name;
+    } else if (payload.fileData instanceof File) {
+      fileObj = payload.fileData;
+      fileName = payload.fileName || fileObj.name;
+    }
+
+    try {
+      const formData = new FormData();
+      if (fileObj) {
+        formData.append('file', fileObj, fileName);
+      } else {
+        const rawData = payload.fileData || payload.payload?.data?.fileData;
+        formData.append('fileBase64', rawData);
+        formData.append('fileName', fileName || payload.fileName || 'berkas.pdf');
+      }
+      formData.append('moduleName', payload.moduleName || payload.payload?.moduleName || 'General');
+
+      const headers = {};
+      if (token) headers['Authorization'] = `Bearer ${token}`;
+
+      const res = await fetch(`${PG_API_URL}/upload`, {
+        method: 'POST',
+        headers,
+        body: formData
+      });
+
+      if (res.ok) {
+        return await res.json();
+      }
+      throw new Error(`Upload gagal: HTTP ${res.status}`);
+    } catch (uploadErr) {
+      console.error('[Upload Error]:', uploadErr.message);
+      throw uploadErr;
+    }
   }
 
-  const bodyObj = {
-    action,
-    secret: API_SECRET,
-    userEmail: getSessionEmail(),
-    ...payload,
-  };
+  // 2. SEMUA DATA CRUD BERJALAN 100% DI POSTGRESQL 16 DENGAN JWT OTENTIKASI
+  try {
+    const headers = { 'Content-Type': 'application/json' };
+    if (token) headers['Authorization'] = `Bearer ${token}`;
+
+    const res = await fetch(`${PG_API_URL}/action`, {
+      method: 'POST',
+      headers,
+      body: JSON.stringify({ action, ...payload })
+    });
+
+    if (res.ok) {
+      const json = await res.json();
+      if (action.startsWith('GET_') && json.ok) {
+        try {
+          localStorage.setItem('garda_cache_' + action, JSON.stringify(json));
+        } catch {}
+      }
+      return json;
+    }
+  } catch (pgErr) {
+    console.warn(`[PostgreSQL 16] Error processing ${action}:`, pgErr.message);
+  }
 
   // If in dev and no GAS_URL, return mock data
   if (!GAS_URL) {
@@ -437,5 +487,34 @@ export const api = {
   // Database Setup / Sheet Init
   async setupNewTables() {
     return this.post({ action: 'SETUP_NEW_TABLES' });
+  },
+
+  // BHP Mess (Stok, Forecast & Rekap)
+  async getBhpData() {
+    return this.post({ action: 'GET_BHP_DATA' });
+  },
+  async saveBhpUsage(records) {
+    return this.post({ action: 'SAVE_BHP_USAGE', payload: { records } });
+  },
+  async saveBhpStockIn(data) {
+    return this.post({ action: 'SAVE_BHP_STOCK_IN', payload: { data } });
+  },
+  async saveBhpTransfer(data) {
+    return this.post({ action: 'SAVE_BHP_TRANSFER', payload: { data } });
+  },
+  async saveBhpOpname(data) {
+    return this.post({ action: 'SAVE_BHP_OPNAME', payload: { data } });
+  },
+  async saveBhpForecast(data) {
+    return this.post({ action: 'SAVE_BHP_FORECAST', payload: { data } });
+  },
+  async saveBhpPdfHistory(data) {
+    return this.post({ action: 'SAVE_BHP_PDF_HISTORY', payload: { data } });
+  },
+  async updateBhpItem(data) {
+    return this.post({ action: 'UPDATE_BHP_ITEM', payload: { data } });
+  },
+  async updateBhpSiteParams(site, params) {
+    return this.post({ action: 'UPDATE_BHP_SITE_PARAMS', payload: { site, params } });
   }
 };

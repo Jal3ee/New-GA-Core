@@ -58,6 +58,7 @@ export function MainLayout() {
           { label: 'Matriks Okupansi', path: '/mess/matrix' },
           { label: 'Master Setup', path: '/mess/setup' },
           { label: 'Transfer / Simulasi', path: '/mess/transfer' },
+          { label: 'BHP Mess (Stok & Forecast)', path: '/mess/bhp' },
         ]
       },
       {

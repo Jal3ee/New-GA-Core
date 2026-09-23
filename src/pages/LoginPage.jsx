@@ -25,11 +25,11 @@ export default function LoginPage() {
       // call our GAS backend to verify login
       const res = await gasFetch('LOGIN', { nik, password });
       if (res.ok) {
-        if (res.data.status !== 'Active') {
+        if (res.data.is_active === false || res.data.status === 'Inactive') {
           toast.error('Akun Anda tidak aktif. Silakan hubungi admin.');
         } else {
-          login(res.data);
-          toast.success('Berhasil masuk.');
+          login(res.data, res.token);
+          toast.success('Berhasil masuk dengan proteksi JWT.');
           navigate('/', { replace: true });
         }
       }

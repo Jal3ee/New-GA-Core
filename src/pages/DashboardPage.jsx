@@ -596,7 +596,7 @@ export default function DashboardPage() {
             id: `log-${log.id}`,
             title: `Aktivitas: ${log.action} ${log.resource?.replace('tbl_', '').replace(/_/g, ' ')}`,
             category: 'Audit Log',
-            amount: log.user_email?.split('@')[0] || 'GA User',
+            amount: String(log.user_email || '').split('@')[0] || 'GA User',
             site: 'GA Core',
             date: cleanFlightDate(log.timestamp),
             status: 'Closed'
