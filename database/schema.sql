@@ -296,6 +296,8 @@ CREATE TABLE IF NOT EXISTS mess_buildings (
     name VARCHAR(100) NOT NULL,
     site VARCHAR(50) NOT NULL,              -- 'LBCT', 'IDMG', 'SPCT'
     total_rooms INT DEFAULT 0,
+    total_beds INT DEFAULT 0,
+    room_config_json JSONB DEFAULT '[]'::jsonb,
     gender VARCHAR(20) DEFAULT 'Male',       -- 'Male', 'Female', 'Mixed'
     status VARCHAR(50) DEFAULT 'Active',
     created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,

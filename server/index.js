@@ -538,24 +538,118 @@ app.post('/api/action', async (req, res) => {
       return res.json({ ok: true });
     }
 
-    // 5. MESS MANAGEMENT
+    // 5. MESS MANAGEMENT (BUILDINGS & ROOMS CONFIGURATION)
     if (action === 'GET_MESS_BUILDINGS') {
       const result = await query('SELECT * FROM mess_buildings ORDER BY id ASC;');
       return res.json({ ok: true, data: result.rows });
     }
+
     if (action === 'CREATE_MESS_BUILDING') {
-      const b = payload || data || req.body;
+      const b = payload?.data || payload || data || req.body;
+      const rawConfig = b.room_config_json || b.room_config || [];
+      const config = Array.isArray(rawConfig) ? rawConfig : (typeof rawConfig === 'string' ? JSON.parse(rawConfig || '[]') : []);
+
+      let totalRooms = 0;
+      let totalBeds = 0;
+      config.forEach(c => {
+        const start = parseInt(c.range_start, 10) || 1;
+        const end = parseInt(c.range_end, 10) || start;
+        const beds = parseInt(c.beds, 10) || 1;
+        const r = (end >= start) ? (end - start + 1) : 1;
+        totalRooms += r;
+        totalBeds += (r * beds);
+      });
+
+      if (totalRooms === 0 && Number(b.total_rooms) > 0) {
+        totalRooms = Number(b.total_rooms);
+      }
+
       const result = await query(
-        `INSERT INTO mess_buildings (name, site, total_rooms, gender, status) VALUES ($1, $2, $3, $4, $5) RETURNING *;`,
-        [b.name, b.site || 'LBCT', Number(b.total_rooms) || 0, b.gender || 'Male', b.status || 'Active']
+        `INSERT INTO mess_buildings (name, site, total_rooms, total_beds, gender, status, room_config_json)
+         VALUES ($1, $2, $3, $4, $5, $6, $7) RETURNING *;`,
+        [b.name, b.site || 'LBCT', totalRooms, totalBeds, b.gender || 'Male', b.status || 'Active', JSON.stringify(config)]
       );
       return res.json({ ok: true, data: result.rows[0] });
     }
+
+    if (action === 'UPDATE_MESS_BUILDING') {
+      const b = payload?.data || payload || data || req.body;
+      const targetId = id || b.id || req.body.id;
+      const rawConfig = b.room_config_json || b.room_config || [];
+      const config = Array.isArray(rawConfig) ? rawConfig : (typeof rawConfig === 'string' ? JSON.parse(rawConfig || '[]') : []);
+
+      let totalRooms = 0;
+      let totalBeds = 0;
+      config.forEach(c => {
+        const start = parseInt(c.range_start, 10) || 1;
+        const end = parseInt(c.range_end, 10) || start;
+        const beds = parseInt(c.beds, 10) || 1;
+        const r = (end >= start) ? (end - start + 1) : 1;
+        totalRooms += r;
+        totalBeds += (r * beds);
+      });
+
+      if (totalRooms === 0 && Number(b.total_rooms) > 0) {
+        totalRooms = Number(b.total_rooms);
+      }
+
+      const result = await query(
+        `UPDATE mess_buildings 
+         SET name = COALESCE($1, name),
+             site = COALESCE($2, site),
+             total_rooms = $3,
+             total_beds = $4,
+             gender = COALESCE($5, gender),
+             status = COALESCE($6, status),
+             room_config_json = $7,
+             updated_at = CURRENT_TIMESTAMP
+         WHERE id = $8 RETURNING *;`,
+        [b.name, b.site, totalRooms, totalBeds, b.gender, b.status, JSON.stringify(config), targetId]
+      );
+      return res.json({ ok: true, data: result.rows[0] });
+    }
+
+    if (action === 'DELETE_MESS_BUILDING') {
+      const targetId = id || payload?.id || req.body.id;
+      await query('DELETE FROM mess_buildings WHERE id = $1;', [targetId]);
+      return res.json({ ok: true, data: { deleted: true } });
+    }
+
     if (action === 'GET_MESS_STAYS') {
-      const result = await query('SELECT * FROM mess_stays ORDER BY check_in DESC;');
+      const result = await query(`
+        SELECT s.*, 
+               s.check_in as start_date, 
+               s.check_out as end_date, 
+               s.room_number as room_no, 
+               s.bed_number as bed_no, 
+               s.employee_name as guest_name,
+               b.site,
+               b.name as building_name
+        FROM mess_stays s
+        LEFT JOIN mess_buildings b ON s.building_id = b.id
+        ORDER BY s.check_in DESC;
+      `);
       return res.json({ ok: true, data: result.rows });
     }
+
     if (action === 'BATCH_UPDATE_STAYS') {
+      const actionsList = payload?.actions || payload?.data || [];
+      for (const act of actionsList) {
+        if (act.type === 'CREATE' && act.payload) {
+          const p = act.payload;
+          await query(
+            `INSERT INTO mess_stays (building_id, room_number, bed_number, employee_name, check_in, check_out, status, notes)
+             VALUES ($1, $2, $3, $4, $5, $6, $7, $8);`,
+            [p.building_id, p.room_no || p.room_number, p.bed_no || p.bed_number, p.guest_name || p.employee_name, p.start_date || p.check_in || new Date(), p.end_date || p.check_out || null, p.status || 'Active', p.notes || null]
+          );
+        } else if (act.type === 'UPDATE' && act.id) {
+          const p = act.payload || {};
+          await query(
+            `UPDATE mess_stays SET check_out = COALESCE($1, check_out), status = COALESCE($2, status), updated_at = CURRENT_TIMESTAMP WHERE id = $3;`,
+            [p.end_date || p.check_out, p.status, act.id]
+          );
+        }
+      }
       return res.json({ ok: true, data: { success: true } });
     }
 
