@@ -26,6 +26,15 @@ const upload = multer({
 app.use(cors());
 app.use(express.json({ limit: '10mb' }));
 app.use(express.urlencoded({ extended: true, limit: '10mb' }));
+
+// Normalizer middleware untuk Vercel Serverless Function rewrites
+app.use((req, res, next) => {
+  if (req.url && !req.url.startsWith('/api') && !req.url.startsWith('/uploads')) {
+    req.url = '/api' + (req.url.startsWith('/') ? req.url : '/' + req.url);
+  }
+  next();
+});
+
 app.use('/uploads', express.static(path.resolve(__dirname, '../public/uploads')));
 
 // ====================================================================
@@ -643,6 +652,12 @@ app.post('/api/action', async (req, res) => {
     console.error(`[PG-Action-Error] ${action}:`, err.message);
     return res.status(500).json({ ok: false, error: err.message });
   }
+});
+
+// Global Error Handler agar function tidak crash di Vercel
+app.use((err, req, res, next) => {
+  console.error('[Global-API-Error]:', err.message || err);
+  res.status(500).json({ ok: false, error: err.message || 'Internal Server Error' });
 });
 
 // Start Server if not running on Vercel Serverless

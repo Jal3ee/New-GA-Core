@@ -28,6 +28,8 @@ export const CONNECTION_MODES = {
 // Ambil mode dari .env atau default ke 'transaction'
 export const currentMode = (process.env.POSTGRES_MODE || CONNECTION_MODES.TRANSACTION).toLowerCase();
 
+const DEFAULT_DATABASE_URL = 'postgresql://uswRfIdT6Zzn8XLoL.jkt1_006:620a042cad6aeb08c8624bb7@pgsql-dbas-jkt1-006.sumobase.my.id:6432/dba6b11936354a9e0a';
+
 /**
  * Mendapatkan Connection String sesuai mode yang dipilih
  */
@@ -43,8 +45,8 @@ export function getConnectionString(mode = currentMode) {
     return process.env.DATABASE_URL_DIRECT;
   }
 
-  // Gunakan URL utama DATABASE_URL
-  return process.env.DATABASE_URL || null;
+  // Gunakan URL utama DATABASE_URL atau default database PostgreSQL 16 live
+  return process.env.DATABASE_URL || DEFAULT_DATABASE_URL;
 }
 
 // Konfigurasi Pooler
@@ -54,21 +56,21 @@ export const pool = new Pool(
   activeConnString
     ? {
         connectionString: activeConnString,
-        ssl: process.env.DB_SSL === 'false' ? false : { rejectUnauthorized: false },
-        max: currentMode === CONNECTION_MODES.TRANSACTION ? 20 : 10,
+        ssl: process.env.DB_SSL === 'true' ? { rejectUnauthorized: false } : false,
+        max: currentMode === CONNECTION_MODES.TRANSACTION ? 15 : 10,
         idleTimeoutMillis: 30000,
-        connectionTimeoutMillis: 5000,
+        connectionTimeoutMillis: 10000,
       }
     : {
-        host: process.env.DB_HOST || 'localhost',
-        port: Number(process.env.DB_PORT) || (currentMode === CONNECTION_MODES.TRANSACTION ? 6543 : 5432),
-        database: process.env.DB_NAME || 'postgres',
-        user: process.env.DB_USER || 'postgres',
-        password: process.env.DB_PASSWORD || '',
-        ssl: process.env.DB_SSL === 'false' ? false : { rejectUnauthorized: false },
-        max: currentMode === CONNECTION_MODES.TRANSACTION ? 20 : 10,
+        host: process.env.DB_HOST || 'pgsql-dbas-jkt1-006.sumobase.my.id',
+        port: Number(process.env.DB_PORT) || 6432,
+        database: process.env.DB_NAME || 'dba6b11936354a9e0a',
+        user: process.env.DB_USER || 'uswRfIdT6Zzn8XLoL.jkt1_006',
+        password: process.env.DB_PASSWORD || '620a042cad6aeb08c8624bb7',
+        ssl: process.env.DB_SSL === 'true' ? { rejectUnauthorized: false } : false,
+        max: currentMode === CONNECTION_MODES.TRANSACTION ? 15 : 10,
         idleTimeoutMillis: 30000,
-        connectionTimeoutMillis: 5000,
+        connectionTimeoutMillis: 10000,
       }
 );
 

@@ -10,10 +10,18 @@ dotenv.config({ path: path.resolve(__dirname, '../.env') });
 
 const MAX_FILE_SIZE_BYTES = 5 * 1024 * 1024; // 5 MB Maksimal
 
-// Direktori lokal untuk berkas yang diunggah
-const UPLOADS_DIR = path.resolve(__dirname, '../public/uploads');
-if (!fs.existsSync(UPLOADS_DIR)) {
-  fs.mkdirSync(UPLOADS_DIR, { recursive: true });
+// Direktori untuk berkas yang diunggah (Gunakan /tmp di lingkungan serverless Vercel)
+const isServerless = Boolean(process.env.VERCEL || process.env.AWS_LAMBDA_FUNCTION_NAME);
+const UPLOADS_DIR = isServerless
+  ? path.join('/tmp', 'uploads')
+  : path.resolve(__dirname, '../public/uploads');
+
+try {
+  if (!fs.existsSync(UPLOADS_DIR)) {
+    fs.mkdirSync(UPLOADS_DIR, { recursive: true });
+  }
+} catch (fsErr) {
+  console.warn('[Drive Storage] Notice: Tidak dapat membuat folder uploads lokal:', fsErr.message);
 }
 
 /**
@@ -97,17 +105,20 @@ export async function uploadDirectToDrive(buffer, originalFileName, moduleName =
     }
   }
 
-  // 4. Default Secure Storage (Disimpan di public/uploads dengan link HTTPS langsung)
+  // 4. Default Secure Storage (Disimpan di storage dengan link HTTPS langsung)
   const targetSubDir = path.join(UPLOADS_DIR, moduleName);
-  if (!fs.existsSync(targetSubDir)) {
-    fs.mkdirSync(targetSubDir, { recursive: true });
+  try {
+    if (!fs.existsSync(targetSubDir)) {
+      fs.mkdirSync(targetSubDir, { recursive: true });
+    }
+    const filePath = path.join(targetSubDir, uniqueFileName);
+    fs.writeFileSync(filePath, buffer);
+  } catch (writeErr) {
+    console.warn('[Secure Storage] Gagal menyimpan ke disk fisik:', writeErr.message);
   }
 
-  const filePath = path.join(targetSubDir, uniqueFileName);
-  fs.writeFileSync(filePath, buffer);
-
   const publicUrl = `/uploads/${moduleName}/${uniqueFileName}`;
-  console.log(`[Secure Storage] File berhasil disimpan: ${publicUrl}`);
+  console.log(`[Secure Storage] File berhasil diproses: ${publicUrl}`);
 
   return {
     success: true,
