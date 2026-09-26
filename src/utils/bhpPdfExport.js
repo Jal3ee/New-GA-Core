@@ -286,43 +286,38 @@ export function generateBhpForecastPdfReport({
     <thead>
       <tr>
         <th style="width: 25px;">No</th>
-        <th style="width: 75px;">Kode Item</th>
+        <th style="width: 70px;">Kode Item</th>
         <th>Nama Barang Habis Pakai (BHP)</th>
         <th style="width: 80px;">Kategori</th>
-        <th style="width: 40px;">Satuan</th>
-        <th style="width: 50px;">Isi/Pack</th>
-        <th style="width: 35px;">ABC</th>
-        <th style="width: 55px;">Avg Pakai/Hari</th>
-        <th style="width: 60px;">Horizon Demand (28h)</th>
-        <th style="width: 55px;">Safety Stock</th>
-        <th style="width: 55px;">Stok Proyeksi Sisa</th>
-        <th style="width: 65px; background-color: #0d9488;">Rekomendasi (Pcs)</th>
-        <th style="width: 65px; background-color: #0f766e;">Rekomendasi (Pack)</th>
-        <th style="width: 90px;">Catatan / Flag</th>
+        <th style="width: 70px;">Model</th>
+        <th style="width: 50px;">CR</th>
+        <th style="width: 60px;">Base Forecast</th>
+        <th style="width: 60px;">Safety Stock (Z=1.65)</th>
+        <th style="width: 55px;">Sisa Stok</th>
+        <th style="width: 65px; background-color: #0d9488;">Final Order (Pcs)</th>
+        <th style="width: 65px; background-color: #0f766e;">Final Order (Pack)</th>
+        <th style="width: 85px;">Estimasi Biaya</th>
       </tr>
     </thead>
     <tbody>
       ${forecastData.map((row, idx) => {
-        const abcClass = row.abc_class || 'B';
-        const abcBadgeClass = abcClass === 'A' ? 'badge-a' : abcClass === 'C' ? 'badge-c' : 'badge-b';
+        const isMandays = row.is_mandays || row.model_type === 'MANDAYS';
+        const modelBadge = isMandays ? '<span style="color:#0f766e; font-weight:bold;">Mandays</span>' : '<span style="color:#b45309; font-weight:bold;">Maintenance</span>';
+        const crDisplay = row.consumption_rate ? Number(row.consumption_rate).toFixed(4) : '-';
         return `
           <tr>
             <td class="text-center font-mono">${idx + 1}</td>
             <td class="text-center font-mono font-bold">${row.code || row.item_id}</td>
             <td><strong>${row.name}</strong></td>
             <td>${row.category || '-'}</td>
-            <td class="text-center">${row.unit || 'pcs'}</td>
-            <td class="text-center font-mono">${row.pack_qty || 1} ${row.unit}</td>
-            <td class="text-center"><span class="badge-abc ${abcBadgeClass}">${abcClass}</span></td>
-            <td class="text-right font-mono">${Number(row.avg_daily_usage || 0).toFixed(1)}</td>
-            <td class="text-right font-mono">${Math.round(row.period_demand || 0)}</td>
-            <td class="text-right font-mono">+${Math.round(row.safety_stock || 0)} (${row.safety_pct || 5}%)</td>
-            <td class="text-right font-mono text-muted">${Math.round(row.projected_stock || 0)}</td>
-            <td class="text-right font-mono font-bold" style="color: #0f766e; background: #f0fdf4;">${row.recommended_qty_pcs || 0}</td>
+            <td class="text-center">${modelBadge}</td>
+            <td class="text-right font-mono">${crDisplay}</td>
+            <td class="text-right font-mono">${Math.round(row.base_forecast || 0)}</td>
+            <td class="text-right font-mono">+${Math.round(row.safety_stock || 0)}</td>
+            <td class="text-right font-mono text-muted">${row.current_stock || 0}</td>
+            <td class="text-right font-mono font-bold" style="color: #0f766e; background: #f0fdf4;">${row.final_order || row.recommended_qty_pcs || 0} ${row.unit || 'pcs'}</td>
             <td class="text-right font-mono font-bold" style="color: #0f766e; background: #ccfbf1;">${row.recommended_packs || 0} ${row.pack_unit || 'pack'}</td>
-            <td style="font-size: 8.5px; color: ${row.variance_flag ? '#b91c1c' : '#475569'};">
-              ${row.variance_flag ? '⚠️ Variasi tinggi' : (row.notes || 'Normal')}
-            </td>
+            <td class="text-right font-mono tabular-nums font-semibold">${formatRupiah(row.total_cost || 0)}</td>
           </tr>
         `;
       }).join('')}

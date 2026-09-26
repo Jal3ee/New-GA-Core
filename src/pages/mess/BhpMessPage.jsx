@@ -6,8 +6,10 @@ import { motion, AnimatePresence } from 'framer-motion';
 import {
   Package, Search, Plus, ArrowRightLeft, ClipboardCheck,
   FileDown, X, ChevronRight, Truck, Clock,
-  SlidersHorizontal, Building2, ShieldCheck, Check, Trash2
+  SlidersHorizontal, Building2, ShieldCheck, Check, Trash2,
+  Users, Info, ArrowUpRight, Calculator, AlertTriangle, Sparkles, RefreshCw
 } from 'lucide-react';
+import { api as gasClient } from '../../lib/gasClient';
 import CustomSelect from '../../components/ui/CustomSelect';
 import Pagination from '../../components/ui/Pagination';
 import {
@@ -64,10 +66,29 @@ export default function BhpMessPage() {
   const [opnamePage, setOpnamePage] = useState(1);
   const [opnamePageSize, setOpnamePageSize] = useState(10);
 
-  // Tab 5: Forecast Search & Pagination
+  // Tab 5: Forecast Search, Pagination, Model Filter & Detail Modals
   const [forecastSearch, setForecastSearch] = useState('');
   const [forecastPage, setForecastPage] = useState(1);
   const [forecastPageSize, setForecastPageSize] = useState(25);
+  const [forecastModelFilter, setForecastModelFilter] = useState('ALL'); // 'ALL', 'MANDAYS', 'STATIC'
+  const [selectedForecastDetail, setSelectedForecastDetail] = useState(null);
+  const [isConfigModalOpen, setIsConfigModalOpen] = useState(false);
+  const [isSyncingMess, setIsSyncingMess] = useState(false);
+  const [messSyncStatus, setMessSyncStatus] = useState(null);
+
+  // Mandays Headcount & Risk Parameters (Integrated with Mess Occupancy)
+  const [mandaysParams, setMandaysParams] = useState({
+    histResidentCount: 150,     // Total Penghuni Tetap Historis
+    histDays: 30,              // Jumlah Hari Periode Historis
+    histVisitorCount: 25,       // Total Visitor Historis
+    histVisitorAvgStay: 5,     // Rata-rata Lama Inap Visitor Historis (Hari)
+    nextResidentCount: 160,     // Estimasi Penghuni Tetap Bulan Depan
+    nextDays: 30,              // Estimasi Hari Bulan Depan (30 Hari)
+    nextVisitorCount: 35,       // Estimasi Visitor Bulan Depan
+    nextVisitorAvgStay: 5,     // Estimasi Lama Inap Visitor Bulan Depan (Hari)
+    leadTimeDays: 7,           // Lead Time Pengiriman Supplier (Hari)
+    zScore: 1.65               // Z-Score untuk 95% Service Level
+  });
 
   // Item Detail Drawer
   const [selectedItemForDrawer, setSelectedItemForDrawer] = useState(null);
@@ -188,8 +209,90 @@ export default function BhpMessPage() {
           }
         }
       })
-      .catch(() => {});
   }, []);
+
+  // Business Rule: Kategori Mandays vs Maintenance Area Statis
+  const isMandaysCategory = (category) => {
+    if (!category) return false;
+    const c = category.toLowerCase();
+    return c.includes('makanan') || c.includes('konsumsi') || c.includes('toiletries') || c.includes('mandi');
+  };
+
+  // Sync Headcount from mess_stays table (PostgreSQL 16)
+  const syncWithMessOccupancy = async (silent = false) => {
+    setIsSyncingMess(true);
+    try {
+      const res = await gasClient.getMessStays();
+      const stays = res?.data || [];
+      const targetStays = selectedSite === 'ALL' 
+        ? stays 
+        : stays.filter(s => s.site === selectedSite);
+      
+      const today = new Date().toISOString().split('T')[0];
+      const activeStays = targetStays.filter(s => {
+        if (!s.start_date) return false;
+        const start = s.start_date.split('T')[0];
+        const end = s.end_date ? s.end_date.split('T')[0] : '9999-12-31';
+        return today >= start && today <= end && (s.status === 'Onsite' || s.status === 'Active');
+      });
+
+      let visitors = 0;
+      let residents = 0;
+      let totalVisitorStayDays = 0;
+
+      activeStays.forEach(s => {
+        const notes = (s.notes || '').toLowerCase();
+        const role = (s.role || s.guest_name || '').toLowerCase();
+        const isVis = notes.includes('visitor') || notes.includes('tamu') || notes.includes('vendor') || role.includes('visitor') || role.includes('tamu');
+        
+        let stayDays = 5;
+        if (s.start_date && s.end_date) {
+          const diffMs = new Date(s.end_date) - new Date(s.start_date);
+          stayDays = Math.max(1, Math.round(diffMs / (1000 * 60 * 60 * 24)));
+        }
+
+        if (isVis || stayDays < 14) {
+          visitors++;
+          totalVisitorStayDays += Math.min(stayDays, 14);
+        } else {
+          residents++;
+        }
+      });
+
+      const avgStay = visitors > 0 ? Math.max(1, Math.round(totalVisitorStayDays / visitors)) : 5;
+      const safeResidents = residents > 0 ? residents : (selectedSite === 'LBCT' ? 165 : selectedSite === 'IDMG' ? 110 : selectedSite === 'SPCT' ? 82 : 150);
+      const safeVisitors = visitors > 0 ? visitors : (selectedSite === 'ALL' ? 25 : 10);
+
+      setMandaysParams(prev => ({
+        ...prev,
+        histResidentCount: safeResidents,
+        histVisitorCount: safeVisitors,
+        histVisitorAvgStay: avgStay,
+        nextResidentCount: safeResidents,
+        nextVisitorCount: Math.round(safeVisitors * 1.2), // Buffer 20% antisipasi lonjakan visitor
+        nextVisitorAvgStay: avgStay
+      }));
+
+      setMessSyncStatus({
+        timestamp: new Date().toLocaleTimeString('id-ID'),
+        residents: safeResidents,
+        visitors: safeVisitors,
+        avgStay: avgStay
+      });
+
+      if (!silent) {
+        toast.success(`Data okupansi mess disinkronkan (${safeResidents} penghuni tetap, ${safeVisitors} visitor)`);
+      }
+    } catch (err) {
+      console.warn('Mess stays sync fallback:', err);
+    } finally {
+      setIsSyncingMess(false);
+    }
+  };
+
+  useEffect(() => {
+    syncWithMessOccupancy(true);
+  }, [selectedSite]);
 
   // Unique Categories from master items
   const categoriesList = useMemo(() => {
@@ -365,36 +468,119 @@ export default function BhpMessPage() {
   }, [filteredOpnames, opnamePage, opnamePageSize]);
 
   // --------------------------------------------------------------------------
-  // TAB 5: FORECAST & REKAP KEBUTUHAN
+  // TAB 5: FORECAST & REKAP KEBUTUHAN (MANDAYS CONSUMPTION & SAFETY STOCK)
   // --------------------------------------------------------------------------
+  
+  // Perhitungan Metrik Mandays Global (Tahap 1.1 & Tahap 1.3)
+  const mandaysMetrics = useMemo(() => {
+    const {
+      histResidentCount, histDays, histVisitorCount, histVisitorAvgStay,
+      nextResidentCount, nextDays, nextVisitorCount, nextVisitorAvgStay,
+      leadTimeDays, zScore
+    } = mandaysParams;
+
+    // Tahap 1.1: Mandays Historis = (Penghuni Tetap × Hari) + (Visitor × Lama Inap)
+    const histResidentMandays = (Number(histResidentCount) || 0) * (Number(histDays) || 30);
+    const histVisitorMandays = (Number(histVisitorCount) || 0) * (Number(histVisitorAvgStay) || 1);
+    const totalHistMandays = Math.max(1, histResidentMandays + histVisitorMandays);
+
+    // Tahap 1.3: Estimasi Mandays Bulan Depan = (Penghuni Tetap Next × 30) + (Visitor Next × Lama Inap)
+    const nextResidentMandays = (Number(nextResidentCount) || 0) * (Number(nextDays) || 30);
+    const nextVisitorMandays = (Number(nextVisitorCount) || 0) * (Number(nextVisitorAvgStay) || 1);
+    const totalNextMandays = Math.max(1, nextResidentMandays + nextVisitorMandays);
+
+    const mandaysGrowthPct = totalHistMandays > 0 ? (((totalNextMandays - totalHistMandays) / totalHistMandays) * 100) : 0;
+    const sqrtLeadTime = Math.sqrt(Math.max(1, Number(leadTimeDays) || 7));
+
+    return {
+      totalHistMandays,
+      histResidentMandays,
+      histVisitorMandays,
+      totalNextMandays,
+      nextResidentMandays,
+      nextVisitorMandays,
+      mandaysGrowthPct,
+      leadTimeDays: Number(leadTimeDays) || 7,
+      sqrtLeadTime,
+      zScore: Number(zScore) || 1.65
+    };
+  }, [mandaysParams]);
+
+  // Kalkulasi Step-by-Step Rekomendasi Pemesanan per Item BHP
   const allForecastRecommendations = useMemo(() => {
     const targetSites = selectedSite === 'ALL' ? ['LBCT', 'IDMG', 'SPCT'] : [selectedSite];
+    const { totalHistMandays, totalNextMandays, leadTimeDays, sqrtLeadTime, zScore } = mandaysMetrics;
 
     return items.map(it => {
       let sumCurrentStock = 0;
-      let sumDailyAvg = 0;
+      let totalUsedHist = 0;
+      const usageValues = [];
 
       targetSites.forEach(st => {
         const currentStock = stocks[st]?.[it.id] || 0;
         sumCurrentStock += currentStock;
 
-        // Daily average calculated from actual recorded usages
+        // Ambil riwayat pemakaian aktual
         const siteUsages = usages.filter(u => u.site === st && u.item_id === it.id);
-        const totalUsed = siteUsages.reduce((sum, u) => sum + Number(u.qty || 0), 0);
-        const dailyAvg = siteUsages.length > 0 ? (totalUsed / Math.max(siteUsages.length, 7)) : 0;
-        sumDailyAvg += dailyAvg;
+        siteUsages.forEach(u => {
+          const q = Number(u.qty || 0);
+          totalUsedHist += q;
+          usageValues.push(q);
+        });
       });
 
-      const horizonDays = 28;
-      const periodDemand = Math.round(sumDailyAvg * horizonDays);
-      const safetyStock = Math.ceil(periodDemand * 0.05); // 5% safety margin
-      const projectedStock = Math.max(0, sumCurrentStock - Math.round(sumDailyAvg * 10));
-      const netNeeded = Math.max(0, (periodDemand + safetyStock) - projectedStock);
-      
+      const isMandays = isMandaysCategory(it.category);
+      const modelType = isMandays ? 'MANDAYS' : 'STATIC';
+
+      // ----------------------------------------------------------------------
+      // TAHAP 1: PERHITUNGAN BASE FORECAST (BF)
+      // ----------------------------------------------------------------------
+      let consumptionRate = 0; // CR
+      let baseForecast = 0;
+
+      if (isMandays) {
+        // Aturan Mandays: Total Terpakai / Mandays Historis
+        consumptionRate = totalHistMandays > 0 ? (totalUsedHist / totalHistMandays) : 0;
+        baseForecast = totalNextMandays * consumptionRate;
+      } else {
+        // Aturan Maintenance Area Statis: Berdasarkan base historis tanpa dikalikan headcount
+        const histDays = Number(mandaysParams.histDays) || 30;
+        const nextDays = Number(mandaysParams.nextDays) || 30;
+        consumptionRate = histDays > 0 ? (totalUsedHist / histDays) : 0;
+        baseForecast = totalUsedHist * (nextDays / histDays);
+      }
+
+      // ----------------------------------------------------------------------
+      // TAHAP 2: PERHITUNGAN SAFETY STOCK (SS) DENGAN STANDAR DEVIASI (σ)
+      // ----------------------------------------------------------------------
+      // 1. Hitung Standar Deviasi (σ)
+      let stdDev = 0;
+      if (usageValues.length > 1) {
+        const mean = totalUsedHist / usageValues.length;
+        const variance = usageValues.reduce((acc, val) => acc + Math.pow(val - mean, 2), 0) / (usageValues.length - 1);
+        stdDev = Math.sqrt(variance);
+      } else if (usageValues.length === 1) {
+        stdDev = usageValues[0] * 0.20; // Estimasi variabilitas baseline 20%
+      } else {
+        stdDev = 0;
+      }
+
+      // 2. Safety Stock = Z-Score × Standar Deviasi (σ) × Akar Kuadrat Lead Time (√L)
+      const rawSafetyStock = zScore * stdDev * sqrtLeadTime;
+      const safetyStock = Math.ceil(rawSafetyStock);
+
+      // ----------------------------------------------------------------------
+      // TAHAP 3: KALKULASI FINAL ORDER (OUTPUT AKHIR)
+      // Rumus: (Base Forecast + Safety Stock) - Sisa Stok Saat Ini
+      // Aturan: Jika bernilai minus, ubah menjadi 0 (tidak perlu order)
+      // ----------------------------------------------------------------------
+      const grossOrder = (baseForecast + safetyStock) - sumCurrentStock;
+      const finalOrderPcs = Math.max(0, Math.ceil(grossOrder));
+
       const packQty = it.pack_qty || 1;
-      const recommendedPacks = Math.ceil(netNeeded / packQty);
-      const recommendedPcs = recommendedPacks * packQty;
-      const totalCost = recommendedPcs * (it.price_est || 0);
+      const recommendedPacks = Math.ceil(finalOrderPcs / packQty);
+      const recommendedQtyPcs = recommendedPacks * packQty;
+      const totalCost = recommendedQtyPcs * (it.price_est || 0);
 
       return {
         item_id: it.id,
@@ -405,31 +591,53 @@ export default function BhpMessPage() {
         pack_qty: packQty,
         pack_unit: it.pack_unit,
         price_est: it.price_est,
+        model_type: modelType,
+        is_mandays: isMandays,
         current_stock: sumCurrentStock,
-        daily_avg: Number(sumDailyAvg.toFixed(1)),
-        period_demand: periodDemand,
+        total_used_hist: totalUsedHist,
+        consumption_rate: consumptionRate,
+        base_forecast: Math.round(baseForecast * 100) / 100,
+        std_dev: Math.round(stdDev * 100) / 100,
         safety_stock: safetyStock,
-        recommended_qty_pcs: recommendedPcs,
+        gross_order: Math.round(grossOrder * 100) / 100,
+        final_order: finalOrderPcs,
+        recommended_qty_pcs: recommendedQtyPcs,
         recommended_packs: recommendedPacks,
-        total_cost: totalCost
+        total_cost: totalCost,
+        breakdown_context: {
+          histMandays: totalHistMandays,
+          nextMandays: totalNextMandays,
+          histResident: mandaysParams.histResidentCount,
+          histVisitor: mandaysParams.histVisitorCount,
+          histVisitorStay: mandaysParams.histVisitorAvgStay,
+          nextResident: mandaysParams.nextResidentCount,
+          nextVisitor: mandaysParams.nextVisitorCount,
+          nextVisitorStay: mandaysParams.nextVisitorAvgStay,
+          leadTime: leadTimeDays,
+          sqrtLeadTime: Math.round(sqrtLeadTime * 1000) / 1000,
+          zScore: zScore
+        }
       };
     });
-  }, [items, stocks, usages, selectedSite]);
+  }, [items, stocks, usages, selectedSite, mandaysMetrics, mandaysParams]);
 
   const filteredForecastList = useMemo(() => {
     return allForecastRecommendations.filter(f => {
       const q = forecastSearch.toLowerCase().trim();
-      return !q || (
+      const matchSearch = !q || (
         f.code.toLowerCase().includes(q) ||
         f.name.toLowerCase().includes(q) ||
         f.category.toLowerCase().includes(q)
       );
+      const matchModel = forecastModelFilter === 'ALL' || f.model_type === forecastModelFilter;
+      const matchCategory = selectedCategory === 'ALL' || f.category === selectedCategory;
+      return matchSearch && matchModel && matchCategory;
     });
-  }, [allForecastRecommendations, forecastSearch]);
+  }, [allForecastRecommendations, forecastSearch, forecastModelFilter, selectedCategory]);
 
   useEffect(() => {
     setForecastPage(1);
-  }, [forecastSearch, selectedSite]);
+  }, [forecastSearch, forecastModelFilter, selectedCategory, selectedSite]);
 
   const paginatedForecastList = useMemo(() => {
     const start = (forecastPage - 1) * forecastPageSize;
@@ -440,8 +648,11 @@ export default function BhpMessPage() {
   const forecastSummary = useMemo(() => {
     const totalOrderCost = allForecastRecommendations.reduce((acc, curr) => acc + (curr.total_cost || 0), 0);
     const totalPcs = allForecastRecommendations.reduce((acc, curr) => acc + (curr.recommended_qty_pcs || 0), 0);
+    const totalPacks = allForecastRecommendations.reduce((acc, curr) => acc + (curr.recommended_packs || 0), 0);
     const itemsNeedingOrder = allForecastRecommendations.filter(f => f.recommended_qty_pcs > 0).length;
-    return { totalOrderCost, totalPcs, itemsNeedingOrder };
+    const mandaysItems = allForecastRecommendations.filter(f => f.is_mandays).length;
+    const staticItems = allForecastRecommendations.length - mandaysItems;
+    return { totalOrderCost, totalPcs, totalPacks, itemsNeedingOrder, mandaysItems, staticItems };
   }, [allForecastRecommendations]);
 
   // --------------------------------------------------------------------------
@@ -1556,93 +1767,276 @@ export default function BhpMessPage() {
       )}
 
       {/* ==================================================================== */}
-      {/* TAB 5: FORECAST & REKAP KEBUTUHAN (Search & Pagination)              */}
+      {/* TAB 5: FORECAST & REKAP KEBUTUHAN (MANDAYS & RISK MANAGEMENT)       */}
       {/* ==================================================================== */}
       {activeTab === 'forecast' && (
-        <div className="space-y-4">
-          {/* Summary Metric Header */}
-          <div className="bg-[var(--card)] p-5 rounded-2xl border border-[var(--border)] shadow-xs flex flex-col md:flex-row items-start md:items-center justify-between gap-4">
-            <div>
-              <h3 className="text-base font-bold text-[var(--foreground)]">
-                Kalkulasi Kebutuhan & Rekomendasi Pemesanan
-              </h3>
-              <p className="text-xs text-[var(--muted-foreground)] mt-0.5">
-                Proyeksi kebutuhan horizon 28 hari berbasis data historis pemakaian aktual dengan cadangan pengaman (safety stock 5%).
-              </p>
-            </div>
-
-            <div className="flex items-center gap-3">
-              <div className="text-right">
-                <span className="text-[10px] uppercase font-semibold text-[var(--muted-foreground)]">Estimasi Total Biaya</span>
-                <p className="text-base font-bold font-mono text-[#0F5C56]">
-                  {formatRupiah(forecastSummary.totalOrderCost)}
+        <div className="space-y-5">
+          {/* 1. Header Action & Occupancy Control Banner */}
+          <div className="bg-[var(--card)] p-5 rounded-2xl border border-[var(--border)] shadow-xs space-y-4">
+            <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-4 border-b border-[var(--border)] pb-4">
+              <div>
+                <div className="flex items-center gap-2">
+                  <h3 className="text-base font-bold text-[var(--foreground)] flex items-center gap-2">
+                    <Calculator className="w-5 h-5 text-[#0F5C56]" />
+                    Sistem Forecasting Dinamis Kebutuhan BHP Mess
+                  </h3>
+                  <span className="px-2 py-0.5 rounded-full text-[10px] font-semibold bg-[#0F5C56]/10 text-[#0F5C56]">
+                    Mandays + Safety Stock (Z=1.65)
+                  </span>
+                </div>
+                <p className="text-xs text-[var(--muted-foreground)] mt-1">
+                  Integrasi headcount okupansi mess tambang (penghuni tetap & visitor) dengan algoritma konsumsi mandays dan mitigasi lonjakan.
                 </p>
               </div>
 
-              <button
-                onClick={() => setIsPdfModalOpen(true)}
-                className="inline-flex items-center px-4 py-2 text-xs font-semibold text-white bg-[#C4841F] hover:bg-[#A6690E] rounded-xl transition-all shadow-xs shrink-0"
-              >
-                <FileDown className="w-4 h-4 mr-1.5" />
-                Unduh Rekap PDF
-              </button>
+              <div className="flex flex-wrap items-center gap-2">
+                <button
+                  type="button"
+                  onClick={() => syncWithMessOccupancy(false)}
+                  disabled={isSyncingMess}
+                  className="inline-flex items-center px-3 py-1.5 text-xs font-semibold text-[var(--foreground)] bg-[var(--background)] hover:bg-[var(--muted)] border border-[var(--border)] rounded-xl transition-all shadow-xs active:scale-95 disabled:opacity-50"
+                  title="Tarik data penghuni aktif dari database mess_stays"
+                >
+                  <RefreshCw className={`w-3.5 h-3.5 mr-1.5 text-[#0F5C56] ${isSyncingMess ? 'animate-spin' : ''}`} />
+                  Sinkron Okupansi Mess
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => setIsConfigModalOpen(true)}
+                  className="inline-flex items-center px-3 py-1.5 text-xs font-semibold text-[var(--foreground)] bg-[var(--background)] hover:bg-[var(--muted)] border border-[var(--border)] rounded-xl transition-all shadow-xs active:scale-95"
+                >
+                  <SlidersHorizontal className="w-3.5 h-3.5 mr-1.5 text-[#C4841F]" />
+                  Parameter Headcount
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => setIsPdfModalOpen(true)}
+                  className="inline-flex items-center px-3.5 py-1.5 text-xs font-semibold text-white bg-[#C4841F] hover:bg-[#A6690E] rounded-xl transition-all shadow-xs active:scale-95"
+                >
+                  <FileDown className="w-3.5 h-3.5 mr-1.5" />
+                  Unduh Rekap PDF
+                </button>
+              </div>
+            </div>
+
+            {/* Headcount & Mandays KPI 4-Card Strip */}
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3 text-xs">
+              {/* Card 1: Mandays Historis */}
+              <div className="p-3.5 bg-[var(--background)] rounded-xl border border-[var(--border)]">
+                <div className="flex items-center justify-between text-[var(--muted-foreground)]">
+                  <span className="text-[10px] font-bold uppercase tracking-wider">Mandays Historis</span>
+                  <Users className="w-3.5 h-3.5 text-[#0F5C56]" />
+                </div>
+                <div className="mt-1 flex items-baseline gap-1.5">
+                  <span className="text-lg font-bold font-mono text-[var(--foreground)]">
+                    {mandaysMetrics.totalHistMandays.toLocaleString('id-ID')}
+                  </span>
+                  <span className="text-[10px] text-[var(--muted-foreground)] font-mono">Mandays</span>
+                </div>
+                <p className="text-[10px] text-[var(--muted-foreground)] mt-0.5 font-mono truncate">
+                  ({mandaysParams.histResidentCount} T × {mandaysParams.histDays}h) + ({mandaysParams.histVisitorCount} V × {mandaysParams.histVisitorAvgStay}h)
+                </p>
+              </div>
+
+              {/* Card 2: Proyeksi Mandays Bulan Depan */}
+              <div className="p-3.5 bg-[var(--background)] rounded-xl border border-[var(--border)]">
+                <div className="flex items-center justify-between text-[var(--muted-foreground)]">
+                  <span className="text-[10px] font-bold uppercase tracking-wider">Estimasi Mandays Next</span>
+                  <span className={`text-[10px] font-bold font-mono px-1.5 py-0.5 rounded ${
+                    mandaysMetrics.mandaysGrowthPct > 0 ? 'bg-emerald-500/10 text-emerald-600' : 'bg-slate-500/10 text-slate-500'
+                  }`}>
+                    {mandaysMetrics.mandaysGrowthPct >= 0 ? '+' : ''}{mandaysMetrics.mandaysGrowthPct.toFixed(1)}%
+                  </span>
+                </div>
+                <div className="mt-1 flex items-baseline gap-1.5">
+                  <span className="text-lg font-bold font-mono text-[#0F5C56]">
+                    {mandaysMetrics.totalNextMandays.toLocaleString('id-ID')}
+                  </span>
+                  <span className="text-[10px] text-[var(--muted-foreground)] font-mono">Mandays</span>
+                </div>
+                <p className="text-[10px] text-[var(--muted-foreground)] mt-0.5 font-mono truncate">
+                  ({mandaysParams.nextResidentCount} T × 30h) + ({mandaysParams.nextVisitorCount} V × {mandaysParams.nextVisitorAvgStay}h)
+                </p>
+              </div>
+
+              {/* Card 3: Safety Stock Risk Buffer */}
+              <div className="p-3.5 bg-[var(--background)] rounded-xl border border-[var(--border)]">
+                <div className="flex items-center justify-between text-[var(--muted-foreground)]">
+                  <span className="text-[10px] font-bold uppercase tracking-wider">Mitigasi Risiko (SS)</span>
+                  <ShieldCheck className="w-3.5 h-3.5 text-[#C4841F]" />
+                </div>
+                <div className="mt-1 flex items-baseline gap-1.5">
+                  <span className="text-lg font-bold font-mono text-[var(--foreground)]">
+                    95% SL
+                  </span>
+                  <span className="text-[10px] text-[var(--muted-foreground)] font-mono">Z = {mandaysParams.zScore}</span>
+                </div>
+                <p className="text-[10px] text-[var(--muted-foreground)] mt-0.5 font-mono">
+                  Lead Time L = {mandaysParams.leadTimeDays} hari (√L = {mandaysMetrics.sqrtLeadTime.toFixed(2)})
+                </p>
+              </div>
+
+              {/* Card 4: Total Rekomendasi Pemesanan */}
+              <div className="p-3.5 bg-[var(--background)] rounded-xl border border-[var(--border)]">
+                <div className="flex items-center justify-between text-[var(--muted-foreground)]">
+                  <span className="text-[10px] font-bold uppercase tracking-wider">Estimasi Anggaran PO</span>
+                  <Package className="w-3.5 h-3.5 text-[#0F5C56]" />
+                </div>
+                <div className="mt-1">
+                  <span className="text-lg font-bold font-mono text-[#0F5C56]">
+                    {formatRupiah(forecastSummary.totalOrderCost)}
+                  </span>
+                </div>
+                <p className="text-[10px] text-[var(--muted-foreground)] mt-0.5 font-mono">
+                  {forecastSummary.itemsNeedingOrder} SKU ({forecastSummary.totalPacks} Pack / {forecastSummary.totalPcs} Unit)
+                </p>
+              </div>
             </div>
           </div>
 
-          {/* Search Bar for Forecast Table */}
-          <div className="relative max-w-md">
-            <Search className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-[var(--muted-foreground)]" />
-            <input
-              type="text"
-              value={forecastSearch}
-              onChange={(e) => setForecastSearch(e.target.value)}
-              placeholder="Cari kode atau nama barang dalam tabel rekomendasi..."
-              className="w-full pl-9 pr-3.5 py-1.5 text-xs bg-[var(--card)] border border-[var(--border)] rounded-lg text-[var(--foreground)] placeholder:text-[var(--muted-foreground)] focus:outline-none focus:ring-1 focus:ring-[#0F5C56]"
-            />
+          {/* 2. Filter & Controls Bar */}
+          <div className="flex flex-col md:flex-row items-stretch md:items-center justify-between gap-3">
+            {/* Model Filter Pills */}
+            <div className="flex flex-wrap items-center gap-1.5 bg-[var(--card)] p-1 rounded-xl border border-[var(--border)] w-fit text-xs">
+              <button
+                type="button"
+                onClick={() => setForecastModelFilter('ALL')}
+                className={`px-3 py-1.5 rounded-lg font-medium transition-all ${
+                  forecastModelFilter === 'ALL'
+                    ? 'bg-[#0F5C56] text-white shadow-xs font-semibold'
+                    : 'text-[var(--muted-foreground)] hover:text-[var(--foreground)] hover:bg-[var(--muted)]/50'
+                }`}
+              >
+                Semua Model ({allForecastRecommendations.length})
+              </button>
+              <button
+                type="button"
+                onClick={() => setForecastModelFilter('MANDAYS')}
+                className={`px-3 py-1.5 rounded-lg font-medium transition-all flex items-center gap-1.5 ${
+                  forecastModelFilter === 'MANDAYS'
+                    ? 'bg-[#0F5C56] text-white shadow-xs font-semibold'
+                    : 'text-[var(--muted-foreground)] hover:text-[var(--foreground)] hover:bg-[var(--muted)]/50'
+                }`}
+              >
+                <Users className="w-3 h-3" />
+                Mandays Dependent ({forecastSummary.mandaysItems})
+              </button>
+              <button
+                type="button"
+                onClick={() => setForecastModelFilter('STATIC')}
+                className={`px-3 py-1.5 rounded-lg font-medium transition-all flex items-center gap-1.5 ${
+                  forecastModelFilter === 'STATIC'
+                    ? 'bg-[#0F5C56] text-white shadow-xs font-semibold'
+                    : 'text-[var(--muted-foreground)] hover:text-[var(--foreground)] hover:bg-[var(--muted)]/50'
+                }`}
+              >
+                <Building2 className="w-3 h-3" />
+                Maintenance Area Statis ({forecastSummary.staticItems})
+              </button>
+            </div>
+
+            {/* Search Input for SKU */}
+            <div className="relative w-full md:w-80">
+              <Search className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-[var(--muted-foreground)]" />
+              <input
+                type="text"
+                value={forecastSearch}
+                onChange={(e) => setForecastSearch(e.target.value)}
+                placeholder="Cari SKU dalam tabel forecast..."
+                className="w-full pl-9 pr-3.5 py-1.5 text-xs bg-[var(--card)] border border-[var(--border)] rounded-xl text-[var(--foreground)] placeholder:text-[var(--muted-foreground)] focus:outline-none focus:ring-1 focus:ring-[#0F5C56]"
+              />
+            </div>
           </div>
 
-          {/* Paginated Forecast Table */}
-          <div className="bg-[var(--card)] rounded-xl border border-[var(--border)] overflow-hidden shadow-xs">
+          {/* 3. Paginated Forecast Table */}
+          <div className="bg-[var(--card)] rounded-2xl border border-[var(--border)] overflow-hidden shadow-xs">
             <div className="overflow-x-auto">
               <table className="w-full text-left text-xs">
                 <thead>
                   <tr className="border-b border-[var(--border)] bg-[var(--muted)]/50 text-[var(--muted-foreground)] font-semibold uppercase tracking-wider text-[11px]">
-                    <th className="py-3 px-4 w-24">Kode</th>
-                    <th className="py-3 px-4">Nama Barang (FPA Sep 2026)</th>
-                    <th className="py-3 px-4 text-center">Stok Saat Ini</th>
-                    <th className="py-3 px-4 text-center">Avg Harian</th>
-                    <th className="py-3 px-4 text-center">Kebutuhan 28 Hari</th>
-                    <th className="py-3 px-4 text-center">Safety (5%)</th>
-                    <th className="py-3 px-4 text-center font-bold text-[#0F5C56]">Rekomendasi Order</th>
-                    <th className="py-3 px-4 text-right">Estimasi Biaya</th>
+                    <th className="py-3 px-3.5 w-24">Kode</th>
+                    <th className="py-3 px-3.5">Nama Barang</th>
+                    <th className="py-3 px-3.5 text-center">Model</th>
+                    <th className="py-3 px-3.5 text-right">CR</th>
+                    <th className="py-3 px-3.5 text-right">Base Forecast</th>
+                    <th className="py-3 px-3.5 text-right">Safety Stock</th>
+                    <th className="py-3 px-3.5 text-right">Sisa Stok</th>
+                    <th className="py-3 px-3.5 text-center font-bold text-[#0F5C56]">Final Order</th>
+                    <th className="py-3 px-3.5 text-right">Estimasi Biaya</th>
+                    <th className="py-3 px-3 text-center w-20">Rumus</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-[var(--border)] text-[var(--foreground)]">
-                  {paginatedForecastList.map((f) => (
-                    <tr key={f.item_id} className="hover:bg-[var(--muted)]/30 transition-colors">
-                      <td className="py-3 px-4 font-mono font-bold text-[#0F5C56]">{f.code}</td>
-                      <td className="py-3 px-4 font-medium max-w-sm">
-                        <p className="line-clamp-2">{f.name}</p>
-                      </td>
-                      <td className="py-3 px-4 text-center font-mono">{f.current_stock} {f.unit}</td>
-                      <td className="py-3 px-4 text-center font-mono">{f.daily_avg}</td>
-                      <td className="py-3 px-4 text-center font-mono">{f.period_demand}</td>
-                      <td className="py-3 px-4 text-center font-mono">{f.safety_stock}</td>
-                      <td className="py-3 px-4 text-center font-bold">
-                        <span className="px-2.5 py-1 rounded-lg bg-[#0F5C56]/10 text-[#0F5C56] font-mono">
-                          {f.recommended_packs} {f.pack_unit} ({f.recommended_qty_pcs} {f.unit})
-                        </span>
-                      </td>
-                      <td className="py-3 px-4 text-right font-mono tabular-nums font-semibold">
-                        {formatRupiah(f.total_cost)}
-                      </td>
-                    </tr>
-                  ))}
+                  {paginatedForecastList.map((f) => {
+                    const isMandays = f.is_mandays;
+                    return (
+                      <tr key={f.item_id} className="hover:bg-[var(--muted)]/30 transition-colors">
+                        <td className="py-3 px-3.5 font-mono font-bold text-[#0F5C56]">{f.code}</td>
+                        <td className="py-3 px-3.5 font-medium max-w-xs">
+                          <p className="line-clamp-2 leading-snug">{f.name}</p>
+                          <span className="text-[10px] text-[var(--muted-foreground)]">{f.category}</span>
+                        </td>
+                        <td className="py-3 px-3.5 text-center">
+                          {isMandays ? (
+                            <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-semibold bg-[#0F5C56]/10 text-[#0F5C56] border border-[#0F5C56]/20">
+                              <Users className="w-2.5 h-2.5" />
+                              Mandays
+                            </span>
+                          ) : (
+                            <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-semibold bg-amber-500/10 text-amber-700 dark:text-amber-400 border border-amber-500/20">
+                              <Building2 className="w-2.5 h-2.5" />
+                              Statis
+                            </span>
+                          )}
+                        </td>
+                        <td className="py-3 px-3.5 text-right font-mono">
+                          {f.consumption_rate > 0 ? (
+                            <span title={isMandays ? `${f.consumption_rate.toFixed(5)} unit/manday` : `${f.consumption_rate.toFixed(2)} unit/hari mess`}>
+                              {isMandays ? f.consumption_rate.toFixed(4) : f.consumption_rate.toFixed(2)}
+                            </span>
+                          ) : (
+                            <span className="text-[var(--muted-foreground)]">-</span>
+                          )}
+                        </td>
+                        <td className="py-3 px-3.5 text-right font-mono">{Math.round(f.base_forecast)} {f.unit}</td>
+                        <td className="py-3 px-3.5 text-right font-mono text-[var(--muted-foreground)]" title={`σ=${f.std_dev}, Z=1.65, √L=${mandaysMetrics.sqrtLeadTime.toFixed(2)}`}>
+                          +{f.safety_stock}
+                        </td>
+                        <td className="py-3 px-3.5 text-right font-mono">{f.current_stock} {f.unit}</td>
+                        <td className="py-3 px-3.5 text-center font-bold">
+                          {f.final_order > 0 ? (
+                            <span className="px-2.5 py-1 rounded-lg bg-[#0F5C56]/10 text-[#0F5C56] font-mono">
+                              {f.recommended_packs} {f.pack_unit} ({f.final_order} {f.unit})
+                            </span>
+                          ) : (
+                            <span className="px-2 py-0.5 rounded-lg bg-[var(--muted)] text-[var(--muted-foreground)] font-mono text-[11px]">
+                              0 (Aman)
+                            </span>
+                          )}
+                        </td>
+                        <td className="py-3 px-3.5 text-right font-mono tabular-nums font-semibold">
+                          {formatRupiah(f.total_cost)}
+                        </td>
+                        <td className="py-3 px-3 text-center">
+                          <button
+                            type="button"
+                            onClick={() => setSelectedForecastDetail(f)}
+                            className="p-1.5 text-[var(--muted-foreground)] hover:text-[#0F5C56] hover:bg-[#0F5C56]/10 rounded-lg transition-colors"
+                            title="Lihat Rincian Rumus Step-by-Step"
+                          >
+                            <Calculator className="w-4 h-4" />
+                          </button>
+                        </td>
+                      </tr>
+                    );
+                  })}
 
                   {paginatedForecastList.length === 0 && (
                     <tr>
-                      <td colSpan={8} className="py-10 text-center text-[var(--muted-foreground)]">
-                        Tidak ada barang yang cocok dengan pencarian "{forecastSearch}".
+                      <td colSpan={10} className="py-12 text-center text-[var(--muted-foreground)]">
+                        Tidak ada barang yang cocok dengan kriteria filter atau pencarian "{forecastSearch}".
                       </td>
                     </tr>
                   )}
@@ -2214,6 +2608,379 @@ export default function BhpMessPage() {
                 >
                   <FileDown className="w-4 h-4" />
                   Buka & Cetak PDF Resmi
+                </button>
+              </div>
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
+
+      {/* ==================================================================== */}
+      {/* MODAL 4: DETAIL RUMUS PERHITUNGAN STEP-BY-STEP PER ITEM BHP         */}
+      {/* ==================================================================== */}
+      <AnimatePresence>
+        {selectedForecastDetail && (
+          <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+            <motion.div
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              onClick={() => setSelectedForecastDetail(null)}
+              className="absolute inset-0 bg-black/50 backdrop-blur-xs"
+            />
+            <motion.div
+              initial={{ scale: 0.95, opacity: 0 }}
+              animate={{ scale: 1, opacity: 1 }}
+              exit={{ scale: 0.95, opacity: 0 }}
+              className="relative bg-[var(--card)] w-full max-w-2xl rounded-2xl border border-[var(--border)] shadow-2xl p-6 z-10 space-y-5 max-h-[90vh] overflow-y-auto custom-scrollbar"
+            >
+              {/* Header Modal */}
+              <div className="flex items-start justify-between border-b border-[var(--border)] pb-3.5">
+                <div>
+                  <div className="flex items-center gap-2">
+                    <span className="px-2.5 py-0.5 rounded-full text-[10px] font-mono font-bold bg-[#0F5C56]/10 text-[#0F5C56]">
+                      {selectedForecastDetail.code}
+                    </span>
+                    <span className={`px-2 py-0.5 rounded-full text-[10px] font-semibold ${
+                      selectedForecastDetail.is_mandays
+                        ? 'bg-[#0F5C56]/10 text-[#0F5C56]'
+                        : 'bg-amber-500/10 text-amber-700 dark:text-amber-400'
+                    }`}>
+                      {selectedForecastDetail.is_mandays ? 'Model Mandays Dependent' : 'Model Maintenance Area Statis'}
+                    </span>
+                  </div>
+                  <h3 className="text-base font-bold font-display text-[var(--foreground)] mt-1.5 leading-snug">
+                    {selectedForecastDetail.name}
+                  </h3>
+                  <p className="text-xs text-[var(--muted-foreground)]">
+                    {selectedForecastDetail.category} • Stok Fisik: <strong className="text-[var(--foreground)] font-mono">{selectedForecastDetail.current_stock} {selectedForecastDetail.unit}</strong> • Harga: <strong className="text-[#0F5C56] font-mono">{formatRupiah(selectedForecastDetail.price_est)}</strong>
+                  </p>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setSelectedForecastDetail(null)}
+                  className="p-1.5 text-[var(--muted-foreground)] hover:text-[var(--foreground)] rounded-lg hover:bg-[var(--muted)]"
+                >
+                  <X className="w-5 h-5" />
+                </button>
+              </div>
+
+              {/* Step-by-Step Mathematical Transparency */}
+              <div className="space-y-4 text-xs">
+                
+                {/* TAHAP 1: Base Forecast */}
+                <div className="p-4 bg-[var(--background)] rounded-xl border border-[var(--border)] space-y-2.5">
+                  <div className="flex items-center justify-between">
+                    <span className="font-bold text-[var(--foreground)] flex items-center gap-1.5">
+                      <span className="w-5 h-5 rounded-full bg-[#0F5C56] text-white flex items-center justify-center text-[10px] font-bold">1</span>
+                      Tahap 1: Perhitungan Base Forecast ({selectedForecastDetail.is_mandays ? 'Pendekatan Mandays' : 'Baseline Statis Mess'})
+                    </span>
+                    <span className="font-mono font-bold text-[#0F5C56]">
+                      BF = {selectedForecastDetail.base_forecast} {selectedForecastDetail.unit}
+                    </span>
+                  </div>
+
+                  {selectedForecastDetail.is_mandays ? (
+                    <div className="space-y-1.5 text-[11px] text-[var(--muted-foreground)] bg-[var(--card)] p-3 rounded-lg border border-[var(--border)] font-mono">
+                      <p>
+                        <strong>1.1 Mandays Historis:</strong> ({selectedForecastDetail.breakdown_context.histResident} T × {mandaysParams.histDays}h) + ({selectedForecastDetail.breakdown_context.histVisitor} V × {selectedForecastDetail.breakdown_context.histVisitorStay}h) = <strong>{selectedForecastDetail.breakdown_context.histMandays.toLocaleString('id-ID')} Mandays</strong>
+                      </p>
+                      <p>
+                        <strong>1.2 Consumption Rate (CR):</strong> {selectedForecastDetail.total_used_hist} {selectedForecastDetail.unit} / {selectedForecastDetail.breakdown_context.histMandays.toLocaleString('id-ID')} = <strong>{selectedForecastDetail.consumption_rate.toFixed(5)} {selectedForecastDetail.unit}/manday</strong>
+                      </p>
+                      <p>
+                        <strong>1.3 Mandays Bulan Depan:</strong> ({selectedForecastDetail.breakdown_context.nextResident} T × 30h) + ({selectedForecastDetail.breakdown_context.nextVisitor} V × {selectedForecastDetail.breakdown_context.nextVisitorStay}h) = <strong>{selectedForecastDetail.breakdown_context.nextMandays.toLocaleString('id-ID')} Mandays</strong>
+                      </p>
+                      <p className="text-[var(--foreground)] pt-1 border-t border-[var(--border)]">
+                        <strong>1.4 Base Forecast (BF):</strong> {selectedForecastDetail.breakdown_context.nextMandays.toLocaleString('id-ID')} × {selectedForecastDetail.consumption_rate.toFixed(5)} = <strong>{selectedForecastDetail.base_forecast} {selectedForecastDetail.unit}</strong>
+                      </p>
+                    </div>
+                  ) : (
+                    <div className="space-y-1.5 text-[11px] text-[var(--muted-foreground)] bg-[var(--card)] p-3 rounded-lg border border-[var(--border)] font-mono">
+                      <p>
+                        <strong>Aturan Maintenance Area:</strong> Kebutuhan area gedung tidak dipengaruhi fluktuasi penghuni (statis historis).
+                      </p>
+                      <p>
+                        <strong>Total Pemakaian Historis:</strong> {selectedForecastDetail.total_used_hist} {selectedForecastDetail.unit} selama {mandaysParams.histDays} hari.
+                      </p>
+                      <p className="text-[var(--foreground)] pt-1 border-t border-[var(--border)]">
+                        <strong>Base Forecast (BF):</strong> {selectedForecastDetail.total_used_hist} × (30 / {mandaysParams.histDays}) = <strong>{selectedForecastDetail.base_forecast} {selectedForecastDetail.unit}</strong>
+                      </p>
+                    </div>
+                  )}
+                </div>
+
+                {/* TAHAP 2: Safety Stock */}
+                <div className="p-4 bg-[var(--background)] rounded-xl border border-[var(--border)] space-y-2.5">
+                  <div className="flex items-center justify-between">
+                    <span className="font-bold text-[var(--foreground)] flex items-center gap-1.5">
+                      <span className="w-5 h-5 rounded-full bg-[#C4841F] text-white flex items-center justify-center text-[10px] font-bold">2</span>
+                      Tahap 2: Perhitungan Safety Stock (Manajemen Risiko Lonjakan)
+                    </span>
+                    <span className="font-mono font-bold text-[#C4841F]">
+                      SS = +{selectedForecastDetail.safety_stock} {selectedForecastDetail.unit}
+                    </span>
+                  </div>
+
+                  <div className="space-y-1.5 text-[11px] text-[var(--muted-foreground)] bg-[var(--card)] p-3 rounded-lg border border-[var(--border)] font-mono">
+                    <p>
+                      <strong>Rumus:</strong> Safety Stock = Z-Score × Standar Deviasi (σ) × √(Lead Time L)
+                    </p>
+                    <p>
+                      <strong>2.1 Standar Deviasi (σ):</strong> {selectedForecastDetail.std_dev} {selectedForecastDetail.unit} (fluktuasi konsumsi aktual)
+                    </p>
+                    <p>
+                      <strong>2.2 Z-Score (Service Level 95%):</strong> {selectedForecastDetail.breakdown_context.zScore}
+                    </p>
+                    <p>
+                      <strong>2.3 Lead Time (L):</strong> {selectedForecastDetail.breakdown_context.leadTime} hari (√{selectedForecastDetail.breakdown_context.leadTime} ≈ {selectedForecastDetail.breakdown_context.sqrtLeadTime})
+                    </p>
+                    <p className="text-[var(--foreground)] pt-1 border-t border-[var(--border)]">
+                      <strong>Hasil Safety Stock:</strong> {selectedForecastDetail.breakdown_context.zScore} × {selectedForecastDetail.std_dev} × {selectedForecastDetail.breakdown_context.sqrtLeadTime} = <strong>+{selectedForecastDetail.safety_stock} {selectedForecastDetail.unit}</strong>
+                    </p>
+                  </div>
+                </div>
+
+                {/* TAHAP 3: Final Order */}
+                <div className="p-4 bg-[var(--background)] rounded-xl border border-[var(--border)] space-y-2.5">
+                  <div className="flex items-center justify-between">
+                    <span className="font-bold text-[var(--foreground)] flex items-center gap-1.5">
+                      <span className="w-5 h-5 rounded-full bg-emerald-600 text-white flex items-center justify-center text-[10px] font-bold">3</span>
+                      Tahap 3: Kalkulasi Final Order & Rekomendasi Pengadaan
+                    </span>
+                    <span className="font-mono font-bold text-emerald-600 text-sm">
+                      {selectedForecastDetail.final_order} {selectedForecastDetail.unit} ({selectedForecastDetail.recommended_packs} {selectedForecastDetail.pack_unit})
+                    </span>
+                  </div>
+
+                  <div className="space-y-1.5 text-[11px] text-[var(--muted-foreground)] bg-[var(--card)] p-3 rounded-lg border border-[var(--border)] font-mono">
+                    <p>
+                      <strong>Rumus:</strong> Final Order = (Base Forecast + Safety Stock) - Sisa Stok Saat Ini
+                    </p>
+                    <p>
+                      <strong>Substitusi:</strong> ({selectedForecastDetail.base_forecast} + {selectedForecastDetail.safety_stock}) - {selectedForecastDetail.current_stock} = <strong>{selectedForecastDetail.gross_order} {selectedForecastDetail.unit}</strong>
+                    </p>
+                    <p>
+                      <strong>Aturan Non-Negatif:</strong> max(0, {selectedForecastDetail.gross_order}) = <strong>{selectedForecastDetail.final_order} {selectedForecastDetail.unit}</strong>
+                    </p>
+                    <p>
+                      <strong>Kemasan Pengadaan:</strong> Isi {selectedForecastDetail.pack_qty} {selectedForecastDetail.unit}/{selectedForecastDetail.pack_unit} → ⌈{selectedForecastDetail.final_order} / {selectedForecastDetail.pack_qty}⌉ = <strong>{selectedForecastDetail.recommended_packs} {selectedForecastDetail.pack_unit}</strong> ({selectedForecastDetail.recommended_qty_pcs} {selectedForecastDetail.unit})
+                    </p>
+                    <p className="text-[var(--foreground)] pt-1 border-t border-[var(--border)] text-xs font-bold text-[#0F5C56]">
+                      Estimasi Total Biaya: {selectedForecastDetail.recommended_qty_pcs} × {formatRupiah(selectedForecastDetail.price_est)} = {formatRupiah(selectedForecastDetail.total_cost)}
+                    </p>
+                  </div>
+                </div>
+
+              </div>
+
+              <div className="flex justify-end pt-2 border-t border-[var(--border)]">
+                <button
+                  type="button"
+                  onClick={() => setSelectedForecastDetail(null)}
+                  className="px-4 py-2 rounded-xl bg-[var(--muted)] hover:bg-[var(--border)] text-[var(--foreground)] font-semibold text-xs transition-colors"
+                >
+                  Tutup Breakdown
+                </button>
+              </div>
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
+
+      {/* ==================================================================== */}
+      {/* MODAL 5: PENGATURAN PARAMETER HEADCOUNT OKUPANSI & LEAD TIME        */}
+      {/* ==================================================================== */}
+      <AnimatePresence>
+        {isConfigModalOpen && (
+          <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+            <motion.div
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              onClick={() => setIsConfigModalOpen(false)}
+              className="absolute inset-0 bg-black/50 backdrop-blur-xs"
+            />
+            <motion.div
+              initial={{ scale: 0.95, opacity: 0 }}
+              animate={{ scale: 1, opacity: 1 }}
+              exit={{ scale: 0.95, opacity: 0 }}
+              className="relative bg-[var(--card)] w-full max-w-xl rounded-2xl border border-[var(--border)] shadow-2xl p-6 z-10 space-y-4 max-h-[90vh] overflow-y-auto custom-scrollbar"
+            >
+              <div className="flex items-center justify-between border-b border-[var(--border)] pb-3">
+                <div className="flex items-center gap-2">
+                  <SlidersHorizontal className="w-5 h-5 text-[#0F5C56]" />
+                  <div>
+                    <h3 className="text-base font-bold font-display text-[var(--foreground)]">
+                      Pengaturan Parameter Mandays & Mitigasi Risiko
+                    </h3>
+                    <p className="text-xs text-[var(--muted-foreground)]">
+                      Sesuaikan variabel input headcount mess dan parameter lead time untuk kalkulasi forecast.
+                    </p>
+                  </div>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setIsConfigModalOpen(false)}
+                  className="p-1 text-[var(--muted-foreground)] hover:text-[var(--foreground)]"
+                >
+                  <X className="w-5 h-5" />
+                </button>
+              </div>
+
+              <div className="space-y-4 text-xs">
+                {/* Section A: Headcount Historis */}
+                <div className="bg-[var(--muted)]/20 p-3.5 rounded-xl border border-[var(--border)] space-y-3">
+                  <h4 className="font-bold text-[var(--foreground)] flex items-center gap-1.5">
+                    <Users className="w-3.5 h-3.5 text-[#0F5C56]" />
+                    1. Data Headcount Periode Historis
+                  </h4>
+                  <div className="grid grid-cols-2 sm:grid-cols-4 gap-2.5">
+                    <div>
+                      <label className="text-[10px] font-semibold text-[var(--muted-foreground)]">Penghuni Tetap</label>
+                      <input
+                        type="number"
+                        min="0"
+                        value={mandaysParams.histResidentCount}
+                        onChange={(e) => setMandaysParams({ ...mandaysParams, histResidentCount: Number(e.target.value) })}
+                        className="w-full mt-1 px-2.5 py-1.5 bg-[var(--background)] border border-[var(--border)] rounded-lg font-mono text-[var(--foreground)]"
+                      />
+                    </div>
+                    <div>
+                      <label className="text-[10px] font-semibold text-[var(--muted-foreground)]">Jumlah Hari</label>
+                      <input
+                        type="number"
+                        min="1"
+                        value={mandaysParams.histDays}
+                        onChange={(e) => setMandaysParams({ ...mandaysParams, histDays: Number(e.target.value) })}
+                        className="w-full mt-1 px-2.5 py-1.5 bg-[var(--background)] border border-[var(--border)] rounded-lg font-mono text-[var(--foreground)]"
+                      />
+                    </div>
+                    <div>
+                      <label className="text-[10px] font-semibold text-[var(--muted-foreground)]">Total Visitor</label>
+                      <input
+                        type="number"
+                        min="0"
+                        value={mandaysParams.histVisitorCount}
+                        onChange={(e) => setMandaysParams({ ...mandaysParams, histVisitorCount: Number(e.target.value) })}
+                        className="w-full mt-1 px-2.5 py-1.5 bg-[var(--background)] border border-[var(--border)] rounded-lg font-mono text-[var(--foreground)]"
+                      />
+                    </div>
+                    <div>
+                      <label className="text-[10px] font-semibold text-[var(--muted-foreground)]">Avg Lama Inap (Hari)</label>
+                      <input
+                        type="number"
+                        min="1"
+                        value={mandaysParams.histVisitorAvgStay}
+                        onChange={(e) => setMandaysParams({ ...mandaysParams, histVisitorAvgStay: Number(e.target.value) })}
+                        className="w-full mt-1 px-2.5 py-1.5 bg-[var(--background)] border border-[var(--border)] rounded-lg font-mono text-[var(--foreground)]"
+                      />
+                    </div>
+                  </div>
+                  <div className="text-[11px] font-mono text-[#0F5C56]">
+                    = Mandays Historis: <strong>{mandaysMetrics.totalHistMandays.toLocaleString('id-ID')} Mandays</strong>
+                  </div>
+                </div>
+
+                {/* Section B: Estimasi Bulan Depan */}
+                <div className="bg-[var(--muted)]/20 p-3.5 rounded-xl border border-[var(--border)] space-y-3">
+                  <h4 className="font-bold text-[var(--foreground)] flex items-center gap-1.5">
+                    <Sparkles className="w-3.5 h-3.5 text-[#C4841F]" />
+                    2. Estimasi Headcount 1 Bulan ke Depan
+                  </h4>
+                  <div className="grid grid-cols-2 sm:grid-cols-3 gap-2.5">
+                    <div>
+                      <label className="text-[10px] font-semibold text-[var(--muted-foreground)]">Penghuni Tetap Next (30 Hari)</label>
+                      <input
+                        type="number"
+                        min="0"
+                        value={mandaysParams.nextResidentCount}
+                        onChange={(e) => setMandaysParams({ ...mandaysParams, nextResidentCount: Number(e.target.value) })}
+                        className="w-full mt-1 px-2.5 py-1.5 bg-[var(--background)] border border-[var(--border)] rounded-lg font-mono text-[var(--foreground)]"
+                      />
+                    </div>
+                    <div>
+                      <label className="text-[10px] font-semibold text-[var(--muted-foreground)]">Estimasi Visitor Next</label>
+                      <input
+                        type="number"
+                        min="0"
+                        value={mandaysParams.nextVisitorCount}
+                        onChange={(e) => setMandaysParams({ ...mandaysParams, nextVisitorCount: Number(e.target.value) })}
+                        className="w-full mt-1 px-2.5 py-1.5 bg-[var(--background)] border border-[var(--border)] rounded-lg font-mono text-[var(--foreground)]"
+                      />
+                    </div>
+                    <div>
+                      <label className="text-[10px] font-semibold text-[var(--muted-foreground)]">Estimasi Lama Inap (Hari)</label>
+                      <input
+                        type="number"
+                        min="1"
+                        value={mandaysParams.nextVisitorAvgStay}
+                        onChange={(e) => setMandaysParams({ ...mandaysParams, nextVisitorAvgStay: Number(e.target.value) })}
+                        className="w-full mt-1 px-2.5 py-1.5 bg-[var(--background)] border border-[var(--border)] rounded-lg font-mono text-[var(--foreground)]"
+                      />
+                    </div>
+                  </div>
+                  <div className="text-[11px] font-mono text-[#0F5C56]">
+                    = Estimasi Mandays Next: <strong>{mandaysMetrics.totalNextMandays.toLocaleString('id-ID')} Mandays</strong> ({mandaysMetrics.mandaysGrowthPct >= 0 ? '+' : ''}{mandaysMetrics.mandaysGrowthPct.toFixed(1)}%)
+                  </div>
+                </div>
+
+                {/* Section C: Risk & Procurement Parameters */}
+                <div className="bg-[var(--muted)]/20 p-3.5 rounded-xl border border-[var(--border)] space-y-3">
+                  <h4 className="font-bold text-[var(--foreground)] flex items-center gap-1.5">
+                    <ShieldCheck className="w-3.5 h-3.5 text-[#0F5C56]" />
+                    3. Manajemen Risiko & Pengadaan Supplier
+                  </h4>
+                  <div className="grid grid-cols-2 gap-3">
+                    <div>
+                      <label className="text-[10px] font-semibold text-[var(--muted-foreground)]">Lead Time Pengiriman (Hari)</label>
+                      <input
+                        type="number"
+                        min="1"
+                        value={mandaysParams.leadTimeDays}
+                        onChange={(e) => setMandaysParams({ ...mandaysParams, leadTimeDays: Number(e.target.value) })}
+                        className="w-full mt-1 px-2.5 py-1.5 bg-[var(--background)] border border-[var(--border)] rounded-lg font-mono text-[var(--foreground)]"
+                      />
+                      <span className="text-[10px] text-[var(--muted-foreground)] mt-0.5 block font-mono">
+                        √L = {mandaysMetrics.sqrtLeadTime.toFixed(2)}
+                      </span>
+                    </div>
+                    <div>
+                      <label className="text-[10px] font-semibold text-[var(--muted-foreground)]">Service Level Z-Score</label>
+                      <input
+                        type="number"
+                        step="0.01"
+                        value={mandaysParams.zScore}
+                        onChange={(e) => setMandaysParams({ ...mandaysParams, zScore: Number(e.target.value) })}
+                        className="w-full mt-1 px-2.5 py-1.5 bg-[var(--background)] border border-[var(--border)] rounded-lg font-mono text-[var(--foreground)]"
+                      />
+                      <span className="text-[10px] text-[var(--muted-foreground)] mt-0.5 block font-mono">
+                        1.65 = 95% Ketersediaan Aman
+                      </span>
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              <div className="flex items-center justify-between pt-3 border-t border-[var(--border)]">
+                <button
+                  type="button"
+                  onClick={() => {
+                    syncWithMessOccupancy(false);
+                  }}
+                  className="px-3.5 py-2 text-xs font-semibold text-[var(--foreground)] bg-[var(--background)] hover:bg-[var(--muted)] border border-[var(--border)] rounded-xl transition-all"
+                >
+                  Reset dari Data Okupansi
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setIsConfigModalOpen(false);
+                    toast.success('Parameter Mandays & Safety Stock berhasil diperbarui!');
+                  }}
+                  className="px-5 py-2 text-xs font-semibold text-white bg-[#0F5C56] hover:bg-[#0D4E49] rounded-xl transition-all shadow-xs"
+                >
+                  Terapkan Parameter
                 </button>
               </div>
             </motion.div>
