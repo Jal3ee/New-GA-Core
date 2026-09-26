@@ -98,12 +98,12 @@ export default function BhpMessPage() {
   const [isStockInModalOpen, setIsStockInModalOpen] = useState(false);
   const [isPdfModalOpen, setIsPdfModalOpen] = useState(false);
 
-  // Signer names for PDF Export
+  // Signer names for PDF Export (Default to active staff or saved choice)
   const [signerAdminName, setSignerAdminName] = useState(() => {
-    return localStorage.getItem('bhp_signer_admin') || (user?.name ? `${user.name} (GA Admin)` : 'Bagus Prasetyo (GA Admin)');
+    return localStorage.getItem('bhp_signer_admin') || (user?.name ? `${user.name.replace(/\s*\([^)]*\)\s*$/, '').trim()} (GA Admin)` : 'GA Super Administrator (GA Admin)');
   });
   const [signerGlName, setSignerGlName] = useState(() => {
-    return localStorage.getItem('bhp_signer_gl') || 'M. Rizky Ramadhan (GA GL)';
+    return localStorage.getItem('bhp_signer_gl') || 'Hendra Setiawan (GA GL)';
   });
 
   // State Management with Version Check (Prevents showing old dummy data)
@@ -279,20 +279,54 @@ export default function BhpMessPage() {
         visitors: safeVisitors,
         avgStay: avgStay
       });
-
-      if (!silent) {
-        toast.success(`Data okupansi mess disinkronkan (${safeResidents} penghuni tetap, ${safeVisitors} visitor)`);
-      }
     } catch (err) {
-      console.warn('Mess stays sync fallback:', err);
+      console.warn('Mess stays auto-sync fallback:', err);
     } finally {
       setIsSyncingMess(false);
     }
   };
 
+  // Auto-sync mess occupancy on mount & whenever site changes (Silent & seamless)
   useEffect(() => {
-    syncWithMessOccupancy(true);
+    syncWithMessOccupancy();
   }, [selectedSite]);
+
+  // Load active employees from system database for PDF signers
+  const [activeEmployees, setActiveEmployees] = useState([]);
+  useEffect(() => {
+    gasClient.getUsers()
+      .then(res => {
+        if (res?.data && Array.isArray(res.data)) {
+          const active = res.data.filter(u => u.is_active !== false && u.status !== 'Inactive');
+          setActiveEmployees(active);
+        }
+      })
+      .catch(() => {});
+  }, []);
+
+  // Dropdown options for PDF signers from active employees
+  const employeeSelectOptions = useMemo(() => {
+    if (activeEmployees.length === 0) {
+      return [
+        { value: 'GA Super Administrator (GA Admin)', label: 'GA Super Administrator (GA Admin)', subtext: 'GA Admin • General Affairs' },
+        { value: 'Hendra Setiawan (GA GL)', label: 'Hendra Setiawan (GA GL)', subtext: 'GA GL • General Affairs' },
+        { value: 'Ahmad Rizki (PIC LBCT)', label: 'Ahmad Rizki (PIC LBCT)', subtext: 'PIC Lapangan • Site LBCT' },
+        { value: 'Budi Santoso (PIC IDMG)', label: 'Budi Santoso (PIC IDMG)', subtext: 'PIC Lapangan • Site IDMG' },
+        { value: 'Chandra Wijaya (PIC SPCT)', label: 'Chandra Wijaya (PIC SPCT)', subtext: 'PIC Lapangan • Site SPCT' },
+        { value: 'Ahmad Tajali (Karyawan)', label: 'Ahmad Tajali (Karyawan)', subtext: 'Karyawan • GA' }
+      ];
+    }
+    return activeEmployees.map(u => {
+      const roleLabel = u.role === 'admin' ? 'GA Admin' : u.role === 'ga_gl' ? 'GA GL' : u.role === 'pic_lapangan' ? 'PIC Lapangan' : (u.role || 'Staff GA');
+      const cleanName = (u.name || u.nama || '').replace(/\s*\([^)]*\)\s*$/, '').trim();
+      const val = `${cleanName} (${roleLabel})`;
+      return {
+        value: val,
+        label: val,
+        subtext: `NIK: ${u.nik || '-'} • Site: ${u.site || 'ALL'} • ${u.department || 'General Affairs'}`
+      };
+    });
+  }, [activeEmployees]);
 
   // Unique Categories from master items
   const categoriesList = useMemo(() => {
@@ -1059,13 +1093,7 @@ export default function BhpMessPage() {
             Penerimaan Barang
           </button>
 
-          <button
-            onClick={() => setIsPdfModalOpen(true)}
-            className="inline-flex items-center px-3.5 py-2 text-xs font-semibold text-white bg-[#C4841F] hover:bg-[#A6690E] rounded-xl transition-all shadow-xs active:scale-95"
-          >
-            <FileDown className="w-3.5 h-3.5 mr-1.5" />
-            Unduh Rekap PDF
-          </button>
+
         </div>
       </div>
 
@@ -1770,136 +1798,89 @@ export default function BhpMessPage() {
       {/* TAB 5: FORECAST & REKAP KEBUTUHAN (MANDAYS & RISK MANAGEMENT)       */}
       {/* ==================================================================== */}
       {activeTab === 'forecast' && (
-        <div className="space-y-5">
-          {/* 1. Header Action & Occupancy Control Banner */}
-          <div className="bg-[var(--card)] p-5 rounded-2xl border border-[var(--border)] shadow-xs space-y-4">
-            <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-4 border-b border-[var(--border)] pb-4">
-              <div>
-                <div className="flex items-center gap-2">
-                  <h3 className="text-base font-bold text-[var(--foreground)] flex items-center gap-2">
-                    <Calculator className="w-5 h-5 text-[#0F5C56]" />
-                    Sistem Forecasting Dinamis Kebutuhan BHP Mess
-                  </h3>
-                  <span className="px-2 py-0.5 rounded-full text-[10px] font-semibold bg-[#0F5C56]/10 text-[#0F5C56]">
-                    Mandays + Safety Stock (Z=1.65)
-                  </span>
-                </div>
-                <p className="text-xs text-[var(--muted-foreground)] mt-1">
-                  Integrasi headcount okupansi mess tambang (penghuni tetap & visitor) dengan algoritma konsumsi mandays dan mitigasi lonjakan.
-                </p>
+        <div className="space-y-4">
+          {/* 1. Headcount & Mandays KPI 4-Card Strip (Clean, Flat, Calm Density) */}
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3 text-xs">
+            {/* Card 1: Okupansi Mess Terintegrasi */}
+            <div className="p-4 bg-[var(--card)] rounded-xl border border-[var(--border)] shadow-xs transition-all hover:border-[#0F5C56]/40">
+              <div className="flex items-center justify-between text-[var(--muted-foreground)]">
+                <span className="text-[11px] font-semibold uppercase tracking-wider text-[var(--muted-foreground)]">Okupansi Mess Terintegrasi</span>
+                <span className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full text-[10px] font-semibold bg-emerald-500/10 text-emerald-700 dark:text-emerald-400">
+                  <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" />
+                  Live Sync
+                </span>
               </div>
-
-              <div className="flex flex-wrap items-center gap-2">
-                <button
-                  type="button"
-                  onClick={() => syncWithMessOccupancy(false)}
-                  disabled={isSyncingMess}
-                  className="inline-flex items-center px-3 py-1.5 text-xs font-semibold text-[var(--foreground)] bg-[var(--background)] hover:bg-[var(--muted)] border border-[var(--border)] rounded-xl transition-all shadow-xs active:scale-95 disabled:opacity-50"
-                  title="Tarik data penghuni aktif dari database mess_stays"
-                >
-                  <RefreshCw className={`w-3.5 h-3.5 mr-1.5 text-[#0F5C56] ${isSyncingMess ? 'animate-spin' : ''}`} />
-                  Sinkron Okupansi Mess
-                </button>
-
-                <button
-                  type="button"
-                  onClick={() => setIsConfigModalOpen(true)}
-                  className="inline-flex items-center px-3 py-1.5 text-xs font-semibold text-[var(--foreground)] bg-[var(--background)] hover:bg-[var(--muted)] border border-[var(--border)] rounded-xl transition-all shadow-xs active:scale-95"
-                >
-                  <SlidersHorizontal className="w-3.5 h-3.5 mr-1.5 text-[#C4841F]" />
-                  Parameter Headcount
-                </button>
-
-                <button
-                  type="button"
-                  onClick={() => setIsPdfModalOpen(true)}
-                  className="inline-flex items-center px-3.5 py-1.5 text-xs font-semibold text-white bg-[#C4841F] hover:bg-[#A6690E] rounded-xl transition-all shadow-xs active:scale-95"
-                >
-                  <FileDown className="w-3.5 h-3.5 mr-1.5" />
-                  Unduh Rekap PDF
-                </button>
+              <div className="mt-2 flex items-baseline gap-2">
+                <span className="text-xl font-bold font-mono text-[var(--foreground)]">
+                  {mandaysParams.nextResidentCount} <span className="text-xs font-normal text-[var(--muted-foreground)]">Tetap</span>
+                </span>
+                <span className="text-xs text-[var(--muted-foreground)]">•</span>
+                <span className="text-xl font-bold font-mono text-[#0F5C56]">
+                  {mandaysParams.nextVisitorCount} <span className="text-xs font-normal text-[var(--muted-foreground)]">Visitor</span>
+                </span>
               </div>
+              <p className="text-[11px] text-[var(--muted-foreground)] mt-1 truncate">
+                Rata-rata inap: <span className="font-semibold text-[var(--foreground)] font-mono">{mandaysParams.nextVisitorAvgStay} hari</span> • Terintegrasi modul Mess
+              </p>
             </div>
 
-            {/* Headcount & Mandays KPI 4-Card Strip */}
-            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3 text-xs">
-              {/* Card 1: Mandays Historis */}
-              <div className="p-3.5 bg-[var(--background)] rounded-xl border border-[var(--border)]">
-                <div className="flex items-center justify-between text-[var(--muted-foreground)]">
-                  <span className="text-[10px] font-bold uppercase tracking-wider">Mandays Historis</span>
-                  <Users className="w-3.5 h-3.5 text-[#0F5C56]" />
-                </div>
-                <div className="mt-1 flex items-baseline gap-1.5">
-                  <span className="text-lg font-bold font-mono text-[var(--foreground)]">
-                    {mandaysMetrics.totalHistMandays.toLocaleString('id-ID')}
-                  </span>
-                  <span className="text-[10px] text-[var(--muted-foreground)] font-mono">Mandays</span>
-                </div>
-                <p className="text-[10px] text-[var(--muted-foreground)] mt-0.5 font-mono truncate">
-                  ({mandaysParams.histResidentCount} T × {mandaysParams.histDays}h) + ({mandaysParams.histVisitorCount} V × {mandaysParams.histVisitorAvgStay}h)
-                </p>
+            {/* Card 2: Proyeksi Mandays Bulan Depan */}
+            <div className="p-4 bg-[var(--card)] rounded-xl border border-[var(--border)] shadow-xs transition-all hover:border-[#0F5C56]/40">
+              <div className="flex items-center justify-between text-[var(--muted-foreground)]">
+                <span className="text-[11px] font-semibold uppercase tracking-wider text-[var(--muted-foreground)]">Estimasi Mandays Next</span>
+                <span className={`text-[10px] font-bold font-mono px-1.5 py-0.5 rounded ${
+                  mandaysMetrics.mandaysGrowthPct > 0 ? 'bg-emerald-500/10 text-emerald-700 dark:text-emerald-400' : 'bg-slate-500/10 text-slate-600 dark:text-slate-400'
+                }`}>
+                  {mandaysMetrics.mandaysGrowthPct >= 0 ? '+' : ''}{mandaysMetrics.mandaysGrowthPct.toFixed(1)}%
+                </span>
               </div>
+              <div className="mt-2 flex items-baseline gap-1.5">
+                <span className="text-xl font-bold font-mono text-[#0F5C56]">
+                  {mandaysMetrics.totalNextMandays.toLocaleString('id-ID')}
+                </span>
+                <span className="text-xs text-[var(--muted-foreground)] font-mono">Mandays</span>
+              </div>
+              <p className="text-[11px] text-[var(--muted-foreground)] mt-1 truncate">
+                Historis: <span className="font-mono font-medium text-[var(--foreground)]">{mandaysMetrics.totalHistMandays.toLocaleString('id-ID')}</span> mandays (periode lalu)
+              </p>
+            </div>
 
-              {/* Card 2: Proyeksi Mandays Bulan Depan */}
-              <div className="p-3.5 bg-[var(--background)] rounded-xl border border-[var(--border)]">
-                <div className="flex items-center justify-between text-[var(--muted-foreground)]">
-                  <span className="text-[10px] font-bold uppercase tracking-wider">Estimasi Mandays Next</span>
-                  <span className={`text-[10px] font-bold font-mono px-1.5 py-0.5 rounded ${
-                    mandaysMetrics.mandaysGrowthPct > 0 ? 'bg-emerald-500/10 text-emerald-600' : 'bg-slate-500/10 text-slate-500'
-                  }`}>
-                    {mandaysMetrics.mandaysGrowthPct >= 0 ? '+' : ''}{mandaysMetrics.mandaysGrowthPct.toFixed(1)}%
-                  </span>
-                </div>
-                <div className="mt-1 flex items-baseline gap-1.5">
-                  <span className="text-lg font-bold font-mono text-[#0F5C56]">
-                    {mandaysMetrics.totalNextMandays.toLocaleString('id-ID')}
-                  </span>
-                  <span className="text-[10px] text-[var(--muted-foreground)] font-mono">Mandays</span>
-                </div>
-                <p className="text-[10px] text-[var(--muted-foreground)] mt-0.5 font-mono truncate">
-                  ({mandaysParams.nextResidentCount} T × 30h) + ({mandaysParams.nextVisitorCount} V × {mandaysParams.nextVisitorAvgStay}h)
-                </p>
+            {/* Card 3: Safety Stock Buffer */}
+            <div className="p-4 bg-[var(--card)] rounded-xl border border-[var(--border)] shadow-xs transition-all hover:border-[#0F5C56]/40">
+              <div className="flex items-center justify-between text-[var(--muted-foreground)]">
+                <span className="text-[11px] font-semibold uppercase tracking-wider text-[var(--muted-foreground)]">Mitigasi Risiko (SS)</span>
+                <ShieldCheck className="w-4 h-4 text-[#C4841F]" />
               </div>
+              <div className="mt-2 flex items-baseline gap-1.5">
+                <span className="text-xl font-bold font-mono text-[var(--foreground)]">95%</span>
+                <span className="text-xs text-[var(--muted-foreground)] font-mono">Service Level</span>
+              </div>
+              <p className="text-[11px] text-[var(--muted-foreground)] mt-1">
+                Lead Time supplier: <span className="font-semibold text-[var(--foreground)] font-mono">{mandaysParams.leadTimeDays} hari</span>
+              </p>
+            </div>
 
-              {/* Card 3: Safety Stock Risk Buffer */}
-              <div className="p-3.5 bg-[var(--background)] rounded-xl border border-[var(--border)]">
-                <div className="flex items-center justify-between text-[var(--muted-foreground)]">
-                  <span className="text-[10px] font-bold uppercase tracking-wider">Mitigasi Risiko (SS)</span>
-                  <ShieldCheck className="w-3.5 h-3.5 text-[#C4841F]" />
-                </div>
-                <div className="mt-1 flex items-baseline gap-1.5">
-                  <span className="text-lg font-bold font-mono text-[var(--foreground)]">
-                    95% SL
-                  </span>
-                  <span className="text-[10px] text-[var(--muted-foreground)] font-mono">Z = {mandaysParams.zScore}</span>
-                </div>
-                <p className="text-[10px] text-[var(--muted-foreground)] mt-0.5 font-mono">
-                  Lead Time L = {mandaysParams.leadTimeDays} hari (√L = {mandaysMetrics.sqrtLeadTime.toFixed(2)})
-                </p>
+            {/* Card 4: Total Rekomendasi Pemesanan */}
+            <div className="p-4 bg-[var(--card)] rounded-xl border border-[var(--border)] shadow-xs transition-all hover:border-[#0F5C56]/40">
+              <div className="flex items-center justify-between text-[var(--muted-foreground)]">
+                <span className="text-[11px] font-semibold uppercase tracking-wider text-[var(--muted-foreground)]">Estimasi Anggaran PO</span>
+                <Package className="w-4 h-4 text-[#0F5C56]" />
               </div>
-
-              {/* Card 4: Total Rekomendasi Pemesanan */}
-              <div className="p-3.5 bg-[var(--background)] rounded-xl border border-[var(--border)]">
-                <div className="flex items-center justify-between text-[var(--muted-foreground)]">
-                  <span className="text-[10px] font-bold uppercase tracking-wider">Estimasi Anggaran PO</span>
-                  <Package className="w-3.5 h-3.5 text-[#0F5C56]" />
-                </div>
-                <div className="mt-1">
-                  <span className="text-lg font-bold font-mono text-[#0F5C56]">
-                    {formatRupiah(forecastSummary.totalOrderCost)}
-                  </span>
-                </div>
-                <p className="text-[10px] text-[var(--muted-foreground)] mt-0.5 font-mono">
-                  {forecastSummary.itemsNeedingOrder} SKU ({forecastSummary.totalPacks} Pack / {forecastSummary.totalPcs} Unit)
-                </p>
+              <div className="mt-2">
+                <span className="text-xl font-bold font-mono text-[#0F5C56]">
+                  {formatRupiah(forecastSummary.totalOrderCost)}
+                </span>
               </div>
+              <p className="text-[11px] text-[var(--muted-foreground)] mt-1">
+                <span className="font-semibold text-[var(--foreground)] font-mono">{forecastSummary.itemsNeedingOrder}</span> SKU perlu order ({forecastSummary.totalPacks} Pack)
+              </p>
             </div>
           </div>
 
-          {/* 2. Filter & Controls Bar */}
-          <div className="flex flex-col md:flex-row items-stretch md:items-center justify-between gap-3">
+          {/* 2. Unified Single-Row Controls Bar */}
+          <div className="flex flex-col md:flex-row items-stretch md:items-center justify-between gap-3 bg-[var(--card)] p-3 rounded-xl border border-[var(--border)] shadow-xs">
             {/* Model Filter Pills */}
-            <div className="flex flex-wrap items-center gap-1.5 bg-[var(--card)] p-1 rounded-xl border border-[var(--border)] w-fit text-xs">
+            <div className="flex flex-wrap items-center gap-1 text-xs">
               <button
                 type="button"
                 onClick={() => setForecastModelFilter('ALL')}
@@ -1920,7 +1901,7 @@ export default function BhpMessPage() {
                     : 'text-[var(--muted-foreground)] hover:text-[var(--foreground)] hover:bg-[var(--muted)]/50'
                 }`}
               >
-                <Users className="w-3 h-3" />
+                <Users className="w-3.5 h-3.5" />
                 Mandays Dependent ({forecastSummary.mandaysItems})
               </button>
               <button
@@ -1932,21 +1913,43 @@ export default function BhpMessPage() {
                     : 'text-[var(--muted-foreground)] hover:text-[var(--foreground)] hover:bg-[var(--muted)]/50'
                 }`}
               >
-                <Building2 className="w-3 h-3" />
+                <Building2 className="w-3.5 h-3.5" />
                 Maintenance Area Statis ({forecastSummary.staticItems})
               </button>
             </div>
 
-            {/* Search Input for SKU */}
-            <div className="relative w-full md:w-80">
-              <Search className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-[var(--muted-foreground)]" />
-              <input
-                type="text"
-                value={forecastSearch}
-                onChange={(e) => setForecastSearch(e.target.value)}
-                placeholder="Cari SKU dalam tabel forecast..."
-                className="w-full pl-9 pr-3.5 py-1.5 text-xs bg-[var(--card)] border border-[var(--border)] rounded-xl text-[var(--foreground)] placeholder:text-[var(--muted-foreground)] focus:outline-none focus:ring-1 focus:ring-[#0F5C56]"
-              />
+            {/* Right: Search + Action Buttons */}
+            <div className="flex flex-wrap items-center gap-2">
+              <div className="relative w-full sm:w-64">
+                <Search className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-[var(--muted-foreground)]" />
+                <input
+                  type="text"
+                  value={forecastSearch}
+                  onChange={(e) => setForecastSearch(e.target.value)}
+                  placeholder="Cari kode atau nama BHP..."
+                  className="w-full pl-9 pr-3.5 py-1.5 text-xs bg-[var(--background)] border border-[var(--border)] rounded-lg text-[var(--foreground)] placeholder:text-[var(--muted-foreground)] focus:outline-none focus:ring-1 focus:ring-[#0F5C56]"
+                />
+              </div>
+
+              <button
+                type="button"
+                onClick={() => setIsConfigModalOpen(true)}
+                className="inline-flex items-center px-3 py-1.5 text-xs font-semibold text-[var(--foreground)] bg-[var(--background)] hover:bg-[var(--muted)] border border-[var(--border)] rounded-lg transition-all shadow-xs active:scale-95 shrink-0"
+                title="Sesuaikan headcount simulasi atau lead time supplier"
+              >
+                <SlidersHorizontal className="w-3.5 h-3.5 mr-1.5 text-[#C4841F]" />
+                Parameter
+              </button>
+
+              <button
+                type="button"
+                onClick={() => setIsPdfModalOpen(true)}
+                className="inline-flex items-center px-3.5 py-1.5 text-xs font-semibold text-white bg-[#0F5C56] hover:bg-[#0D4E49] rounded-lg transition-all shadow-xs active:scale-95 shrink-0"
+                title="Cetak & Unduh Dokumen Rekap Resmi (PDF Dua Tanda Tangan)"
+              >
+                <FileDown className="w-3.5 h-3.5 mr-1.5" />
+                Unduh Rekap PDF
+              </button>
             </div>
           </div>
 
@@ -2545,7 +2548,7 @@ export default function BhpMessPage() {
               initial={{ scale: 0.95, opacity: 0 }}
               animate={{ scale: 1, opacity: 1 }}
               exit={{ scale: 0.95, opacity: 0 }}
-              className="relative bg-[var(--card)] w-full max-w-md rounded-2xl border border-[var(--border)] shadow-2xl p-6 z-10 space-y-4"
+              className="relative bg-[var(--card)] w-full max-w-lg rounded-2xl border border-[var(--border)] shadow-2xl p-6 z-10 space-y-4"
             >
               <div className="flex items-center justify-between border-b border-[var(--border)] pb-3">
                 <div className="flex items-center gap-2">
@@ -2563,33 +2566,45 @@ export default function BhpMessPage() {
                 Dokumen Rekap Resmi AGM-HCGA mewajibkan pencantuman nama pejabat pembuat dan penyetuju untuk keperluan audit:
               </p>
 
-              <div className="space-y-3 text-xs">
+              <div className="space-y-4 text-xs">
                 <div>
-                  <label className="font-semibold text-[var(--muted-foreground)]">
-                    Dibuat Oleh (GA Admin) <span className="text-rose-500">*</span>
+                  <label className="font-semibold text-[var(--foreground)] block mb-1">
+                    Dibuat Oleh (GA Admin / Staff Pembuat) <span className="text-rose-500">*</span>
                   </label>
-                  <input
-                    type="text"
-                    required
+                  <CustomSelect
                     value={signerAdminName}
-                    onChange={(e) => setSignerAdminName(e.target.value)}
-                    placeholder="Contoh: Bagus Prasetyo (GA Admin)"
-                    className="w-full mt-1 px-3 py-2 bg-[var(--background)] border border-[var(--border)] rounded-lg text-[var(--foreground)]"
+                    onChange={(val) => {
+                      setSignerAdminName(val);
+                      localStorage.setItem('bhp_signer_admin', val);
+                    }}
+                    options={employeeSelectOptions}
+                    placeholder="Pilih karyawan pembuat dokumen..."
+                    searchPlaceholder="Cari nama karyawan aktif atau NIK..."
+                    className="mt-1"
                   />
+                  <p className="text-[10px] text-[var(--muted-foreground)] mt-1">
+                    Dipilih dari daftar karyawan aktif terdaftar di sistem.
+                  </p>
                 </div>
 
                 <div>
-                  <label className="font-semibold text-[var(--muted-foreground)]">
-                    Disetujui Oleh (GA GL) <span className="text-rose-500">*</span>
+                  <label className="font-semibold text-[var(--foreground)] block mb-1">
+                    Disetujui Oleh (GA GL / Pimpinan Penyetuju) <span className="text-rose-500">*</span>
                   </label>
-                  <input
-                    type="text"
-                    required
+                  <CustomSelect
                     value={signerGlName}
-                    onChange={(e) => setSignerGlName(e.target.value)}
-                    placeholder="Contoh: M. Rizky Ramadhan (GA GL)"
-                    className="w-full mt-1 px-3 py-2 bg-[var(--background)] border border-[var(--border)] rounded-lg text-[var(--foreground)]"
+                    onChange={(val) => {
+                      setSignerGlName(val);
+                      localStorage.setItem('bhp_signer_gl', val);
+                    }}
+                    options={employeeSelectOptions}
+                    placeholder="Pilih penanggung jawab / GL..."
+                    searchPlaceholder="Cari nama karyawan aktif atau NIK..."
+                    className="mt-1"
                   />
+                  <p className="text-[10px] text-[var(--muted-foreground)] mt-1">
+                    Pejabat pengesah dokumen rekapitulasi kebutuhan BHP.
+                  </p>
                 </div>
               </div>
 
