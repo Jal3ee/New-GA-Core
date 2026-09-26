@@ -6,7 +6,7 @@ import { motion, AnimatePresence } from 'framer-motion';
 import {
   Package, Search, Plus, ArrowRightLeft, ClipboardCheck,
   FileDown, X, ChevronRight, Truck, Clock,
-  SlidersHorizontal, Building2, ShieldCheck, Check
+  SlidersHorizontal, Building2, ShieldCheck, Check, Trash2
 } from 'lucide-react';
 import CustomSelect from '../../components/ui/CustomSelect';
 import Pagination from '../../components/ui/Pagination';
@@ -207,10 +207,32 @@ export default function BhpMessPage() {
       return {
         value: it.id,
         label: `${it.code} — ${it.name}`,
-        subtext: `${it.category} • Total Stok: ${stock} ${it.unit} • Harga: ${formatRupiah(it.price_est)}`
+        subtext: `${it.category} • Total Stok: ${stock} ${it.unit} • Harga: ${formatRupiah(it.price_est)}`,
+        category: it.category
       };
     });
   }, [items, stocks]);
+
+  const SITE_OPTIONS = [
+    { value: 'LBCT', label: 'Site LBCT' },
+    { value: 'IDMG', label: 'Site IDMG' },
+    { value: 'SPCT', label: 'Site SPCT' }
+  ];
+
+  const categoryFilterOptions = useMemo(() => [
+    { value: 'ALL', label: `Semua Kategori (${items.length} SKU)` },
+    ...categoriesList.map(c => ({
+      value: c,
+      label: c,
+      badge: `${items.filter(i => i.category === c).length} SKU`
+    }))
+  ], [categoriesList, items]);
+
+  const statusFilterOptions = [
+    { value: 'ALL', label: 'Semua Status Stok' },
+    { value: 'aman', label: 'Stok Tersedia (> 0)', badge: 'Aman' },
+    { value: 'restock', label: 'Stok Kosong (0 Unit)', badge: 'Restock' }
+  ];
 
   // Helper to get stock for an item
   const getItemStock = (itemId, site = selectedSite) => {
@@ -475,61 +497,118 @@ export default function BhpMessPage() {
     setUsageForm(prev => ({ ...prev, qty: '', notes: '' }));
   };
 
-  // Stock-In Form State
+  // Stock-In Form State (Multi-Item Batch Receipt, No PO requirement)
   const [stockInForm, setStockInForm] = useState({
     site: 'LBCT',
     date: new Date().toISOString().split('T')[0],
-    item_id: items[0]?.id || 'BHP001',
-    qty: '',
-    ref_po: '',
-    condition_status: 'Lengkap',
-    notes: ''
+    source: '',
+    notes: '',
+    items: [
+      { item_id: '', qty: 1, notes: '' }
+    ]
   });
+
+  const handleAddStockInRow = () => {
+    setStockInForm(prev => ({
+      ...prev,
+      items: [...prev.items, { item_id: '', qty: 1, notes: '' }]
+    }));
+  };
+
+  const handleRemoveStockInRow = (index) => {
+    if (stockInForm.items.length <= 1) return;
+    setStockInForm(prev => ({
+      ...prev,
+      items: prev.items.filter((_, idx) => idx !== index)
+    }));
+  };
+
+  const handleUpdateStockInRow = (index, field, value) => {
+    setStockInForm(prev => {
+      const updated = [...prev.items];
+      updated[index] = { ...updated[index], [field]: value };
+      return { ...prev, items: updated };
+    });
+  };
 
   const handleSaveStockIn = (e) => {
     e.preventDefault();
-    if (!stockInForm.qty || Number(stockInForm.qty) <= 0) {
-      return toast.warning('Jumlah penerimaan harus lebih dari 0');
+    if (!stockInForm.items || stockInForm.items.length === 0) {
+      return toast.warning('Tambahkan minimal 1 item barang yang diterima');
     }
 
-    const itemObj = items.find(it => it.id === stockInForm.item_id);
-    const newRecord = {
-      id: `RCV-${Date.now()}`,
-      date: stockInForm.date,
-      site: stockInForm.site,
-      item_id: stockInForm.item_id,
-      item_name: itemObj?.name || stockInForm.item_id,
-      qty: Number(stockInForm.qty),
-      ref_po: stockInForm.ref_po || 'SJ-PENGIRIMAN',
-      condition_status: stockInForm.condition_status,
-      receiver_name: user?.name || 'PIC Gudang',
-      notes: stockInForm.notes
-    };
+    // Validate that each row has an item and qty > 0
+    for (let i = 0; i < stockInForm.items.length; i++) {
+      const row = stockInForm.items[i];
+      if (!row.item_id) {
+        return toast.warning(`Baris ke-${i + 1}: Silakan pilih barang BHP terlebih dahulu`);
+      }
+      if (!row.qty || Number(row.qty) <= 0) {
+        return toast.warning(`Baris ke-${i + 1}: Jumlah qty diterima harus lebih dari 0`);
+      }
+    }
 
+    const timestamp = Date.now();
+    const newRecords = [];
+    const stockDeltas = {};
+
+    stockInForm.items.forEach((row, idx) => {
+      const itemObj = items.find(it => it.id === row.item_id);
+      const qtyNum = Number(row.qty);
+      const record = {
+        id: `RCV-${timestamp}-${idx}`,
+        date: stockInForm.date,
+        site: stockInForm.site,
+        item_id: row.item_id,
+        item_code: itemObj?.code || row.item_id,
+        item_name: itemObj?.name || row.item_id,
+        qty: qtyNum,
+        unit: itemObj?.unit || 'Pcs',
+        source: stockInForm.source || 'Pengiriman Masuk',
+        condition_status: 'Lengkap',
+        receiver_name: user?.name || 'PIC Gudang',
+        notes: row.notes || stockInForm.notes || 'Penerimaan logistik'
+      };
+      newRecords.push(record);
+      stockDeltas[row.item_id] = (stockDeltas[row.item_id] || 0) + qtyNum;
+
+      // Sync to PostgreSQL backend
+      savePgBhpStockIn({
+        date: stockInForm.date,
+        site: stockInForm.site,
+        itemCode: row.item_id,
+        qty: qtyNum,
+        refPo: stockInForm.source || null,
+        conditionStatus: 'Lengkap',
+        receiverName: user?.name || 'PIC Gudang',
+        notes: row.notes || stockInForm.notes || null
+      }).catch(err => console.warn('[PG-Sync] Stock-In:', err.message));
+    });
+
+    // Update physical stocks in real-time
     setStocks(prev => {
       const updated = { ...prev };
       const siteStock = { ...(updated[stockInForm.site] || {}) };
-      siteStock[stockInForm.item_id] = (siteStock[stockInForm.item_id] || 0) + Number(stockInForm.qty);
+      Object.entries(stockDeltas).forEach(([itemId, addedQty]) => {
+        siteStock[itemId] = (siteStock[itemId] || 0) + addedQty;
+      });
       updated[stockInForm.site] = siteStock;
       return updated;
     });
 
-    setStockIns(prev => [newRecord, ...prev]);
+    setStockIns(prev => [...newRecords, ...prev]);
 
-    savePgBhpStockIn({
-      date: stockInForm.date,
-      site: stockInForm.site,
-      itemCode: stockInForm.item_id,
-      qty: stockInForm.qty,
-      refPo: stockInForm.ref_po,
-      conditionStatus: stockInForm.condition_status,
-      receiverName: user?.name || 'PIC Gudang',
-      notes: stockInForm.notes
-    }).catch(err => console.warn('[PG-Sync] Stock-In:', err.message));
+    const totalQty = stockInForm.items.reduce((acc, curr) => acc + Number(curr.qty || 0), 0);
+    toast.success(`Berhasil menerima ${stockInForm.items.length} item barang (${totalQty} total unit) ke Site ${stockInForm.site}`);
 
-    toast.success(`Penerimaan ${stockInForm.qty} ${itemObj?.unit || 'unit'} berhasil ditambahkan ke ${stockInForm.site}`);
     setIsStockInModalOpen(false);
-    setStockInForm(prev => ({ ...prev, qty: '', ref_po: '', notes: '' }));
+    setStockInForm({
+      site: stockInForm.site,
+      date: new Date().toISOString().split('T')[0],
+      source: '',
+      notes: '',
+      items: [{ item_id: '', qty: 1, notes: '' }]
+    });
   };
 
   // Transfer Form State
@@ -703,32 +782,33 @@ export default function BhpMessPage() {
   return (
     <div className="space-y-6 pb-20">
       
-      {/* 1. Header Section - Minimalist & Clear */}
-      <div className="bg-[var(--card)] p-5 md:p-6 rounded-2xl border border-[var(--border)] shadow-xs flex flex-col md:flex-row md:items-center justify-between gap-4">
+      {/* 1. Header Section - Flush & Modern (No boxed indent!) */}
+      <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 border-b border-[var(--border)] pb-5">
         <div>
           <div className="flex items-center gap-2 mb-1.5">
             <span className="px-2.5 py-0.5 rounded-full text-[11px] font-semibold bg-[#0F5C56]/10 text-[#0F5C56] border border-[#0F5C56]/20">
-              BHP Mess • FPA September 2026
+              Operasional Mess • Inventaris BHP
             </span>
-            <span className="text-xs text-[var(--muted-foreground)]">
-              139 SKU Aktif
+            <span className="text-xs text-[var(--muted-foreground)] font-mono">
+              139 SKU Terdaftar
             </span>
           </div>
-          <h1 className="text-2xl font-bold font-display text-[var(--foreground)] tracking-tight">
+          <h1 className="text-2xl font-bold font-display text-[var(--foreground)] tracking-tight flex items-center gap-2.5">
+            <Package className="w-6 h-6 text-[#0F5C56]" />
             Barang Habis Pakai (BHP)
           </h1>
-          <p className="text-xs text-[var(--muted-foreground)] mt-0.5">
-            Pencatatan pemakaian harian, penerimaan stok, dan rekap rekomendasi pemesanan bulanan 3 site (LBCT, IDMG, SPCT).
+          <p className="text-xs text-[var(--muted-foreground)] mt-1 max-w-2xl">
+            Pencatatan pemakaian harian, penerimaan suplai multi-item, mutasi stok antar mess, dan estimasi kebutuhan pengadaan 3 site (LBCT, IDMG, SPCT).
           </p>
         </div>
 
         {/* Site Switcher & Action CTAs */}
-        <div className="flex flex-wrap items-center gap-2.5">
+        <div className="flex flex-wrap items-center gap-2.5 shrink-0">
           {/* Site Filter Pills */}
-          <div className="flex bg-[var(--muted)] p-1 rounded-xl border border-[var(--border)]">
+          <div className="flex bg-[var(--muted)]/70 p-1 rounded-xl border border-[var(--border)]">
             <button
               onClick={() => setSelectedSite('ALL')}
-              className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition-all ${
+              className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition-all active:scale-95 ${
                 selectedSite === 'ALL'
                   ? 'bg-[var(--card)] text-[#0F5C56] shadow-xs'
                   : 'text-[var(--muted-foreground)] hover:text-[var(--foreground)]'
@@ -740,7 +820,7 @@ export default function BhpMessPage() {
               <button
                 key={st}
                 onClick={() => setSelectedSite(st)}
-                className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition-all ${
+                className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition-all active:scale-95 ${
                   selectedSite === st
                     ? 'bg-[var(--card)] text-[#0F5C56] shadow-xs'
                     : 'text-[var(--muted-foreground)] hover:text-[var(--foreground)]'
@@ -751,10 +831,10 @@ export default function BhpMessPage() {
             ))}
           </div>
 
-          {/* Quick Action CTAs */}
+          {/* Quick Action CTAs with Micro-Animations */}
           <button
             onClick={() => setIsUsageModalOpen(true)}
-            className="inline-flex items-center px-3.5 py-2 text-xs font-semibold text-white bg-[#0F5C56] hover:bg-[#0D4E49] rounded-xl transition-all shadow-xs"
+            className="inline-flex items-center px-3.5 py-2 text-xs font-semibold text-white bg-[#0F5C56] hover:bg-[#0D4E49] rounded-xl transition-all shadow-xs active:scale-95"
           >
             <Plus className="w-3.5 h-3.5 mr-1.5" />
             Catat Pemakaian
@@ -762,7 +842,7 @@ export default function BhpMessPage() {
 
           <button
             onClick={() => setIsStockInModalOpen(true)}
-            className="inline-flex items-center px-3.5 py-2 text-xs font-semibold text-[var(--foreground)] bg-[var(--card)] hover:bg-[var(--muted)] border border-[var(--border)] rounded-xl transition-all shadow-xs"
+            className="inline-flex items-center px-3.5 py-2 text-xs font-semibold text-[var(--foreground)] bg-[var(--card)] hover:bg-[var(--muted)] border border-[var(--border)] rounded-xl transition-all shadow-xs active:scale-95"
           >
             <Truck className="w-3.5 h-3.5 mr-1.5 text-[#0F5C56]" />
             Penerimaan Barang
@@ -770,7 +850,7 @@ export default function BhpMessPage() {
 
           <button
             onClick={() => setIsPdfModalOpen(true)}
-            className="inline-flex items-center px-3.5 py-2 text-xs font-semibold text-white bg-[#C4841F] hover:bg-[#A6690E] rounded-xl transition-all shadow-xs"
+            className="inline-flex items-center px-3.5 py-2 text-xs font-semibold text-white bg-[#C4841F] hover:bg-[#A6690E] rounded-xl transition-all shadow-xs active:scale-95"
           >
             <FileDown className="w-3.5 h-3.5 mr-1.5" />
             Unduh Rekap PDF
@@ -832,28 +912,27 @@ export default function BhpMessPage() {
               />
             </div>
 
-            {/* Filter Kategori & Status */}
+            {/* Filter Kategori & Status (Custom Searchable Selects) */}
             <div className="flex flex-wrap items-center gap-2">
-              <select
+              <CustomSelect
                 value={selectedCategory}
-                onChange={(e) => setSelectedCategory(e.target.value)}
-                className="px-3 py-1.5 text-xs bg-[var(--background)] border border-[var(--border)] rounded-lg text-[var(--foreground)] focus:outline-none focus:ring-1 focus:ring-[#0F5C56]"
-              >
-                <option value="ALL">Semua Kategori ({items.length})</option>
-                {categoriesList.map(c => (
-                  <option key={c} value={c}>{c}</option>
-                ))}
-              </select>
+                onChange={(val) => setSelectedCategory(val)}
+                options={categoryFilterOptions}
+                placeholder="Pilih Kategori..."
+                className="w-52 sm:w-60"
+                buttonClassName="py-1.5"
+                searchPlaceholder="Cari kategori..."
+              />
 
-              <select
+              <CustomSelect
                 value={statusFilter}
-                onChange={(e) => setStatusFilter(e.target.value)}
-                className="px-3 py-1.5 text-xs bg-[var(--background)] border border-[var(--border)] rounded-lg text-[var(--foreground)] focus:outline-none focus:ring-1 focus:ring-[#0F5C56]"
-              >
-                <option value="ALL">Semua Status Stok</option>
-                <option value="aman">Stok Tersedia (&gt; 0)</option>
-                <option value="restock">Stok Kosong (0)</option>
-              </select>
+                onChange={(val) => setStatusFilter(val)}
+                options={statusFilterOptions}
+                placeholder="Status Stok..."
+                className="w-44 sm:w-52"
+                buttonClassName="py-1.5"
+                searchable={false}
+              />
             </div>
           </div>
 
@@ -1058,14 +1137,14 @@ export default function BhpMessPage() {
                 type="text"
                 value={stockInSearch}
                 onChange={(e) => setStockInSearch(e.target.value)}
-                placeholder="Cari penerimaan (PO, nomor surat jalan, barang)..."
+                placeholder="Cari transaksi penerimaan (barang, sumber pengiriman, penerima)..."
                 className="w-full pl-9 pr-3.5 py-1.5 text-xs bg-[var(--background)] border border-[var(--border)] rounded-lg text-[var(--foreground)] placeholder:text-[var(--muted-foreground)] focus:outline-none focus:ring-1 focus:ring-[#0F5C56]"
               />
             </div>
 
             <button
               onClick={() => setIsStockInModalOpen(true)}
-              className="inline-flex items-center justify-center px-3.5 py-2 text-xs font-semibold text-white bg-[#0F5C56] hover:bg-[#0D4E49] rounded-xl transition-all shadow-xs shrink-0"
+              className="inline-flex items-center justify-center px-3.5 py-2 text-xs font-semibold text-white bg-[#0F5C56] hover:bg-[#0D4E49] rounded-xl transition-all shadow-xs shrink-0 active:scale-95"
             >
               <Plus className="w-3.5 h-3.5 mr-1.5" />
               Catat Penerimaan Baru
@@ -1080,7 +1159,7 @@ export default function BhpMessPage() {
                   <th className="py-3 px-4">Site</th>
                   <th className="py-3 px-4">Barang</th>
                   <th className="py-3 px-4 text-center">Jumlah Diterima</th>
-                  <th className="py-3 px-4">No. PO / Surat Jalan</th>
+                  <th className="py-3 px-4">Sumber / Keterangan</th>
                   <th className="py-3 px-4">Kondisi</th>
                   <th className="py-3 px-4">Penerima</th>
                 </tr>
@@ -1092,7 +1171,7 @@ export default function BhpMessPage() {
                     <td className="py-3 px-4 font-semibold text-[#0F5C56]">{s.site}</td>
                     <td className="py-3 px-4 font-medium">{s.item_name || s.item_id}</td>
                     <td className="py-3 px-4 text-center font-bold font-mono text-emerald-600">+{s.qty}</td>
-                    <td className="py-3 px-4 font-mono text-[var(--muted-foreground)]">{s.ref_po || '-'}</td>
+                    <td className="py-3 px-4 text-[var(--muted-foreground)]">{s.source || s.ref_po || s.notes || '-'}</td>
                     <td className="py-3 px-4">
                       <span className="px-2 py-0.5 rounded-full text-[10px] font-semibold bg-emerald-500/10 text-emerald-700 dark:text-emerald-400 border border-emerald-500/20">
                         {s.condition_status || 'Lengkap'}
@@ -1180,23 +1259,23 @@ export default function BhpMessPage() {
                   <div className="grid grid-cols-2 gap-2.5">
                     <div>
                       <label className="font-semibold text-[var(--muted-foreground)]">Dari Site Asal</label>
-                      <select
+                      <CustomSelect
                         value={transferForm.from_site}
-                        onChange={(e) => setTransferForm({ ...transferForm, from_site: e.target.value })}
-                        className="w-full mt-1 px-3 py-1.5 bg-[var(--background)] border border-[var(--border)] rounded-lg text-[var(--foreground)]"
-                      >
-                        {['LBCT', 'IDMG', 'SPCT'].map(s => <option key={s} value={s}>{s}</option>)}
-                      </select>
+                        onChange={(val) => setTransferForm({ ...transferForm, from_site: val })}
+                        options={SITE_OPTIONS}
+                        searchable={false}
+                        className="mt-1"
+                      />
                     </div>
                     <div>
                       <label className="font-semibold text-[var(--muted-foreground)]">Ke Site Tujuan</label>
-                      <select
+                      <CustomSelect
                         value={transferForm.to_site}
-                        onChange={(e) => setTransferForm({ ...transferForm, to_site: e.target.value })}
-                        className="w-full mt-1 px-3 py-1.5 bg-[var(--background)] border border-[var(--border)] rounded-lg text-[var(--foreground)]"
-                      >
-                        {['LBCT', 'IDMG', 'SPCT'].map(s => <option key={s} value={s}>{s}</option>)}
-                      </select>
+                        onChange={(val) => setTransferForm({ ...transferForm, to_site: val })}
+                        options={SITE_OPTIONS}
+                        searchable={false}
+                        className="mt-1"
+                      />
                     </div>
                   </div>
 
@@ -1340,13 +1419,13 @@ export default function BhpMessPage() {
                   <div className="grid grid-cols-2 gap-2.5">
                     <div>
                       <label className="font-semibold text-[var(--muted-foreground)]">Site Opname</label>
-                      <select
+                      <CustomSelect
                         value={opnameForm.site}
-                        onChange={(e) => setOpnameForm({ ...opnameForm, site: e.target.value })}
-                        className="w-full mt-1 px-3 py-1.5 bg-[var(--background)] border border-[var(--border)] rounded-lg text-[var(--foreground)]"
-                      >
-                        {['LBCT', 'IDMG', 'SPCT'].map(s => <option key={s} value={s}>{s}</option>)}
-                      </select>
+                        onChange={(val) => setOpnameForm({ ...opnameForm, site: val })}
+                        options={SITE_OPTIONS}
+                        searchable={false}
+                        className="mt-1"
+                      />
                     </div>
                     <div>
                       <label className="font-semibold text-[var(--muted-foreground)]">Tanggal Opname</label>
@@ -1739,6 +1818,7 @@ export default function BhpMessPage() {
         )}
       </AnimatePresence>
 
+
       {/* ==================================================================== */}
       {/* MODAL 1: FORM PENCATATAN PEMAKAIAN (Searchable Dropdown)             */}
       {/* ==================================================================== */}
@@ -1759,25 +1839,33 @@ export default function BhpMessPage() {
               className="relative bg-[var(--card)] w-full max-w-lg rounded-2xl border border-[var(--border)] shadow-2xl p-6 z-10 space-y-4"
             >
               <div className="flex items-center justify-between border-b border-[var(--border)] pb-3">
-                <h3 className="text-base font-bold font-display text-[var(--foreground)]">
-                  Catat Pemakaian Harian
-                </h3>
-                <button onClick={() => setIsUsageModalOpen(false)} className="p-1 text-[var(--muted-foreground)] hover:text-[var(--foreground)]">
+                <div className="flex items-center gap-2">
+                  <div className="p-1.5 rounded-lg bg-[#0F5C56]/10 text-[#0F5C56]">
+                    <Clock className="w-4 h-4" />
+                  </div>
+                  <h3 className="text-base font-bold font-display text-[var(--foreground)]">
+                    Catat Pemakaian Harian
+                  </h3>
+                </div>
+                <button 
+                  onClick={() => setIsUsageModalOpen(false)} 
+                  className="p-1 text-[var(--muted-foreground)] hover:text-[var(--foreground)] rounded-lg hover:bg-[var(--muted)] transition-colors active:scale-95"
+                >
                   <X className="w-5 h-5" />
                 </button>
               </div>
 
-              <form onSubmit={handleSaveUsage} className="space-y-3 text-xs">
+              <form onSubmit={handleSaveUsage} className="space-y-3.5 text-xs">
                 <div className="grid grid-cols-2 gap-3">
                   <div>
-                    <label className="font-semibold text-[var(--muted-foreground)]">Site</label>
-                    <select
+                    <label className="font-semibold text-[var(--muted-foreground)]">Site Mess</label>
+                    <CustomSelect
                       value={usageForm.site}
-                      onChange={(e) => setUsageForm({ ...usageForm, site: e.target.value })}
-                      className="w-full mt-1 px-3 py-2 bg-[var(--background)] border border-[var(--border)] rounded-lg text-[var(--foreground)]"
-                    >
-                      {['LBCT', 'IDMG', 'SPCT'].map(s => <option key={s} value={s}>{s}</option>)}
-                    </select>
+                      onChange={(val) => setUsageForm({ ...usageForm, site: val })}
+                      options={SITE_OPTIONS}
+                      searchable={false}
+                      className="mt-1"
+                    />
                   </div>
                   <div>
                     <label className="font-semibold text-[var(--muted-foreground)]">Tanggal</label>
@@ -1786,7 +1874,7 @@ export default function BhpMessPage() {
                       required
                       value={usageForm.date}
                       onChange={(e) => setUsageForm({ ...usageForm, date: e.target.value })}
-                      className="w-full mt-1 px-3 py-2 bg-[var(--background)] border border-[var(--border)] rounded-lg text-[var(--foreground)]"
+                      className="w-full mt-1 px-3 py-2 bg-[var(--background)] border border-[var(--border)] rounded-xl text-[var(--foreground)] focus:outline-none focus:ring-1 focus:ring-[#0F5C56]"
                     />
                   </div>
                 </div>
@@ -1799,6 +1887,7 @@ export default function BhpMessPage() {
                     options={itemSelectOptions}
                     placeholder="Ketik untuk mencari dari 139 barang..."
                     className="mt-1"
+                    searchPlaceholder="Cari nama barang atau kode BHP..."
                   />
                 </div>
 
@@ -1811,7 +1900,7 @@ export default function BhpMessPage() {
                     value={usageForm.qty}
                     onChange={(e) => setUsageForm({ ...usageForm, qty: e.target.value })}
                     placeholder="Contoh: 5"
-                    className="w-full mt-1 px-3 py-2 bg-[var(--background)] border border-[var(--border)] rounded-lg text-[var(--foreground)]"
+                    className="w-full mt-1 px-3 py-2 bg-[var(--background)] border border-[var(--border)] rounded-xl text-[var(--foreground)] font-mono focus:outline-none focus:ring-1 focus:ring-[#0F5C56]"
                   />
                 </div>
 
@@ -1822,7 +1911,7 @@ export default function BhpMessPage() {
                     value={usageForm.notes}
                     onChange={(e) => setUsageForm({ ...usageForm, notes: e.target.value })}
                     placeholder="Contoh: Kebutuhan mess VIP & ruang makan"
-                    className="w-full mt-1 px-3 py-2 bg-[var(--background)] border border-[var(--border)] rounded-lg text-[var(--foreground)]"
+                    className="w-full mt-1 px-3 py-2 bg-[var(--background)] border border-[var(--border)] rounded-xl text-[var(--foreground)] focus:outline-none focus:ring-1 focus:ring-[#0F5C56]"
                   />
                 </div>
 
@@ -1830,13 +1919,13 @@ export default function BhpMessPage() {
                   <button
                     type="button"
                     onClick={() => setIsUsageModalOpen(false)}
-                    className="px-4 py-2 rounded-lg border border-[var(--border)] text-[var(--foreground)] hover:bg-[var(--muted)]"
+                    className="px-4 py-2 rounded-xl border border-[var(--border)] text-[var(--foreground)] hover:bg-[var(--muted)] transition-all active:scale-95"
                   >
                     Batal
                   </button>
                   <button
                     type="submit"
-                    className="px-5 py-2 rounded-lg bg-[#0F5C56] hover:bg-[#0D4E49] text-white font-semibold"
+                    className="px-5 py-2 rounded-xl bg-[#0F5C56] hover:bg-[#0D4E49] text-white font-semibold shadow-xs transition-all active:scale-95"
                   >
                     Simpan Pemakaian
                   </button>
@@ -1848,7 +1937,7 @@ export default function BhpMessPage() {
       </AnimatePresence>
 
       {/* ==================================================================== */}
-      {/* MODAL 2: FORM PENERIMAAN BARANG (Searchable Dropdown)                 */}
+      {/* MODAL 2: FORM PENERIMAAN BARANG BATCH MULTI-ITEM (No PO requirement) */}
       {/* ==================================================================== */}
       <AnimatePresence>
         {isStockInModalOpen && (
@@ -1864,91 +1953,180 @@ export default function BhpMessPage() {
               initial={{ scale: 0.95, opacity: 0 }}
               animate={{ scale: 1, opacity: 1 }}
               exit={{ scale: 0.95, opacity: 0 }}
-              className="relative bg-[var(--card)] w-full max-w-lg rounded-2xl border border-[var(--border)] shadow-2xl p-6 z-10 space-y-4"
+              className="relative bg-[var(--card)] w-full max-w-3xl rounded-2xl border border-[var(--border)] shadow-2xl p-6 z-10 space-y-4 max-h-[90vh] overflow-y-auto custom-scrollbar"
             >
+              {/* Modal Header */}
               <div className="flex items-center justify-between border-b border-[var(--border)] pb-3">
-                <h3 className="text-base font-bold font-display text-[var(--foreground)]">
-                  Pencatatan Penerimaan Barang Masuk
-                </h3>
-                <button onClick={() => setIsStockInModalOpen(false)} className="p-1 text-[var(--muted-foreground)] hover:text-[var(--foreground)]">
+                <div className="flex items-center gap-2.5">
+                  <div className="p-2 rounded-xl bg-[#0F5C56]/10 text-[#0F5C56]">
+                    <Truck className="w-5 h-5" />
+                  </div>
+                  <div>
+                    <h3 className="text-base font-bold font-display text-[var(--foreground)]">
+                      Pencatatan Penerimaan Barang Masuk
+                    </h3>
+                    <p className="text-xs text-[var(--muted-foreground)]">
+                      Input kedatangan stok barang ke mess — bisa langsung banyak item sekaligus tanpa nomor PO.
+                    </p>
+                  </div>
+                </div>
+                <button 
+                  onClick={() => setIsStockInModalOpen(false)} 
+                  className="p-1 text-[var(--muted-foreground)] hover:text-[var(--foreground)] rounded-lg hover:bg-[var(--muted)] transition-colors active:scale-95"
+                >
                   <X className="w-5 h-5" />
                 </button>
               </div>
 
-              <form onSubmit={handleSaveStockIn} className="space-y-3 text-xs">
-                <div className="grid grid-cols-2 gap-3">
+              <form onSubmit={handleSaveStockIn} className="space-y-4 text-xs">
+                {/* Site, Tanggal, Sumber Info (No PO Required) */}
+                <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 bg-[var(--muted)]/20 p-3.5 rounded-xl border border-[var(--border)]">
                   <div>
-                    <label className="font-semibold text-[var(--muted-foreground)]">Site Penerima</label>
-                    <select
+                    <label className="font-semibold text-[var(--foreground)] block mb-1">Site Penerima</label>
+                    <CustomSelect
                       value={stockInForm.site}
-                      onChange={(e) => setStockInForm({ ...stockInForm, site: e.target.value })}
-                      className="w-full mt-1 px-3 py-2 bg-[var(--background)] border border-[var(--border)] rounded-lg text-[var(--foreground)]"
-                    >
-                      {['LBCT', 'IDMG', 'SPCT'].map(s => <option key={s} value={s}>{s}</option>)}
-                    </select>
+                      onChange={(val) => setStockInForm({ ...stockInForm, site: val })}
+                      options={SITE_OPTIONS}
+                      searchable={false}
+                    />
                   </div>
+
                   <div>
-                    <label className="font-semibold text-[var(--muted-foreground)]">Tanggal Terima</label>
+                    <label className="font-semibold text-[var(--foreground)] block mb-1">Tanggal Terima</label>
                     <input
                       type="date"
                       required
                       value={stockInForm.date}
                       onChange={(e) => setStockInForm({ ...stockInForm, date: e.target.value })}
-                      className="w-full mt-1 px-3 py-2 bg-[var(--background)] border border-[var(--border)] rounded-lg text-[var(--foreground)]"
+                      className="w-full px-3 py-2 bg-[var(--background)] border border-[var(--border)] rounded-xl text-[var(--foreground)] focus:outline-none focus:ring-1 focus:ring-[#0F5C56]"
                     />
                   </div>
-                </div>
 
-                <div>
-                  <label className="font-semibold text-[var(--muted-foreground)]">Pilih Barang BHP</label>
-                  <CustomSelect
-                    value={stockInForm.item_id}
-                    onChange={(val) => setStockInForm({ ...stockInForm, item_id: val })}
-                    options={itemSelectOptions}
-                    placeholder="Ketik untuk mencari dari 139 barang..."
-                    className="mt-1"
-                  />
-                </div>
-
-                <div className="grid grid-cols-2 gap-3">
                   <div>
-                    <label className="font-semibold text-[var(--muted-foreground)]">Jumlah Qty Diterima</label>
-                    <input
-                      type="number"
-                      min="1"
-                      required
-                      value={stockInForm.qty}
-                      onChange={(e) => setStockInForm({ ...stockInForm, qty: e.target.value })}
-                      placeholder="Qty unit"
-                      className="w-full mt-1 px-3 py-2 bg-[var(--background)] border border-[var(--border)] rounded-lg text-[var(--foreground)]"
-                    />
-                  </div>
-                  <div>
-                    <label className="font-semibold text-[var(--muted-foreground)]">No. PO / Surat Jalan</label>
+                    <label className="font-semibold text-[var(--foreground)] block mb-1">Sumber / Pengirim (Opsional)</label>
                     <input
                       type="text"
-                      value={stockInForm.ref_po}
-                      onChange={(e) => setStockInForm({ ...stockInForm, ref_po: e.target.value })}
-                      placeholder="PO-2026-09-xxx"
-                      className="w-full mt-1 px-3 py-2 bg-[var(--background)] border border-[var(--border)] rounded-lg text-[var(--foreground)]"
+                      value={stockInForm.source}
+                      onChange={(e) => setStockInForm({ ...stockInForm, source: e.target.value })}
+                      placeholder="Contoh: Gudang Pusat / Vendor"
+                      className="w-full px-3 py-2 bg-[var(--background)] border border-[var(--border)] rounded-xl text-[var(--foreground)] placeholder:text-[var(--muted-foreground)] focus:outline-none focus:ring-1 focus:ring-[#0F5C56]"
                     />
                   </div>
                 </div>
 
-                <div className="flex justify-end gap-2 pt-3 border-t border-[var(--border)]">
-                  <button
-                    type="button"
-                    onClick={() => setIsStockInModalOpen(false)}
-                    className="px-4 py-2 rounded-lg border border-[var(--border)] text-[var(--foreground)] hover:bg-[var(--muted)]"
-                  >
-                    Batal
-                  </button>
-                  <button
-                    type="submit"
-                    className="px-5 py-2 rounded-lg bg-[#0F5C56] hover:bg-[#0D4E49] text-white font-semibold"
-                  >
-                    Simpan Penerimaan
-                  </button>
+                {/* Multi-Item Table Entry */}
+                <div className="space-y-2">
+                  <div className="flex items-center justify-between">
+                    <label className="font-bold text-xs text-[var(--foreground)] flex items-center gap-1.5">
+                      <Package className="w-3.5 h-3.5 text-[#0F5C56]" />
+                      Daftar Item Barang yang Diterima ({stockInForm.items.length} item)
+                    </label>
+                    <button
+                      type="button"
+                      onClick={handleAddStockInRow}
+                      className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold text-[#0F5C56] bg-[#0F5C56]/10 hover:bg-[#0F5C56]/20 rounded-xl transition-all shadow-xs active:scale-95"
+                    >
+                      <Plus className="w-3.5 h-3.5" />
+                      Tambah Baris Barang
+                    </button>
+                  </div>
+
+                  <div className="border border-[var(--border)] rounded-xl overflow-hidden shadow-xs">
+                    <table className="w-full text-left text-xs">
+                      <thead className="bg-[var(--muted)]/60 text-[var(--muted-foreground)] border-b border-[var(--border)] font-semibold text-[11px] uppercase">
+                        <tr>
+                          <th className="py-2.5 px-3 w-8 text-center">#</th>
+                          <th className="py-2.5 px-3 min-w-[230px]">Pilih Barang BHP (139 SKU)</th>
+                          <th className="py-2.5 px-3 w-28">Qty Diterima</th>
+                          <th className="py-2.5 px-3 w-24">Satuan</th>
+                          <th className="py-2.5 px-3">Keterangan Baris</th>
+                          <th className="py-2.5 px-3 w-10 text-center">Aksi</th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-[var(--border)] bg-[var(--card)]">
+                        {stockInForm.items.map((row, idx) => {
+                          const selectedItem = items.find(it => it.id === row.item_id);
+                          return (
+                            <tr key={idx} className="hover:bg-[var(--muted)]/20 transition-colors">
+                              <td className="py-2.5 px-3 text-center font-mono text-[var(--muted-foreground)]">
+                                {idx + 1}
+                              </td>
+                              <td className="py-2 px-3">
+                                <CustomSelect
+                                  value={row.item_id}
+                                  onChange={(val) => handleUpdateStockInRow(idx, 'item_id', val)}
+                                  options={itemSelectOptions}
+                                  placeholder="Ketik cari dari 139 item..."
+                                  searchPlaceholder="Cari nama barang atau kode BHP..."
+                                  buttonClassName="py-1.5"
+                                />
+                              </td>
+                              <td className="py-2 px-3">
+                                <input
+                                  type="number"
+                                  min="1"
+                                  required
+                                  value={row.qty}
+                                  onChange={(e) => handleUpdateStockInRow(idx, 'qty', e.target.value)}
+                                  className="w-full px-2.5 py-1.5 text-xs bg-[var(--background)] border border-[var(--border)] rounded-lg text-[var(--foreground)] font-mono font-bold text-center focus:outline-none focus:ring-1 focus:ring-[#0F5C56]"
+                                  placeholder="1"
+                                />
+                              </td>
+                              <td className="py-2 px-3">
+                                <span className="px-2 py-1 rounded-md bg-[var(--muted)] font-mono text-[11px] font-semibold text-[var(--foreground)] block text-center truncate border border-[var(--border)]">
+                                  {selectedItem?.unit || '-'}
+                                </span>
+                              </td>
+                              <td className="py-2 px-3">
+                                <input
+                                  type="text"
+                                  value={row.notes}
+                                  onChange={(e) => handleUpdateStockInRow(idx, 'notes', e.target.value)}
+                                  placeholder="Opsional (mis: kondisi baik)"
+                                  className="w-full px-2.5 py-1.5 text-xs bg-[var(--background)] border border-[var(--border)] rounded-lg text-[var(--foreground)] placeholder:text-[var(--muted-foreground)] focus:outline-none focus:ring-1 focus:ring-[#0F5C56]"
+                                />
+                              </td>
+                              <td className="py-2 px-3 text-center">
+                                <button
+                                  type="button"
+                                  disabled={stockInForm.items.length <= 1}
+                                  onClick={() => handleRemoveStockInRow(idx)}
+                                  className="p-1 rounded-lg text-[var(--muted-foreground)] hover:text-rose-600 hover:bg-rose-500/10 disabled:opacity-20 disabled:cursor-not-allowed transition-all active:scale-95"
+                                  title="Hapus baris"
+                                >
+                                  <Trash2 className="w-4 h-4" />
+                                </button>
+                              </td>
+                            </tr>
+                          );
+                        })}
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+
+                {/* Modal Footer with Summary & Buttons */}
+                <div className="flex flex-col sm:flex-row items-center justify-between gap-3 pt-3 border-t border-[var(--border)]">
+                  <div className="text-xs text-[var(--muted-foreground)]">
+                    Total: <strong className="text-[var(--foreground)] font-mono">{stockInForm.items.reduce((s, r) => s + Number(r.qty || 0), 0)} unit</strong> dari <strong className="text-[var(--foreground)] font-mono">{stockInForm.items.length} item</strong> akan ditambahkan ke stok Site <strong className="text-[#0F5C56]">{stockInForm.site}</strong>
+                  </div>
+
+                  <div className="flex items-center gap-2">
+                    <button
+                      type="button"
+                      onClick={() => setIsStockInModalOpen(false)}
+                      className="px-4 py-2 rounded-xl border border-[var(--border)] text-[var(--foreground)] hover:bg-[var(--muted)] transition-all active:scale-95"
+                    >
+                      Batal
+                    </button>
+                    <button
+                      type="submit"
+                      className="px-5 py-2 rounded-xl bg-[#0F5C56] hover:bg-[#0D4E49] text-white font-semibold shadow-xs transition-all active:scale-95 flex items-center gap-1.5"
+                    >
+                      <Check className="w-4 h-4" />
+                      Simpan Penerimaan
+                    </button>
+                  </div>
                 </div>
               </form>
             </motion.div>

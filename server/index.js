@@ -178,7 +178,7 @@ app.post('/api/bhp/usage', async (req, res) => {
   }
 });
 
-// Simpan Barang Masuk W5
+// Simpan Logistik / Penerimaan Barang Masuk
 app.post('/api/bhp/stock-in', async (req, res) => {
   try {
     const { date, site, itemCode, qty, refPo, conditionStatus, receiverName, notes } = req.body;

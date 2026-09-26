@@ -16,7 +16,7 @@ export const formatRupiah = (number) => {
  */
 export function generateBhpForecastPdfReport({
   forecastData = [],
-  periodCycle = 'September 2026 (W3)',
+  periodCycle = 'September 2026',
   siteScope = 'Konsolidasi (LBCT, IDMG, SPCT)',
   createdByName = 'GA Admin',
   approvedByName = 'GA GL',
@@ -252,8 +252,8 @@ export function generateBhpForecastPdfReport({
       <div><strong>Cakupan Lokasi:</strong> ${siteScope}</div>
     </div>
     <div class="meta-item">
-      <div><strong>Waktu Penutupan:</strong> Awal Minggu ke-3 (W3)</div>
-      <div><strong>Status Dokumen:</strong> Rekap Final untuk Pengajuan Manual PO</div>
+      <div><strong>Waktu Rekapitulasi:</strong> Akhir Periode Operasional</div>
+      <div><strong>Status Dokumen:</strong> Rekap Final untuk Pengajuan Logistik & PO</div>
     </div>
     <div class="meta-item">
       <div><strong>Tanggal Cetak:</strong> ${printDateStr}</div>

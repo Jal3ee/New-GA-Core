@@ -73,7 +73,7 @@ export async function savePgBhpUsage(payload) {
 }
 
 /**
- * Simpan penerimaan barang masuk W5 ke PostgreSQL 16
+ * Simpan penerimaan barang masuk ke PostgreSQL 16
  */
 export async function savePgBhpStockIn(payload) {
   const res = await fetch(`${PG_API_BASE}/bhp/stock-in`, {
