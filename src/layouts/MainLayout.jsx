@@ -5,7 +5,7 @@ import {
   Home, Users, Building, LogOut, Menu, X, Package, Truck,
   MessageSquare, Calendar, FileText, WashingMachine,
   ChevronLeft, ChevronRight, Bell, Search, Activity,
-  Shield, ChevronDown, Utensils
+  Shield, ChevronDown, Utensils, Layers
 } from 'lucide-react';
 
 export function MainLayout() {
