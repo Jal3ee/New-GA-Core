@@ -4,20 +4,19 @@ import { useGlobalLoading } from '../../context/LoadingContext';
 import { toast } from 'sonner';
 import { motion, AnimatePresence } from 'framer-motion';
 import {
-  Package, Search, Filter, Plus, ArrowRightLeft, ClipboardCheck,
-  FileDown, Check, X, ChevronRight, Truck, Clock, AlertTriangle,
-  RotateCcw, SlidersHorizontal, CheckCircle2, AlertCircle, Building2,
-  Calendar, Layers, ShieldCheck, HelpCircle
+  Package, Search, Plus, ArrowRightLeft, ClipboardCheck,
+  FileDown, X, ChevronRight, Truck, Clock,
+  SlidersHorizontal, Building2, ShieldCheck, Check
 } from 'lucide-react';
+import CustomSelect from '../../components/ui/CustomSelect';
+import Pagination from '../../components/ui/Pagination';
 import {
   INITIAL_BHP_ITEMS,
   INITIAL_BHP_STOCKS,
-  INITIAL_BHP_SITE_PARAMS,
   INITIAL_BHP_USAGES,
   INITIAL_BHP_STOCK_INS,
   INITIAL_BHP_TRANSFERS,
-  INITIAL_BHP_OPNAMES,
-  SITES_BHP
+  INITIAL_BHP_OPNAMES
 } from '../../data/initialBhpData';
 import {
   generateBhpForecastPdfReport,
@@ -39,10 +38,36 @@ export default function BhpMessPage() {
   const [activeTab, setActiveTab] = useState('stok'); // 'stok', 'pemakaian', 'penerimaan', 'mutasi_opname', 'forecast'
   const [selectedSite, setSelectedSite] = useState('ALL'); // 'ALL', 'LBCT', 'IDMG', 'SPCT'
   
-  // Search & Filter in Catalog
+  // Tab 1: Catalog Filters & Pagination
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedCategory, setSelectedCategory] = useState('ALL');
   const [statusFilter, setStatusFilter] = useState('ALL'); // 'ALL', 'aman', 'restock'
+  const [catalogPage, setCatalogPage] = useState(1);
+  const [catalogPageSize, setCatalogPageSize] = useState(25);
+
+  // Tab 2: Usage Search & Pagination
+  const [usageSearch, setUsageSearch] = useState('');
+  const [usagePage, setUsagePage] = useState(1);
+  const [usagePageSize, setUsagePageSize] = useState(15);
+
+  // Tab 3: Stock-In Search & Pagination
+  const [stockInSearch, setStockInSearch] = useState('');
+  const [stockInPage, setStockInPage] = useState(1);
+  const [stockInPageSize, setStockInPageSize] = useState(15);
+
+  // Tab 4: Mutasi & Opname Sub-tab, Search & Pagination
+  const [mutasiSubTab, setMutasiSubTab] = useState('transfer'); // 'transfer', 'opname'
+  const [transferSearch, setTransferSearch] = useState('');
+  const [transferPage, setTransferPage] = useState(1);
+  const [transferPageSize, setTransferPageSize] = useState(10);
+  const [opnameSearch, setOpnameSearch] = useState('');
+  const [opnamePage, setOpnamePage] = useState(1);
+  const [opnamePageSize, setOpnamePageSize] = useState(10);
+
+  // Tab 5: Forecast Search & Pagination
+  const [forecastSearch, setForecastSearch] = useState('');
+  const [forecastPage, setForecastPage] = useState(1);
+  const [forecastPageSize, setForecastPageSize] = useState(25);
 
   // Item Detail Drawer
   const [selectedItemForDrawer, setSelectedItemForDrawer] = useState(null);
@@ -60,20 +85,18 @@ export default function BhpMessPage() {
     return localStorage.getItem('bhp_signer_gl') || 'M. Rizky Ramadhan (GA GL)';
   });
 
-  // State Management with Version Check (Prevents showing old dummy data from localStorage)
-  const STORAGE_VERSION_KEY = 'garda_bhp_sep2026_v1';
+  // State Management with Version Check (Prevents showing old dummy data)
+  const STORAGE_VERSION_KEY = 'garda_bhp_sep2026_v2';
 
   const [items, setItems] = useState(() => {
     const isSynced = localStorage.getItem(STORAGE_VERSION_KEY);
     if (!isSynced) {
-      // Clear legacy dummy storage
       localStorage.removeItem('garda_bhp_items');
       localStorage.removeItem('garda_bhp_stocks');
       localStorage.removeItem('garda_bhp_usages');
       localStorage.removeItem('garda_bhp_stock_ins');
       localStorage.removeItem('garda_bhp_transfers');
       localStorage.removeItem('garda_bhp_opnames');
-      localStorage.removeItem('garda_bhp_evaluations');
       localStorage.removeItem('garda_bhp_pdf_history');
       localStorage.setItem(STORAGE_VERSION_KEY, 'true');
       return INITIAL_BHP_ITEMS;
@@ -129,13 +152,12 @@ export default function BhpMessPage() {
     localStorage.setItem('garda_bhp_pdf_history', JSON.stringify(pdfHistory));
   }, [items, stocks, usages, stockIns, transfers, opnames, pdfHistory]);
 
-  // Load from PostgreSQL 16 on mount if available
+  // Load from PostgreSQL 16 on mount
   useEffect(() => {
     fetch('/api/bhp/data')
       .then(res => res.json())
       .then(res => {
         if (res.success && res.data?.items?.length >= 139) {
-          // Normalize items from DB
           const mapped = res.data.items.map(it => ({
             id: it.code,
             code: it.code,
@@ -178,35 +200,19 @@ export default function BhpMessPage() {
     return Array.from(set);
   }, [items]);
 
-  // Filtered Items for Catalog Table
-  const filteredItems = useMemo(() => {
-    return items.filter(it => {
-      // Search filter
-      const q = searchQuery.toLowerCase().trim();
-      const matchSearch = !q || (
-        it.code.toLowerCase().includes(q) ||
-        it.name.toLowerCase().includes(q) ||
-        (it.coa && it.coa.toLowerCase().includes(q))
-      );
-
-      // Category filter
-      const matchCat = selectedCategory === 'ALL' || it.category === selectedCategory;
-
-      // Current stock calculation
-      const currentStock = selectedSite === 'ALL'
-        ? ((stocks.LBCT?.[it.id] || 0) + (stocks.IDMG?.[it.id] || 0) + (stocks.SPCT?.[it.id] || 0))
-        : (stocks[selectedSite]?.[it.id] || 0);
-
-      // Status filter
-      let matchStatus = true;
-      if (statusFilter === 'aman') matchStatus = currentStock > 0;
-      if (statusFilter === 'restock') matchStatus = currentStock === 0;
-
-      return matchSearch && matchCat && matchStatus;
+  // Searchable Options for Form Selects (139 items with subtext and clean labels)
+  const itemSelectOptions = useMemo(() => {
+    return items.map(it => {
+      const stock = (stocks.LBCT?.[it.id] || 0) + (stocks.IDMG?.[it.id] || 0) + (stocks.SPCT?.[it.id] || 0);
+      return {
+        value: it.id,
+        label: `${it.code} — ${it.name}`,
+        subtext: `${it.category} • Total Stok: ${stock} ${it.unit} • Harga: ${formatRupiah(it.price_est)}`
+      };
     });
-  }, [items, searchQuery, selectedCategory, statusFilter, selectedSite, stocks]);
+  }, [items, stocks]);
 
-  // Helper to get total stock for an item
+  // Helper to get stock for an item
   const getItemStock = (itemId, site = selectedSite) => {
     if (site === 'ALL') {
       return (stocks.LBCT?.[itemId] || 0) + (stocks.IDMG?.[itemId] || 0) + (stocks.SPCT?.[itemId] || 0);
@@ -215,10 +221,212 @@ export default function BhpMessPage() {
   };
 
   // --------------------------------------------------------------------------
-  // FORM HANDLERS
+  // TAB 1: FILTER & PAGINATION FOR CATALOG
+  // --------------------------------------------------------------------------
+  const filteredCatalogItems = useMemo(() => {
+    return items.filter(it => {
+      const q = searchQuery.toLowerCase().trim();
+      const matchSearch = !q || (
+        it.code.toLowerCase().includes(q) ||
+        it.name.toLowerCase().includes(q) ||
+        (it.coa && it.coa.toLowerCase().includes(q))
+      );
+      const matchCat = selectedCategory === 'ALL' || it.category === selectedCategory;
+      const currentStock = getItemStock(it.id);
+      let matchStatus = true;
+      if (statusFilter === 'aman') matchStatus = currentStock > 0;
+      if (statusFilter === 'restock') matchStatus = currentStock === 0;
+
+      return matchSearch && matchCat && matchStatus;
+    });
+  }, [items, searchQuery, selectedCategory, statusFilter, selectedSite, stocks]);
+
+  // Reset page when filters change
+  useEffect(() => {
+    setCatalogPage(1);
+  }, [searchQuery, selectedCategory, statusFilter, selectedSite]);
+
+  const paginatedCatalogItems = useMemo(() => {
+    const start = (catalogPage - 1) * catalogPageSize;
+    return filteredCatalogItems.slice(start, start + catalogPageSize);
+  }, [filteredCatalogItems, catalogPage, catalogPageSize]);
+
+  // --------------------------------------------------------------------------
+  // TAB 2: FILTER & PAGINATION FOR USAGE
+  // --------------------------------------------------------------------------
+  const filteredUsages = useMemo(() => {
+    return usages.filter(u => {
+      const matchSite = selectedSite === 'ALL' || u.site === selectedSite;
+      const q = usageSearch.toLowerCase().trim();
+      const matchSearch = !q || (
+        (u.item_name && u.item_name.toLowerCase().includes(q)) ||
+        (u.item_id && u.item_id.toLowerCase().includes(q)) ||
+        (u.pic_name && u.pic_name.toLowerCase().includes(q)) ||
+        (u.notes && u.notes.toLowerCase().includes(q)) ||
+        (u.date && u.date.includes(q))
+      );
+      return matchSite && matchSearch;
+    });
+  }, [usages, selectedSite, usageSearch]);
+
+  useEffect(() => {
+    setUsagePage(1);
+  }, [usageSearch, selectedSite]);
+
+  const paginatedUsages = useMemo(() => {
+    const start = (usagePage - 1) * usagePageSize;
+    return filteredUsages.slice(start, start + usagePageSize);
+  }, [filteredUsages, usagePage, usagePageSize]);
+
+  // --------------------------------------------------------------------------
+  // TAB 3: FILTER & PAGINATION FOR STOCK-IN
+  // --------------------------------------------------------------------------
+  const filteredStockIns = useMemo(() => {
+    return stockIns.filter(s => {
+      const matchSite = selectedSite === 'ALL' || s.site === selectedSite;
+      const q = stockInSearch.toLowerCase().trim();
+      const matchSearch = !q || (
+        (s.item_name && s.item_name.toLowerCase().includes(q)) ||
+        (s.item_code && s.item_code.toLowerCase().includes(q)) ||
+        (s.ref_po && s.ref_po.toLowerCase().includes(q)) ||
+        (s.receiver_name && s.receiver_name.toLowerCase().includes(q)) ||
+        (s.date && s.date.includes(q))
+      );
+      return matchSite && matchSearch;
+    });
+  }, [stockIns, selectedSite, stockInSearch]);
+
+  useEffect(() => {
+    setStockInPage(1);
+  }, [stockInSearch, selectedSite]);
+
+  const paginatedStockIns = useMemo(() => {
+    const start = (stockInPage - 1) * stockInPageSize;
+    return filteredStockIns.slice(start, start + stockInPageSize);
+  }, [filteredStockIns, stockInPage, stockInPageSize]);
+
+  // --------------------------------------------------------------------------
+  // TAB 4: FILTER & PAGINATION FOR TRANSFERS & OPNAMES
+  // --------------------------------------------------------------------------
+  const filteredTransfers = useMemo(() => {
+    return transfers.filter(t => {
+      const q = transferSearch.toLowerCase().trim();
+      return !q || (
+        (t.item_name && t.item_name.toLowerCase().includes(q)) ||
+        (t.from_site && t.from_site.toLowerCase().includes(q)) ||
+        (t.to_site && t.to_site.toLowerCase().includes(q)) ||
+        (t.reason && t.reason.toLowerCase().includes(q))
+      );
+    });
+  }, [transfers, transferSearch]);
+
+  const paginatedTransfers = useMemo(() => {
+    const start = (transferPage - 1) * transferPageSize;
+    return filteredTransfers.slice(start, start + transferPageSize);
+  }, [filteredTransfers, transferPage, transferPageSize]);
+
+  const filteredOpnames = useMemo(() => {
+    return opnames.filter(o => {
+      const matchSite = selectedSite === 'ALL' || o.site === selectedSite;
+      const q = opnameSearch.toLowerCase().trim();
+      return matchSite && (!q || (
+        (o.item_name && o.item_name.toLowerCase().includes(q)) ||
+        (o.reason && o.reason.toLowerCase().includes(q)) ||
+        (o.pic_name && o.pic_name.toLowerCase().includes(q))
+      ));
+    });
+  }, [opnames, selectedSite, opnameSearch]);
+
+  const paginatedOpnames = useMemo(() => {
+    const start = (opnamePage - 1) * opnamePageSize;
+    return filteredOpnames.slice(start, start + opnamePageSize);
+  }, [filteredOpnames, opnamePage, opnamePageSize]);
+
+  // --------------------------------------------------------------------------
+  // TAB 5: FORECAST & REKAP KEBUTUHAN
+  // --------------------------------------------------------------------------
+  const allForecastRecommendations = useMemo(() => {
+    const targetSites = selectedSite === 'ALL' ? ['LBCT', 'IDMG', 'SPCT'] : [selectedSite];
+
+    return items.map(it => {
+      let sumCurrentStock = 0;
+      let sumDailyAvg = 0;
+
+      targetSites.forEach(st => {
+        const currentStock = stocks[st]?.[it.id] || 0;
+        sumCurrentStock += currentStock;
+
+        // Daily average calculated from actual recorded usages
+        const siteUsages = usages.filter(u => u.site === st && u.item_id === it.id);
+        const totalUsed = siteUsages.reduce((sum, u) => sum + Number(u.qty || 0), 0);
+        const dailyAvg = siteUsages.length > 0 ? (totalUsed / Math.max(siteUsages.length, 7)) : 0;
+        sumDailyAvg += dailyAvg;
+      });
+
+      const horizonDays = 28;
+      const periodDemand = Math.round(sumDailyAvg * horizonDays);
+      const safetyStock = Math.ceil(periodDemand * 0.05); // 5% safety margin
+      const projectedStock = Math.max(0, sumCurrentStock - Math.round(sumDailyAvg * 10));
+      const netNeeded = Math.max(0, (periodDemand + safetyStock) - projectedStock);
+      
+      const packQty = it.pack_qty || 1;
+      const recommendedPacks = Math.ceil(netNeeded / packQty);
+      const recommendedPcs = recommendedPacks * packQty;
+      const totalCost = recommendedPcs * (it.price_est || 0);
+
+      return {
+        item_id: it.id,
+        code: it.code,
+        name: it.name,
+        category: it.category,
+        unit: it.unit,
+        pack_qty: packQty,
+        pack_unit: it.pack_unit,
+        price_est: it.price_est,
+        current_stock: sumCurrentStock,
+        daily_avg: Number(sumDailyAvg.toFixed(1)),
+        period_demand: periodDemand,
+        safety_stock: safetyStock,
+        recommended_qty_pcs: recommendedPcs,
+        recommended_packs: recommendedPacks,
+        total_cost: totalCost
+      };
+    });
+  }, [items, stocks, usages, selectedSite]);
+
+  const filteredForecastList = useMemo(() => {
+    return allForecastRecommendations.filter(f => {
+      const q = forecastSearch.toLowerCase().trim();
+      return !q || (
+        f.code.toLowerCase().includes(q) ||
+        f.name.toLowerCase().includes(q) ||
+        f.category.toLowerCase().includes(q)
+      );
+    });
+  }, [allForecastRecommendations, forecastSearch]);
+
+  useEffect(() => {
+    setForecastPage(1);
+  }, [forecastSearch, selectedSite]);
+
+  const paginatedForecastList = useMemo(() => {
+    const start = (forecastPage - 1) * forecastPageSize;
+    return filteredForecastList.slice(start, start + forecastPageSize);
+  }, [filteredForecastList, forecastPage, forecastPageSize]);
+
+  // Overall forecast metrics
+  const forecastSummary = useMemo(() => {
+    const totalOrderCost = allForecastRecommendations.reduce((acc, curr) => acc + (curr.total_cost || 0), 0);
+    const totalPcs = allForecastRecommendations.reduce((acc, curr) => acc + (curr.recommended_qty_pcs || 0), 0);
+    const itemsNeedingOrder = allForecastRecommendations.filter(f => f.recommended_qty_pcs > 0).length;
+    return { totalOrderCost, totalPcs, itemsNeedingOrder };
+  }, [allForecastRecommendations]);
+
+  // --------------------------------------------------------------------------
+  // FORM HANDLERS (SEARCHABLE COMBOBOXES)
   // --------------------------------------------------------------------------
 
-  // Quick Usage Form
+  // Usage Form State
   const [usageForm, setUsageForm] = useState({
     site: 'LBCT',
     date: new Date().toISOString().split('T')[0],
@@ -245,7 +453,6 @@ export default function BhpMessPage() {
       notes: usageForm.notes || 'Pemakaian harian'
     };
 
-    // Deduct stock
     setStocks(prev => {
       const updated = { ...prev };
       const siteStock = { ...(updated[usageForm.site] || {}) };
@@ -256,7 +463,6 @@ export default function BhpMessPage() {
 
     setUsages(prev => [newRecord, ...prev]);
 
-    // Sync to PostgreSQL backend
     savePgBhpUsage({
       entries: [{ itemCode: usageForm.item_id, qty: usageForm.qty, notes: usageForm.notes }],
       picName: user?.name || 'PIC Lapangan',
@@ -269,7 +475,7 @@ export default function BhpMessPage() {
     setUsageForm(prev => ({ ...prev, qty: '', notes: '' }));
   };
 
-  // Quick Stock In Form
+  // Stock-In Form State
   const [stockInForm, setStockInForm] = useState({
     site: 'LBCT',
     date: new Date().toISOString().split('T')[0],
@@ -294,13 +500,12 @@ export default function BhpMessPage() {
       item_id: stockInForm.item_id,
       item_name: itemObj?.name || stockInForm.item_id,
       qty: Number(stockInForm.qty),
-      ref_po: stockInForm.ref_po || 'SJ-MANUAL',
+      ref_po: stockInForm.ref_po || 'SJ-PENGIRIMAN',
       condition_status: stockInForm.condition_status,
       receiver_name: user?.name || 'PIC Gudang',
       notes: stockInForm.notes
     };
 
-    // Add to stock
     setStocks(prev => {
       const updated = { ...prev };
       const siteStock = { ...(updated[stockInForm.site] || {}) };
@@ -311,7 +516,6 @@ export default function BhpMessPage() {
 
     setStockIns(prev => [newRecord, ...prev]);
 
-    // Sync to PostgreSQL backend
     savePgBhpStockIn({
       date: stockInForm.date,
       site: stockInForm.site,
@@ -328,7 +532,7 @@ export default function BhpMessPage() {
     setStockInForm(prev => ({ ...prev, qty: '', ref_po: '', notes: '' }));
   };
 
-  // Transfer Form
+  // Transfer Form State
   const [transferForm, setTransferForm] = useState({
     from_site: 'LBCT',
     to_site: 'IDMG',
@@ -364,7 +568,6 @@ export default function BhpMessPage() {
       pic_name: user?.name || 'GA Admin'
     };
 
-    // Update stocks
     setStocks(prev => {
       const updated = { ...prev };
       const fromSiteStock = { ...(updated[transferForm.from_site] || {}) };
@@ -394,7 +597,7 @@ export default function BhpMessPage() {
     setTransferForm(prev => ({ ...prev, qty: '', reason: '' }));
   };
 
-  // Stock Opname Form
+  // Stock Opname Form State
   const [opnameForm, setOpnameForm] = useState({
     site: 'LBCT',
     date: new Date().toISOString().split('T')[0],
@@ -427,7 +630,6 @@ export default function BhpMessPage() {
       pic_name: user?.name || 'PIC Opname'
     };
 
-    // Update running stock to physical count
     setStocks(prev => {
       const updated = { ...prev };
       const siteStock = { ...(updated[opnameForm.site] || {}) };
@@ -448,59 +650,9 @@ export default function BhpMessPage() {
       picName: user?.name || 'PIC Opname'
     }).catch(err => console.warn('[PG-Sync] Opname:', err.message));
 
-    toast.success(`Stok ${itemObj?.name} di ${opnameForm.site} berhasil disinkronkan ke ${physicalQty} pcs`);
+    toast.success(`Stok ${itemObj?.name} di ${opnameForm.site} disinkronkan ke ${physicalQty} pcs`);
     setOpnameForm(prev => ({ ...prev, physical_qty: '', reason: '' }));
   };
-
-  // Forecast Recommendations (Horizon 28 Days: W4-W5 + next W1-W2)
-  const forecastRecommendations = useMemo(() => {
-    const targetSites = selectedSite === 'ALL' ? ['LBCT', 'IDMG', 'SPCT'] : [selectedSite];
-
-    return items.map(it => {
-      let sumCurrentStock = 0;
-      let sumDailyAvg = 0;
-
-      targetSites.forEach(st => {
-        const currentStock = stocks[st]?.[it.id] || 0;
-        sumCurrentStock += currentStock;
-
-        // Daily average based on actual usage logs
-        const siteUsages = usages.filter(u => u.site === st && u.item_id === it.id);
-        const totalUsed = siteUsages.reduce((sum, u) => sum + Number(u.qty || 0), 0);
-        const dailyAvg = siteUsages.length > 0 ? (totalUsed / Math.max(siteUsages.length, 7)) : 0;
-        sumDailyAvg += dailyAvg;
-      });
-
-      const horizonDays = 28;
-      const periodDemand = Math.round(sumDailyAvg * horizonDays);
-      const safetyStock = Math.ceil(periodDemand * 0.05); // 5% safety margin
-      const projectedStock = Math.max(0, sumCurrentStock - Math.round(sumDailyAvg * 10)); // remaining before arrival W5
-      const netNeeded = Math.max(0, (periodDemand + safetyStock) - projectedStock);
-      
-      const packQty = it.pack_qty || 1;
-      const recommendedPacks = Math.ceil(netNeeded / packQty);
-      const recommendedPcs = recommendedPacks * packQty;
-      const totalCost = recommendedPcs * (it.price_est || 0);
-
-      return {
-        item_id: it.id,
-        code: it.code,
-        name: it.name,
-        category: it.category,
-        unit: it.unit,
-        pack_qty: packQty,
-        pack_unit: it.pack_unit,
-        price_est: it.price_est,
-        current_stock: sumCurrentStock,
-        daily_avg: Number(sumDailyAvg.toFixed(1)),
-        period_demand: periodDemand,
-        safety_stock: safetyStock,
-        recommended_qty_pcs: recommendedPcs,
-        recommended_packs: recommendedPacks,
-        total_cost: totalCost
-      };
-    });
-  }, [items, stocks, usages, selectedSite]);
 
   // Execute PDF Export with Signature Validation
   const handleDownloadPdf = () => {
@@ -513,10 +665,10 @@ export default function BhpMessPage() {
     setIsPdfModalOpen(false);
 
     const siteLabel = selectedSite === 'ALL' ? 'Konsolidasi (LBCT, IDMG, SPCT)' : `Site: ${selectedSite}`;
-    const periodLabel = 'September 2026 (W3 Rekap Forecast & Kebutuhan Horizon 28 Hari)';
+    const periodLabel = 'September 2026 (Rekap Kebutuhan & Rekomendasi Pemesanan)';
 
     generateBhpForecastPdfReport({
-      forecastData: forecastRecommendations,
+      forecastData: allForecastRecommendations,
       periodCycle: periodLabel,
       siteScope: siteLabel,
       createdByName: signerAdminName.trim(),
@@ -526,13 +678,13 @@ export default function BhpMessPage() {
     const newLog = {
       id: `PDF-${Date.now()}`,
       download_date: new Date().toLocaleString('id-ID'),
-      recap_type: 'Rekomendasi Pemesanan BHP Mess (Forecast W3)',
+      recap_type: 'Rekomendasi Pemesanan BHP Mess (Forecast & Kebutuhan)',
       period_cycle: periodLabel,
       site: siteLabel,
       created_by_name: signerAdminName.trim(),
       approved_by_name: signerGlName.trim(),
-      item_count: forecastRecommendations.length,
-      total_qty: forecastRecommendations.reduce((s, r) => s + (r.recommended_qty_pcs || 0), 0)
+      item_count: allForecastRecommendations.length,
+      total_qty: allForecastRecommendations.reduce((s, r) => s + (r.recommended_qty_pcs || 0), 0)
     };
     setPdfHistory(prev => [newLog, ...prev]);
 
@@ -570,7 +722,7 @@ export default function BhpMessPage() {
           </p>
         </div>
 
-        {/* Site Switcher & Primary Action Buttons */}
+        {/* Site Switcher & Action CTAs */}
         <div className="flex flex-wrap items-center gap-2.5">
           {/* Site Filter Pills */}
           <div className="flex bg-[var(--muted)] p-1 rounded-xl border border-[var(--border)]">
@@ -613,7 +765,7 @@ export default function BhpMessPage() {
             className="inline-flex items-center px-3.5 py-2 text-xs font-semibold text-[var(--foreground)] bg-[var(--card)] hover:bg-[var(--muted)] border border-[var(--border)] rounded-xl transition-all shadow-xs"
           >
             <Truck className="w-3.5 h-3.5 mr-1.5 text-[#0F5C56]" />
-            Penerimaan (W5)
+            Penerimaan Barang
           </button>
 
           <button
@@ -629,9 +781,9 @@ export default function BhpMessPage() {
       {/* 2. Navigation Tabs - 5 Focused Operational Tabs */}
       <div className="flex items-center gap-2 border-b border-[var(--border)] pb-2 overflow-x-auto custom-scrollbar">
         {[
-          { id: 'stok', label: 'Katalog & Stok Fisik', icon: Package, count: filteredItems.length },
-          { id: 'pemakaian', label: 'Riwayat Pemakaian (W1–W2)', icon: Clock, count: usages.length },
-          { id: 'penerimaan', label: 'Penerimaan Barang (W5)', icon: Truck, count: stockIns.length },
+          { id: 'stok', label: 'Katalog & Stok Fisik', icon: Package, count: filteredCatalogItems.length },
+          { id: 'pemakaian', label: 'Pencatatan Pemakaian', icon: Clock, count: filteredUsages.length },
+          { id: 'penerimaan', label: 'Penerimaan Barang', icon: Truck, count: filteredStockIns.length },
           { id: 'mutasi_opname', label: 'Transfer & Stock Opname', icon: ArrowRightLeft },
           { id: 'forecast', label: 'Forecast & Rekap Kebutuhan', icon: SlidersHorizontal }
         ].map(tab => {
@@ -662,7 +814,7 @@ export default function BhpMessPage() {
       </div>
 
       {/* ==================================================================== */}
-      {/* TAB 1: KATALOG & STOK FISIK (Pola List & Right Drawer)               */}
+      {/* TAB 1: KATALOG & STOK FISIK (Searchable, Filterable & Paginated)     */}
       {/* ==================================================================== */}
       {activeTab === 'stok' && (
         <div className="space-y-4">
@@ -705,7 +857,7 @@ export default function BhpMessPage() {
             </div>
           </div>
 
-          {/* Flat Table (per design.md) */}
+          {/* Flat Table */}
           <div className="bg-[var(--card)] rounded-xl border border-[var(--border)] overflow-hidden shadow-xs">
             <div className="overflow-x-auto">
               <table className="w-full text-left text-xs">
@@ -722,7 +874,7 @@ export default function BhpMessPage() {
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-[var(--border)] text-[var(--foreground)]">
-                  {filteredItems.map((item) => {
+                  {paginatedCatalogItems.map((item) => {
                     const stock = getItemStock(item.id);
                     const isAvailable = stock > 0;
 
@@ -788,7 +940,7 @@ export default function BhpMessPage() {
                     );
                   })}
 
-                  {filteredItems.length === 0 && (
+                  {paginatedCatalogItems.length === 0 && (
                     <tr>
                       <td colSpan={8} className="py-12 text-center text-[var(--muted-foreground)]">
                         <Package className="w-8 h-8 mx-auto mb-2 opacity-40" />
@@ -800,23 +952,42 @@ export default function BhpMessPage() {
                 </tbody>
               </table>
             </div>
+
+            {/* Pagination Controls */}
+            <div className="p-4 border-t border-[var(--border)] bg-[var(--card)]">
+              <Pagination
+                currentPage={catalogPage}
+                totalItems={filteredCatalogItems.length}
+                pageSize={catalogPageSize}
+                pageSizeOptions={[10, 25, 50, 100]}
+                onPageChange={setCatalogPage}
+                onPageSizeChange={setCatalogPageSize}
+              />
+            </div>
           </div>
         </div>
       )}
 
       {/* ==================================================================== */}
-      {/* TAB 2: RIWAYAT PEMAKAIAN HARIAN (W1-W2)                              */}
+      {/* TAB 2: RIWAYAT PEMAKAIAN HARIAN (Search & Pagination)                 */}
       {/* ==================================================================== */}
       {activeTab === 'pemakaian' && (
         <div className="space-y-4">
-          <div className="flex items-center justify-between">
-            <div>
-              <h3 className="text-sm font-bold text-[var(--foreground)]">Log Pemakaian Harian (W1–W2)</h3>
-              <p className="text-xs text-[var(--muted-foreground)]">Catatan pemakaian aktual barang oleh penghuni dan operasional mess.</p>
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 bg-[var(--card)] p-3.5 rounded-xl border border-[var(--border)] shadow-xs">
+            <div className="relative flex-1 max-w-md">
+              <Search className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-[var(--muted-foreground)]" />
+              <input
+                type="text"
+                value={usageSearch}
+                onChange={(e) => setUsageSearch(e.target.value)}
+                placeholder="Cari transaksi pemakaian (barang, PIC, catatan)..."
+                className="w-full pl-9 pr-3.5 py-1.5 text-xs bg-[var(--background)] border border-[var(--border)] rounded-lg text-[var(--foreground)] placeholder:text-[var(--muted-foreground)] focus:outline-none focus:ring-1 focus:ring-[#0F5C56]"
+              />
             </div>
+
             <button
               onClick={() => setIsUsageModalOpen(true)}
-              className="inline-flex items-center px-3.5 py-1.5 text-xs font-semibold text-white bg-[#0F5C56] hover:bg-[#0D4E49] rounded-xl transition-all shadow-xs"
+              className="inline-flex items-center justify-center px-3.5 py-2 text-xs font-semibold text-white bg-[#0F5C56] hover:bg-[#0D4E49] rounded-xl transition-all shadow-xs shrink-0"
             >
               <Plus className="w-3.5 h-3.5 mr-1.5" />
               Catat Pemakaian Baru
@@ -836,7 +1007,7 @@ export default function BhpMessPage() {
                 </tr>
               </thead>
               <tbody className="divide-y divide-[var(--border)] text-[var(--foreground)]">
-                {usages.map((u) => (
+                {paginatedUsages.map((u) => (
                   <tr key={u.id} className="hover:bg-[var(--muted)]/30 transition-colors">
                     <td className="py-3 px-4 font-mono">{u.date}</td>
                     <td className="py-3 px-4 font-semibold text-[#0F5C56]">{u.site}</td>
@@ -847,7 +1018,7 @@ export default function BhpMessPage() {
                   </tr>
                 ))}
 
-                {usages.length === 0 && (
+                {paginatedUsages.length === 0 && (
                   <tr>
                     <td colSpan={6} className="py-12 text-center text-[var(--muted-foreground)]">
                       <Clock className="w-8 h-8 mx-auto mb-2 opacity-40 text-[#0F5C56]" />
@@ -858,23 +1029,43 @@ export default function BhpMessPage() {
                 )}
               </tbody>
             </table>
+
+            {filteredUsages.length > 0 && (
+              <div className="p-4 border-t border-[var(--border)] bg-[var(--card)]">
+                <Pagination
+                  currentPage={usagePage}
+                  totalItems={filteredUsages.length}
+                  pageSize={usagePageSize}
+                  pageSizeOptions={[10, 15, 30, 50]}
+                  onPageChange={setUsagePage}
+                  onPageSizeChange={setUsagePageSize}
+                />
+              </div>
+            )}
           </div>
         </div>
       )}
 
       {/* ==================================================================== */}
-      {/* TAB 3: PENERIMAAN BARANG MASUK (W5)                                  */}
+      {/* TAB 3: PENERIMAAN BARANG MASUK (Search & Pagination)                 */}
       {/* ==================================================================== */}
       {activeTab === 'penerimaan' && (
         <div className="space-y-4">
-          <div className="flex items-center justify-between">
-            <div>
-              <h3 className="text-sm font-bold text-[var(--foreground)]">Penerimaan Barang Tiba (W5 Arrival)</h3>
-              <p className="text-xs text-[var(--muted-foreground)]">Pencatatan kedatangan pengiriman barang dari supplier di akhir bulan.</p>
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 bg-[var(--card)] p-3.5 rounded-xl border border-[var(--border)] shadow-xs">
+            <div className="relative flex-1 max-w-md">
+              <Search className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-[var(--muted-foreground)]" />
+              <input
+                type="text"
+                value={stockInSearch}
+                onChange={(e) => setStockInSearch(e.target.value)}
+                placeholder="Cari penerimaan (PO, nomor surat jalan, barang)..."
+                className="w-full pl-9 pr-3.5 py-1.5 text-xs bg-[var(--background)] border border-[var(--border)] rounded-lg text-[var(--foreground)] placeholder:text-[var(--muted-foreground)] focus:outline-none focus:ring-1 focus:ring-[#0F5C56]"
+              />
             </div>
+
             <button
               onClick={() => setIsStockInModalOpen(true)}
-              className="inline-flex items-center px-3.5 py-1.5 text-xs font-semibold text-white bg-[#0F5C56] hover:bg-[#0D4E49] rounded-xl transition-all shadow-xs"
+              className="inline-flex items-center justify-center px-3.5 py-2 text-xs font-semibold text-white bg-[#0F5C56] hover:bg-[#0D4E49] rounded-xl transition-all shadow-xs shrink-0"
             >
               <Plus className="w-3.5 h-3.5 mr-1.5" />
               Catat Penerimaan Baru
@@ -895,7 +1086,7 @@ export default function BhpMessPage() {
                 </tr>
               </thead>
               <tbody className="divide-y divide-[var(--border)] text-[var(--foreground)]">
-                {stockIns.map((s) => (
+                {paginatedStockIns.map((s) => (
                   <tr key={s.id} className="hover:bg-[var(--muted)]/30 transition-colors">
                     <td className="py-3 px-4 font-mono">{s.date}</td>
                     <td className="py-3 px-4 font-semibold text-[#0F5C56]">{s.site}</td>
@@ -911,7 +1102,7 @@ export default function BhpMessPage() {
                   </tr>
                 ))}
 
-                {stockIns.length === 0 && (
+                {paginatedStockIns.length === 0 && (
                   <tr>
                     <td colSpan={7} className="py-12 text-center text-[var(--muted-foreground)]">
                       <Truck className="w-8 h-8 mx-auto mb-2 opacity-40 text-[#0F5C56]" />
@@ -922,290 +1113,416 @@ export default function BhpMessPage() {
                 )}
               </tbody>
             </table>
+
+            {filteredStockIns.length > 0 && (
+              <div className="p-4 border-t border-[var(--border)] bg-[var(--card)]">
+                <Pagination
+                  currentPage={stockInPage}
+                  totalItems={filteredStockIns.length}
+                  pageSize={stockInPageSize}
+                  pageSizeOptions={[10, 15, 30, 50]}
+                  onPageChange={setStockInPage}
+                  onPageSizeChange={setStockInPageSize}
+                />
+              </div>
+            )}
           </div>
         </div>
       )}
 
       {/* ==================================================================== */}
-      {/* TAB 4: TRANSFER & STOCK OPNAME                                       */}
+      {/* TAB 4: MUTASI & STOCK OPNAME (Searchable & Paginated Tables)          */}
       {/* ==================================================================== */}
       {activeTab === 'mutasi_opname' && (
-        <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-          
-          {/* Transfer Antar Site */}
-          <div className="bg-[var(--card)] p-5 rounded-2xl border border-[var(--border)] shadow-xs space-y-4">
-            <div>
-              <h3 className="text-sm font-bold text-[var(--foreground)] flex items-center gap-2">
-                <ArrowRightLeft className="w-4 h-4 text-[#0F5C56]" />
-                Transfer Stok Antar Site
-              </h3>
-              <p className="text-xs text-[var(--muted-foreground)] mt-0.5">
-                Pengalihan stok darurat antara LBCT, IDMG, dan SPCT.
-              </p>
-            </div>
-
-            <form onSubmit={handleSaveTransfer} className="space-y-3 p-4 bg-[var(--muted)]/30 rounded-xl border border-[var(--border)]">
-              <div className="grid grid-cols-2 gap-3">
-                <div>
-                  <label className="text-[11px] font-semibold text-[var(--muted-foreground)]">Dari Site Asal</label>
-                  <select
-                    value={transferForm.from_site}
-                    onChange={(e) => setTransferForm({ ...transferForm, from_site: e.target.value })}
-                    className="w-full mt-1 px-3 py-1.5 text-xs bg-[var(--background)] border border-[var(--border)] rounded-lg text-[var(--foreground)]"
-                  >
-                    {['LBCT', 'IDMG', 'SPCT'].map(s => <option key={s} value={s}>{s}</option>)}
-                  </select>
-                </div>
-                <div>
-                  <label className="text-[11px] font-semibold text-[var(--muted-foreground)]">Ke Site Tujuan</label>
-                  <select
-                    value={transferForm.to_site}
-                    onChange={(e) => setTransferForm({ ...transferForm, to_site: e.target.value })}
-                    className="w-full mt-1 px-3 py-1.5 text-xs bg-[var(--background)] border border-[var(--border)] rounded-lg text-[var(--foreground)]"
-                  >
-                    {['LBCT', 'IDMG', 'SPCT'].map(s => <option key={s} value={s}>{s}</option>)}
-                  </select>
-                </div>
-              </div>
-
-              <div>
-                <label className="text-[11px] font-semibold text-[var(--muted-foreground)]">Pilih Barang BHP</label>
-                <select
-                  value={transferForm.item_id}
-                  onChange={(e) => setTransferForm({ ...transferForm, item_id: e.target.value })}
-                  className="w-full mt-1 px-3 py-1.5 text-xs bg-[var(--background)] border border-[var(--border)] rounded-lg text-[var(--foreground)]"
-                >
-                  {items.map(it => (
-                    <option key={it.id} value={it.id}>
-                      {it.code} - {it.name} (Tersedia: {stocks[transferForm.from_site]?.[it.id] || 0} {it.unit})
-                    </option>
-                  ))}
-                </select>
-              </div>
-
-              <div className="grid grid-cols-2 gap-3">
-                <div>
-                  <label className="text-[11px] font-semibold text-[var(--muted-foreground)]">Jumlah Transfer</label>
-                  <input
-                    type="number"
-                    min="1"
-                    required
-                    value={transferForm.qty}
-                    onChange={(e) => setTransferForm({ ...transferForm, qty: e.target.value })}
-                    placeholder="Qty pcs/unit"
-                    className="w-full mt-1 px-3 py-1.5 text-xs bg-[var(--background)] border border-[var(--border)] rounded-lg text-[var(--foreground)]"
-                  />
-                </div>
-                <div>
-                  <label className="text-[11px] font-semibold text-[var(--muted-foreground)]">Tanggal</label>
-                  <input
-                    type="date"
-                    required
-                    value={transferForm.date}
-                    onChange={(e) => setTransferForm({ ...transferForm, date: e.target.value })}
-                    className="w-full mt-1 px-3 py-1.5 text-xs bg-[var(--background)] border border-[var(--border)] rounded-lg text-[var(--foreground)]"
-                  />
-                </div>
-              </div>
-
-              <div>
-                <label className="text-[11px] font-semibold text-[var(--muted-foreground)]">Alasan Transfer (Wajib)</label>
-                <input
-                  type="text"
-                  required
-                  value={transferForm.reason}
-                  onChange={(e) => setTransferForm({ ...transferForm, reason: e.target.value })}
-                  placeholder="Contoh: Kebutuhan darurat W4 karena stok menipis"
-                  className="w-full mt-1 px-3 py-1.5 text-xs bg-[var(--background)] border border-[var(--border)] rounded-lg text-[var(--foreground)]"
-                />
-              </div>
-
-              <button
-                type="submit"
-                className="w-full py-2 text-xs font-semibold text-white bg-[#0F5C56] hover:bg-[#0D4E49] rounded-lg transition-all"
-              >
-                Proses Transfer Stok
-              </button>
-            </form>
-
-            {/* Riwayat Transfer */}
-            <div className="border border-[var(--border)] rounded-xl overflow-hidden max-h-60 overflow-y-auto custom-scrollbar">
-              <table className="w-full text-left text-xs">
-                <thead>
-                  <tr className="bg-[var(--muted)]/50 border-b border-[var(--border)] text-[var(--muted-foreground)] text-[10px] font-semibold uppercase">
-                    <th className="py-2 px-3">Tanggal</th>
-                    <th className="py-2 px-3">Rute</th>
-                    <th className="py-2 px-3">Barang & Qty</th>
-                    <th className="py-2 px-3">Alasan</th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-[var(--border)]">
-                  {transfers.map(t => (
-                    <tr key={t.id} className="hover:bg-[var(--muted)]/20">
-                      <td className="py-2 px-3 font-mono">{t.date}</td>
-                      <td className="py-2 px-3 font-bold text-[#0F5C56]">{t.from_site} &rarr; {t.to_site}</td>
-                      <td className="py-2 px-3 font-medium">{t.item_name} ({t.qty})</td>
-                      <td className="py-2 px-3 text-[var(--muted-foreground)] text-[11px]">{t.reason}</td>
-                    </tr>
-                  ))}
-                  {transfers.length === 0 && (
-                    <tr>
-                      <td colSpan={4} className="py-6 text-center text-[var(--muted-foreground)] italic text-xs">
-                        Belum ada mutasi transfer antar-site.
-                      </td>
-                    </tr>
-                  )}
-                </tbody>
-              </table>
-            </div>
-          </div>
-
-          {/* Stock Opname (W3) */}
-          <div className="bg-[var(--card)] p-5 rounded-2xl border border-[var(--border)] shadow-xs space-y-4">
-            <div>
-              <h3 className="text-sm font-bold text-[var(--foreground)] flex items-center gap-2">
-                <ClipboardCheck className="w-4 h-4 text-[#0F5C56]" />
-                Stock Opname Fisik (Awal W3)
-              </h3>
-              <p className="text-xs text-[var(--muted-foreground)] mt-0.5">
-                Pencocokan hitung fisik dengan stok sistem dan rekonsiliasi selisih.
-              </p>
-            </div>
-
-            <form onSubmit={handleSaveOpname} className="space-y-3 p-4 bg-[var(--muted)]/30 rounded-xl border border-[var(--border)]">
-              <div className="grid grid-cols-2 gap-3">
-                <div>
-                  <label className="text-[11px] font-semibold text-[var(--muted-foreground)]">Site Opname</label>
-                  <select
-                    value={opnameForm.site}
-                    onChange={(e) => setOpnameForm({ ...opnameForm, site: e.target.value })}
-                    className="w-full mt-1 px-3 py-1.5 text-xs bg-[var(--background)] border border-[var(--border)] rounded-lg text-[var(--foreground)]"
-                  >
-                    {['LBCT', 'IDMG', 'SPCT'].map(s => <option key={s} value={s}>{s}</option>)}
-                  </select>
-                </div>
-                <div>
-                  <label className="text-[11px] font-semibold text-[var(--muted-foreground)]">Tanggal Opname</label>
-                  <input
-                    type="date"
-                    required
-                    value={opnameForm.date}
-                    onChange={(e) => setOpnameForm({ ...opnameForm, date: e.target.value })}
-                    className="w-full mt-1 px-3 py-1.5 text-xs bg-[var(--background)] border border-[var(--border)] rounded-lg text-[var(--foreground)]"
-                  />
-                </div>
-              </div>
-
-              <div>
-                <label className="text-[11px] font-semibold text-[var(--muted-foreground)]">Pilih Barang BHP</label>
-                <select
-                  value={opnameForm.item_id}
-                  onChange={(e) => setOpnameForm({ ...opnameForm, item_id: e.target.value })}
-                  className="w-full mt-1 px-3 py-1.5 text-xs bg-[var(--background)] border border-[var(--border)] rounded-lg text-[var(--foreground)]"
-                >
-                  {items.map(it => (
-                    <option key={it.id} value={it.id}>
-                      {it.code} - {it.name} (Sistem: {stocks[opnameForm.site]?.[it.id] || 0} {it.unit})
-                    </option>
-                  ))}
-                </select>
-              </div>
-
-              <div>
-                <label className="text-[11px] font-semibold text-[var(--muted-foreground)]">Jumlah Hitung Fisik Sebenarnya</label>
-                <input
-                  type="number"
-                  min="0"
-                  required
-                  value={opnameForm.physical_qty}
-                  onChange={(e) => setOpnameForm({ ...opnameForm, physical_qty: e.target.value })}
-                  placeholder={`Stok sistem: ${stocks[opnameForm.site]?.[opnameForm.item_id] || 0}`}
-                  className="w-full mt-1 px-3 py-1.5 text-xs bg-[var(--background)] border border-[var(--border)] rounded-lg text-[var(--foreground)]"
-                />
-              </div>
-
-              <div>
-                <label className="text-[11px] font-semibold text-[var(--muted-foreground)]">Alasan Selisih (Wajib jika ada beda)</label>
-                <input
-                  type="text"
-                  value={opnameForm.reason}
-                  onChange={(e) => setOpnameForm({ ...opnameForm, reason: e.target.value })}
-                  placeholder="Contoh: Kemasan rusak bocor di gudang / Sesuai fisik"
-                  className="w-full mt-1 px-3 py-1.5 text-xs bg-[var(--background)] border border-[var(--border)] rounded-lg text-[var(--foreground)]"
-                />
-              </div>
-
-              <button
-                type="submit"
-                className="w-full py-2 text-xs font-semibold text-white bg-[#0F5C56] hover:bg-[#0D4E49] rounded-lg transition-all"
-              >
-                Terapkan Hasil Opname Fisik
-              </button>
-            </form>
-
-            {/* Riwayat Opname */}
-            <div className="border border-[var(--border)] rounded-xl overflow-hidden max-h-60 overflow-y-auto custom-scrollbar">
-              <table className="w-full text-left text-xs">
-                <thead>
-                  <tr className="bg-[var(--muted)]/50 border-b border-[var(--border)] text-[var(--muted-foreground)] text-[10px] font-semibold uppercase">
-                    <th className="py-2 px-3">Tanggal</th>
-                    <th className="py-2 px-3">Site</th>
-                    <th className="py-2 px-3">Barang</th>
-                    <th className="py-2 px-3 text-center">Fisik (Beda)</th>
-                    <th className="py-2 px-3">Alasan</th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-[var(--border)]">
-                  {opnames.map(o => (
-                    <tr key={o.id} className="hover:bg-[var(--muted)]/20">
-                      <td className="py-2 px-3 font-mono">{o.date}</td>
-                      <td className="py-2 px-3 font-bold text-[#0F5C56]">{o.site}</td>
-                      <td className="py-2 px-3 font-medium">{o.item_name}</td>
-                      <td className="py-2 px-3 text-center font-mono font-bold">
-                        {o.physical_qty} ({o.diff_qty > 0 ? `+${o.diff_qty}` : o.diff_qty})
-                      </td>
-                      <td className="py-2 px-3 text-[var(--muted-foreground)] text-[11px]">{o.reason}</td>
-                    </tr>
-                  ))}
-                  {opnames.length === 0 && (
-                    <tr>
-                      <td colSpan={5} className="py-6 text-center text-[var(--muted-foreground)] italic text-xs">
-                        Belum ada catatan rekonsiliasi opname fisik.
-                      </td>
-                    </tr>
-                  )}
-                </tbody>
-              </table>
-            </div>
-          </div>
-
-        </div>
-      )}
-
-      {/* ==================================================================== */}
-      {/* TAB 5: FORECAST & REKAP KEBUTUHAN (W3)                               */}
-      {/* ==================================================================== */}
-      {activeTab === 'forecast' && (
         <div className="space-y-4">
-          <div className="bg-[var(--card)] p-5 rounded-2xl border border-[var(--border)] shadow-xs flex flex-col md:flex-row items-start md:items-center justify-between gap-4">
-            <div>
-              <h3 className="text-base font-bold text-[var(--foreground)]">
-                Kalkulasi Forecast & Rekomendasi Pemesanan W3
-              </h3>
-              <p className="text-xs text-[var(--muted-foreground)] mt-0.5">
-                Horizon perhitungan 28 hari (sisa W4-W5 + siklus W1-W2 bulan berikutnya) dengan batas pengaman cadangan 5%.
-              </p>
-            </div>
-
+          {/* Sub-tab navigation */}
+          <div className="flex gap-2">
             <button
-              onClick={() => setIsPdfModalOpen(true)}
-              className="inline-flex items-center px-4 py-2 text-xs font-semibold text-white bg-[#C4841F] hover:bg-[#A6690E] rounded-xl transition-all shadow-xs"
+              onClick={() => setMutasiSubTab('transfer')}
+              className={`px-4 py-1.5 rounded-lg text-xs font-semibold transition-all ${
+                mutasiSubTab === 'transfer'
+                  ? 'bg-[#0F5C56] text-white shadow-xs'
+                  : 'bg-[var(--card)] text-[var(--muted-foreground)] hover:text-[var(--foreground)] border border-[var(--border)]'
+              }`}
             >
-              <FileDown className="w-4 h-4 mr-1.5" />
-              Unduh Rekap PDF Bertanda Tangan
+              <ArrowRightLeft className="w-3.5 h-3.5 inline mr-1.5" />
+              Transfer Antar Site
+            </button>
+            <button
+              onClick={() => setMutasiSubTab('opname')}
+              className={`px-4 py-1.5 rounded-lg text-xs font-semibold transition-all ${
+                mutasiSubTab === 'opname'
+                  ? 'bg-[#0F5C56] text-white shadow-xs'
+                  : 'bg-[var(--card)] text-[var(--muted-foreground)] hover:text-[var(--foreground)] border border-[var(--border)]'
+              }`}
+            >
+              <ClipboardCheck className="w-3.5 h-3.5 inline mr-1.5" />
+              Stock Opname Fisik
             </button>
           </div>
 
+          {/* Sub-tab: Transfer Antar Site */}
+          {mutasiSubTab === 'transfer' && (
+            <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+              {/* Form Input Transfer (1 Kolom) */}
+              <div className="bg-[var(--card)] p-5 rounded-2xl border border-[var(--border)] shadow-xs space-y-4">
+                <div>
+                  <h3 className="text-sm font-bold text-[var(--foreground)] flex items-center gap-2">
+                    <ArrowRightLeft className="w-4 h-4 text-[#0F5C56]" />
+                    Form Transfer Antar Site
+                  </h3>
+                  <p className="text-xs text-[var(--muted-foreground)] mt-0.5">
+                    Mutasi stok darurat antar site LBCT, IDMG, dan SPCT.
+                  </p>
+                </div>
+
+                <form onSubmit={handleSaveTransfer} className="space-y-3 text-xs">
+                  <div className="grid grid-cols-2 gap-2.5">
+                    <div>
+                      <label className="font-semibold text-[var(--muted-foreground)]">Dari Site Asal</label>
+                      <select
+                        value={transferForm.from_site}
+                        onChange={(e) => setTransferForm({ ...transferForm, from_site: e.target.value })}
+                        className="w-full mt-1 px-3 py-1.5 bg-[var(--background)] border border-[var(--border)] rounded-lg text-[var(--foreground)]"
+                      >
+                        {['LBCT', 'IDMG', 'SPCT'].map(s => <option key={s} value={s}>{s}</option>)}
+                      </select>
+                    </div>
+                    <div>
+                      <label className="font-semibold text-[var(--muted-foreground)]">Ke Site Tujuan</label>
+                      <select
+                        value={transferForm.to_site}
+                        onChange={(e) => setTransferForm({ ...transferForm, to_site: e.target.value })}
+                        className="w-full mt-1 px-3 py-1.5 bg-[var(--background)] border border-[var(--border)] rounded-lg text-[var(--foreground)]"
+                      >
+                        {['LBCT', 'IDMG', 'SPCT'].map(s => <option key={s} value={s}>{s}</option>)}
+                      </select>
+                    </div>
+                  </div>
+
+                  <div>
+                    <label className="font-semibold text-[var(--muted-foreground)]">Pilih Barang BHP</label>
+                    <CustomSelect
+                      value={transferForm.item_id}
+                      onChange={(val) => setTransferForm({ ...transferForm, item_id: val })}
+                      options={itemSelectOptions}
+                      placeholder="Cari barang BHP..."
+                      className="mt-1"
+                    />
+                  </div>
+
+                  <div className="grid grid-cols-2 gap-2.5">
+                    <div>
+                      <label className="font-semibold text-[var(--muted-foreground)]">Jumlah Transfer</label>
+                      <input
+                        type="number"
+                        min="1"
+                        required
+                        value={transferForm.qty}
+                        onChange={(e) => setTransferForm({ ...transferForm, qty: e.target.value })}
+                        placeholder="Qty unit"
+                        className="w-full mt-1 px-3 py-1.5 bg-[var(--background)] border border-[var(--border)] rounded-lg text-[var(--foreground)]"
+                      />
+                    </div>
+                    <div>
+                      <label className="font-semibold text-[var(--muted-foreground)]">Tanggal</label>
+                      <input
+                        type="date"
+                        required
+                        value={transferForm.date}
+                        onChange={(e) => setTransferForm({ ...transferForm, date: e.target.value })}
+                        className="w-full mt-1 px-3 py-1.5 bg-[var(--background)] border border-[var(--border)] rounded-lg text-[var(--foreground)]"
+                      />
+                    </div>
+                  </div>
+
+                  <div>
+                    <label className="font-semibold text-[var(--muted-foreground)]">Alasan Transfer (Wajib)</label>
+                    <input
+                      type="text"
+                      required
+                      value={transferForm.reason}
+                      onChange={(e) => setTransferForm({ ...transferForm, reason: e.target.value })}
+                      placeholder="Contoh: Kebutuhan mendesak pengalihan stok"
+                      className="w-full mt-1 px-3 py-1.5 bg-[var(--background)] border border-[var(--border)] rounded-lg text-[var(--foreground)]"
+                    />
+                  </div>
+
+                  <button
+                    type="submit"
+                    className="w-full py-2 text-xs font-semibold text-white bg-[#0F5C56] hover:bg-[#0D4E49] rounded-lg transition-all shadow-xs"
+                  >
+                    Proses Transfer
+                  </button>
+                </form>
+              </div>
+
+              {/* Tabel Riwayat Transfer (2 Kolom) */}
+              <div className="lg:col-span-2 bg-[var(--card)] p-5 rounded-2xl border border-[var(--border)] shadow-xs space-y-3 flex flex-col justify-between">
+                <div className="space-y-3">
+                  <div className="flex items-center justify-between">
+                    <h4 className="text-xs font-bold uppercase tracking-wider text-[var(--foreground)]">
+                      Riwayat Transfer Antar Site
+                    </h4>
+                    <div className="relative w-64">
+                      <Search className="w-3.5 h-3.5 absolute left-2.5 top-1/2 -translate-y-1/2 text-[var(--muted-foreground)]" />
+                      <input
+                        type="text"
+                        value={transferSearch}
+                        onChange={(e) => setTransferSearch(e.target.value)}
+                        placeholder="Cari riwayat transfer..."
+                        className="w-full pl-8 pr-3 py-1 text-xs bg-[var(--background)] border border-[var(--border)] rounded-lg text-[var(--foreground)]"
+                      />
+                    </div>
+                  </div>
+
+                  <div className="border border-[var(--border)] rounded-xl overflow-hidden">
+                    <table className="w-full text-left text-xs">
+                      <thead>
+                        <tr className="bg-[var(--muted)]/50 border-b border-[var(--border)] text-[var(--muted-foreground)] text-[10px] font-semibold uppercase">
+                          <th className="py-2.5 px-3">Tanggal</th>
+                          <th className="py-2.5 px-3">Rute</th>
+                          <th className="py-2.5 px-3">Barang & Qty</th>
+                          <th className="py-2.5 px-3">Alasan</th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-[var(--border)]">
+                        {paginatedTransfers.map(t => (
+                          <tr key={t.id} className="hover:bg-[var(--muted)]/20">
+                            <td className="py-2.5 px-3 font-mono">{t.date}</td>
+                            <td className="py-2.5 px-3 font-bold text-[#0F5C56]">{t.from_site} &rarr; {t.to_site}</td>
+                            <td className="py-2.5 px-3 font-medium">{t.item_name} ({t.qty})</td>
+                            <td className="py-2.5 px-3 text-[var(--muted-foreground)]">{t.reason}</td>
+                          </tr>
+                        ))}
+                        {paginatedTransfers.length === 0 && (
+                          <tr>
+                            <td colSpan={4} className="py-8 text-center text-[var(--muted-foreground)] italic text-xs">
+                              Belum ada mutasi transfer antar-site.
+                            </td>
+                          </tr>
+                        )}
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+
+                {filteredTransfers.length > 0 && (
+                  <Pagination
+                    currentPage={transferPage}
+                    totalItems={filteredTransfers.length}
+                    pageSize={transferPageSize}
+                    pageSizeOptions={[10, 20, 50]}
+                    onPageChange={setTransferPage}
+                    onPageSizeChange={setTransferPageSize}
+                  />
+                )}
+              </div>
+            </div>
+          )}
+
+          {/* Sub-tab: Stock Opname Fisik */}
+          {mutasiSubTab === 'opname' && (
+            <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+              {/* Form Input Opname (1 Kolom) */}
+              <div className="bg-[var(--card)] p-5 rounded-2xl border border-[var(--border)] shadow-xs space-y-4">
+                <div>
+                  <h3 className="text-sm font-bold text-[var(--foreground)] flex items-center gap-2">
+                    <ClipboardCheck className="w-4 h-4 text-[#0F5C56]" />
+                    Pencatatan Opname Fisik
+                  </h3>
+                  <p className="text-xs text-[var(--muted-foreground)] mt-0.5">
+                    Sesuaikan stok sistem dengan hasil perhitungan fisik aktual.
+                  </p>
+                </div>
+
+                <form onSubmit={handleSaveOpname} className="space-y-3 text-xs">
+                  <div className="grid grid-cols-2 gap-2.5">
+                    <div>
+                      <label className="font-semibold text-[var(--muted-foreground)]">Site Opname</label>
+                      <select
+                        value={opnameForm.site}
+                        onChange={(e) => setOpnameForm({ ...opnameForm, site: e.target.value })}
+                        className="w-full mt-1 px-3 py-1.5 bg-[var(--background)] border border-[var(--border)] rounded-lg text-[var(--foreground)]"
+                      >
+                        {['LBCT', 'IDMG', 'SPCT'].map(s => <option key={s} value={s}>{s}</option>)}
+                      </select>
+                    </div>
+                    <div>
+                      <label className="font-semibold text-[var(--muted-foreground)]">Tanggal Opname</label>
+                      <input
+                        type="date"
+                        required
+                        value={opnameForm.date}
+                        onChange={(e) => setOpnameForm({ ...opnameForm, date: e.target.value })}
+                        className="w-full mt-1 px-3 py-1.5 bg-[var(--background)] border border-[var(--border)] rounded-lg text-[var(--foreground)]"
+                      />
+                    </div>
+                  </div>
+
+                  <div>
+                    <label className="font-semibold text-[var(--muted-foreground)]">Pilih Barang BHP</label>
+                    <CustomSelect
+                      value={opnameForm.item_id}
+                      onChange={(val) => setOpnameForm({ ...opnameForm, item_id: val })}
+                      options={itemSelectOptions}
+                      placeholder="Cari barang BHP..."
+                      className="mt-1"
+                    />
+                  </div>
+
+                  <div>
+                    <label className="font-semibold text-[var(--muted-foreground)]">
+                      Jumlah Hitung Fisik Sebenarnya (Sistem: {stocks[opnameForm.site]?.[opnameForm.item_id] || 0})
+                    </label>
+                    <input
+                      type="number"
+                      min="0"
+                      required
+                      value={opnameForm.physical_qty}
+                      onChange={(e) => setOpnameForm({ ...opnameForm, physical_qty: e.target.value })}
+                      placeholder="Angka aktual fisik di gudang"
+                      className="w-full mt-1 px-3 py-1.5 bg-[var(--background)] border border-[var(--border)] rounded-lg text-[var(--foreground)]"
+                    />
+                  </div>
+
+                  <div>
+                    <label className="font-semibold text-[var(--muted-foreground)]">Alasan Selisih (Wajib jika ada beda)</label>
+                    <input
+                      type="text"
+                      value={opnameForm.reason}
+                      onChange={(e) => setOpnameForm({ ...opnameForm, reason: e.target.value })}
+                      placeholder="Contoh: Kemasan bocor / Selisih pencatatan / Sesuai"
+                      className="w-full mt-1 px-3 py-1.5 bg-[var(--background)] border border-[var(--border)] rounded-lg text-[var(--foreground)]"
+                    />
+                  </div>
+
+                  <button
+                    type="submit"
+                    className="w-full py-2 text-xs font-semibold text-white bg-[#0F5C56] hover:bg-[#0D4E49] rounded-lg transition-all shadow-xs"
+                  >
+                    Terapkan Hasil Opname
+                  </button>
+                </form>
+              </div>
+
+              {/* Tabel Riwayat Opname (2 Kolom) */}
+              <div className="lg:col-span-2 bg-[var(--card)] p-5 rounded-2xl border border-[var(--border)] shadow-xs space-y-3 flex flex-col justify-between">
+                <div className="space-y-3">
+                  <div className="flex items-center justify-between">
+                    <h4 className="text-xs font-bold uppercase tracking-wider text-[var(--foreground)]">
+                      Riwayat Rekonsiliasi Opname Fisik
+                    </h4>
+                    <div className="relative w-64">
+                      <Search className="w-3.5 h-3.5 absolute left-2.5 top-1/2 -translate-y-1/2 text-[var(--muted-foreground)]" />
+                      <input
+                        type="text"
+                        value={opnameSearch}
+                        onChange={(e) => setOpnameSearch(e.target.value)}
+                        placeholder="Cari riwayat opname..."
+                        className="w-full pl-8 pr-3 py-1 text-xs bg-[var(--background)] border border-[var(--border)] rounded-lg text-[var(--foreground)]"
+                      />
+                    </div>
+                  </div>
+
+                  <div className="border border-[var(--border)] rounded-xl overflow-hidden">
+                    <table className="w-full text-left text-xs">
+                      <thead>
+                        <tr className="bg-[var(--muted)]/50 border-b border-[var(--border)] text-[var(--muted-foreground)] text-[10px] font-semibold uppercase">
+                          <th className="py-2.5 px-3">Tanggal</th>
+                          <th className="py-2.5 px-3">Site</th>
+                          <th className="py-2.5 px-3">Barang</th>
+                          <th className="py-2.5 px-3 text-center">Fisik (Selisih)</th>
+                          <th className="py-2.5 px-3">Alasan</th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-[var(--border)]">
+                        {paginatedOpnames.map(o => (
+                          <tr key={o.id} className="hover:bg-[var(--muted)]/20">
+                            <td className="py-2.5 px-3 font-mono">{o.date}</td>
+                            <td className="py-2.5 px-3 font-bold text-[#0F5C56]">{o.site}</td>
+                            <td className="py-2.5 px-3 font-medium">{o.item_name}</td>
+                            <td className="py-2.5 px-3 text-center font-mono font-bold">
+                              {o.physical_qty} ({o.diff_qty > 0 ? `+${o.diff_qty}` : o.diff_qty})
+                            </td>
+                            <td className="py-2.5 px-3 text-[var(--muted-foreground)]">{o.reason}</td>
+                          </tr>
+                        ))}
+                        {paginatedOpnames.length === 0 && (
+                          <tr>
+                            <td colSpan={5} className="py-8 text-center text-[var(--muted-foreground)] italic text-xs">
+                              Belum ada catatan rekonsiliasi opname fisik.
+                            </td>
+                          </tr>
+                        )}
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+
+                {filteredOpnames.length > 0 && (
+                  <Pagination
+                    currentPage={opnamePage}
+                    totalItems={filteredOpnames.length}
+                    pageSize={opnamePageSize}
+                    pageSizeOptions={[10, 20, 50]}
+                    onPageChange={setOpnamePage}
+                    onPageSizeChange={setOpnamePageSize}
+                  />
+                )}
+              </div>
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* ==================================================================== */}
+      {/* TAB 5: FORECAST & REKAP KEBUTUHAN (Search & Pagination)              */}
+      {/* ==================================================================== */}
+      {activeTab === 'forecast' && (
+        <div className="space-y-4">
+          {/* Summary Metric Header */}
+          <div className="bg-[var(--card)] p-5 rounded-2xl border border-[var(--border)] shadow-xs flex flex-col md:flex-row items-start md:items-center justify-between gap-4">
+            <div>
+              <h3 className="text-base font-bold text-[var(--foreground)]">
+                Kalkulasi Kebutuhan & Rekomendasi Pemesanan
+              </h3>
+              <p className="text-xs text-[var(--muted-foreground)] mt-0.5">
+                Proyeksi kebutuhan horizon 28 hari berbasis data historis pemakaian aktual dengan cadangan pengaman (safety stock 5%).
+              </p>
+            </div>
+
+            <div className="flex items-center gap-3">
+              <div className="text-right">
+                <span className="text-[10px] uppercase font-semibold text-[var(--muted-foreground)]">Estimasi Total Biaya</span>
+                <p className="text-base font-bold font-mono text-[#0F5C56]">
+                  {formatRupiah(forecastSummary.totalOrderCost)}
+                </p>
+              </div>
+
+              <button
+                onClick={() => setIsPdfModalOpen(true)}
+                className="inline-flex items-center px-4 py-2 text-xs font-semibold text-white bg-[#C4841F] hover:bg-[#A6690E] rounded-xl transition-all shadow-xs shrink-0"
+              >
+                <FileDown className="w-4 h-4 mr-1.5" />
+                Unduh Rekap PDF
+              </button>
+            </div>
+          </div>
+
+          {/* Search Bar for Forecast Table */}
+          <div className="relative max-w-md">
+            <Search className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-[var(--muted-foreground)]" />
+            <input
+              type="text"
+              value={forecastSearch}
+              onChange={(e) => setForecastSearch(e.target.value)}
+              placeholder="Cari kode atau nama barang dalam tabel rekomendasi..."
+              className="w-full pl-9 pr-3.5 py-1.5 text-xs bg-[var(--card)] border border-[var(--border)] rounded-lg text-[var(--foreground)] placeholder:text-[var(--muted-foreground)] focus:outline-none focus:ring-1 focus:ring-[#0F5C56]"
+            />
+          </div>
+
+          {/* Paginated Forecast Table */}
           <div className="bg-[var(--card)] rounded-xl border border-[var(--border)] overflow-hidden shadow-xs">
             <div className="overflow-x-auto">
               <table className="w-full text-left text-xs">
@@ -1222,7 +1539,7 @@ export default function BhpMessPage() {
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-[var(--border)] text-[var(--foreground)]">
-                  {forecastRecommendations.slice(0, 50).map((f) => (
+                  {paginatedForecastList.map((f) => (
                     <tr key={f.item_id} className="hover:bg-[var(--muted)]/30 transition-colors">
                       <td className="py-3 px-4 font-mono font-bold text-[#0F5C56]">{f.code}</td>
                       <td className="py-3 px-4 font-medium max-w-sm">
@@ -1242,14 +1559,29 @@ export default function BhpMessPage() {
                       </td>
                     </tr>
                   ))}
+
+                  {paginatedForecastList.length === 0 && (
+                    <tr>
+                      <td colSpan={8} className="py-10 text-center text-[var(--muted-foreground)]">
+                        Tidak ada barang yang cocok dengan pencarian "{forecastSearch}".
+                      </td>
+                    </tr>
+                  )}
                 </tbody>
               </table>
             </div>
-            {forecastRecommendations.length > 50 && (
-              <div className="p-3 bg-[var(--muted)]/20 border-t border-[var(--border)] text-center text-xs text-[var(--muted-foreground)]">
-                Menampilkan 50 dari {forecastRecommendations.length} SKU. Seluruh item tercakup lengkap dalam ekspor Rekap PDF resmi.
-              </div>
-            )}
+
+            {/* Pagination Controls */}
+            <div className="p-4 border-t border-[var(--border)] bg-[var(--card)]">
+              <Pagination
+                currentPage={forecastPage}
+                totalItems={filteredForecastList.length}
+                pageSize={forecastPageSize}
+                pageSizeOptions={[10, 25, 50, 100]}
+                onPageChange={setForecastPage}
+                onPageSizeChange={setForecastPageSize}
+              />
+            </div>
           </div>
         </div>
       )}
@@ -1260,7 +1592,6 @@ export default function BhpMessPage() {
       <AnimatePresence>
         {selectedItemForDrawer && (
           <div className="fixed inset-0 z-50 flex justify-end">
-            {/* Backdrop */}
             <motion.div
               initial={{ opacity: 0 }}
               animate={{ opacity: 1 }}
@@ -1269,7 +1600,6 @@ export default function BhpMessPage() {
               className="absolute inset-0 bg-black/40 backdrop-blur-xs"
             />
 
-            {/* Slide-in Drawer */}
             <motion.div
               initial={{ x: '100%' }}
               animate={{ x: 0 }}
@@ -1410,7 +1740,7 @@ export default function BhpMessPage() {
       </AnimatePresence>
 
       {/* ==================================================================== */}
-      {/* MODAL 1: FORM PENCATATAN PEMAKAIAN HARIAN                            */}
+      {/* MODAL 1: FORM PENCATATAN PEMAKAIAN (Searchable Dropdown)             */}
       {/* ==================================================================== */}
       <AnimatePresence>
         {isUsageModalOpen && (
@@ -1463,17 +1793,13 @@ export default function BhpMessPage() {
 
                 <div>
                   <label className="font-semibold text-[var(--muted-foreground)]">Pilih Barang BHP</label>
-                  <select
+                  <CustomSelect
                     value={usageForm.item_id}
-                    onChange={(e) => setUsageForm({ ...usageForm, item_id: e.target.value })}
-                    className="w-full mt-1 px-3 py-2 bg-[var(--background)] border border-[var(--border)] rounded-lg text-[var(--foreground)]"
-                  >
-                    {items.map(it => (
-                      <option key={it.id} value={it.id}>
-                        {it.code} - {it.name} (Tersedia: {stocks[usageForm.site]?.[it.id] || 0} {it.unit})
-                      </option>
-                    ))}
-                  </select>
+                    onChange={(val) => setUsageForm({ ...usageForm, item_id: val })}
+                    options={itemSelectOptions}
+                    placeholder="Ketik untuk mencari dari 139 barang..."
+                    className="mt-1"
+                  />
                 </div>
 
                 <div>
@@ -1522,7 +1848,7 @@ export default function BhpMessPage() {
       </AnimatePresence>
 
       {/* ==================================================================== */}
-      {/* MODAL 2: FORM PENERIMAAN BARANG (W5)                                 */}
+      {/* MODAL 2: FORM PENERIMAAN BARANG (Searchable Dropdown)                 */}
       {/* ==================================================================== */}
       <AnimatePresence>
         {isStockInModalOpen && (
@@ -1542,7 +1868,7 @@ export default function BhpMessPage() {
             >
               <div className="flex items-center justify-between border-b border-[var(--border)] pb-3">
                 <h3 className="text-base font-bold font-display text-[var(--foreground)]">
-                  Pencatatan Barang Masuk (W5)
+                  Pencatatan Penerimaan Barang Masuk
                 </h3>
                 <button onClick={() => setIsStockInModalOpen(false)} className="p-1 text-[var(--muted-foreground)] hover:text-[var(--foreground)]">
                   <X className="w-5 h-5" />
@@ -1575,17 +1901,13 @@ export default function BhpMessPage() {
 
                 <div>
                   <label className="font-semibold text-[var(--muted-foreground)]">Pilih Barang BHP</label>
-                  <select
+                  <CustomSelect
                     value={stockInForm.item_id}
-                    onChange={(e) => setStockInForm({ ...stockInForm, item_id: e.target.value })}
-                    className="w-full mt-1 px-3 py-2 bg-[var(--background)] border border-[var(--border)] rounded-lg text-[var(--foreground)]"
-                  >
-                    {items.map(it => (
-                      <option key={it.id} value={it.id}>
-                        {it.code} - {it.name}
-                      </option>
-                    ))}
-                  </select>
+                    onChange={(val) => setStockInForm({ ...stockInForm, item_id: val })}
+                    options={itemSelectOptions}
+                    placeholder="Ketik untuk mencari dari 139 barang..."
+                    className="mt-1"
+                  />
                 </div>
 
                 <div className="grid grid-cols-2 gap-3">
@@ -1597,7 +1919,7 @@ export default function BhpMessPage() {
                       required
                       value={stockInForm.qty}
                       onChange={(e) => setStockInForm({ ...stockInForm, qty: e.target.value })}
-                      placeholder="Qty pcs/unit"
+                      placeholder="Qty unit"
                       className="w-full mt-1 px-3 py-2 bg-[var(--background)] border border-[var(--border)] rounded-lg text-[var(--foreground)]"
                     />
                   </div>
