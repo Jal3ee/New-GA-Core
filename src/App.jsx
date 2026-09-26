@@ -47,6 +47,7 @@ function App() {
                 <Route path="/mess/setup" element={<MessSetupPage />} />
                 <Route path="/mess/transfer" element={<MessTransferPage />} />
                 <Route path="/mess/bhp" element={<BhpMessPage />} />
+                <Route path="/bhp" element={<Navigate to="/mess/bhp" replace />} />
                 <Route path="/karyawan" element={<KaryawanPage />} />
                 <Route path="/audit-log" element={<AuditLogPage />} />
                 <Route path="/profile" element={<ProfilePage />} />

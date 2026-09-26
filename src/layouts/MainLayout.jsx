@@ -49,18 +49,17 @@ export function MainLayout() {
   const getNavItems = (admin) => {
     const items = [
       { label: 'Dashboard', path: '/', icon: Home },
-      { label: 'Calendar of Event', path: '/calendar', icon: Calendar },
       {
         label: 'Mess Management',
         icon: Building,
         subItems: [
-          { label: 'Dashboard Mess', path: '/mess/dashboard' },
-          { label: 'Matriks Okupansi', path: '/mess/matrix' },
-          { label: 'Master Setup', path: '/mess/setup' },
-          { label: 'Transfer / Simulasi', path: '/mess/transfer' },
-          { label: 'BHP Mess (Stok & Forecast)', path: '/mess/bhp' },
+          { label: 'Dashboard & Okupansi', path: '/mess/dashboard' },
+          { label: 'Matriks Kamar', path: '/mess/matrix' },
+          { label: 'Master Setup Gedung', path: '/mess/setup' },
+          { label: 'Simulasi Transfer', path: '/mess/transfer' },
         ]
       },
+      { label: 'BHP (Barang Habis Pakai)', path: '/mess/bhp', icon: Package },
       {
         label: 'Travel & Transport',
         icon: Truck,
@@ -69,29 +68,30 @@ export function MainLayout() {
         ]
       },
       {
-        label: 'Assets',
-        icon: Package,
+        label: 'Assets & Kontrak',
+        icon: Layers,
         subItems: [
           { label: 'Kontrak Vendor', path: '/assets/vendor' },
           { label: 'Data Unit Asset', path: '/assets/unit' },
         ]
       },
       {
-        label: 'Catering',
+        label: 'Katering & Food Index',
         icon: Utensils,
         subItems: [
           { label: 'Scoring & Food Index', path: '/catering/scoring' },
-          { label: 'Temuan & Tindakan', path: '/catering/incidents' },
+          { label: 'Temuan & Sidak', path: '/catering/incidents' },
         ]
       },
+      { label: 'Calendar of Event', path: '/calendar', icon: Calendar },
       {
-        label: 'Docs',
+        label: 'Docs & Invoicing',
         icon: FileText,
         subItems: [
           { label: 'Dashboard Invoice', path: '/invoice/dashboard' },
-          { label: 'Invoice', path: '/invoice' },
+          { label: 'Daftar Invoice', path: '/invoice' },
           { label: 'Reimbursement', path: '/docs/reimbursement' },
-          { label: 'Standards', path: '/docs/standards' },
+          { label: 'Standar & SOP', path: '/docs/standards' },
         ]
       },
     ];
@@ -100,6 +100,7 @@ export function MainLayout() {
       items.push({
         label: 'Administrator',
         icon: Shield,
+        isDividerBefore: true,
         subItems: [
           { label: 'Karyawan', path: '/karyawan' },
           { label: 'Audit Log', path: '/audit-log' }
@@ -197,6 +198,9 @@ export function MainLayout() {
 
             return (
               <div key={item.label} className="flex flex-col">
+                {item.isDividerBefore && (
+                  <div className="my-2 border-t border-[var(--border)]" />
+                )}
                 {hasSub ? (
                   // Parent menu wrapper (button)
                   <button
@@ -323,6 +327,9 @@ export function MainLayout() {
 
             return (
               <div key={item.label} className="flex flex-col">
+                {item.isDividerBefore && (
+                  <div className="my-2 border-t border-[var(--border)]" />
+                )}
                 {hasSub ? (
                   <button
                     onClick={() => setOpenMenus(prev => ({ ...prev, [item.label]: !prev[item.label] }))}

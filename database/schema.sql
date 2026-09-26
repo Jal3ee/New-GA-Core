@@ -60,11 +60,14 @@ CREATE INDEX IF NOT EXISTS idx_audit_logs_created_at ON audit_logs(created_at);
 CREATE TABLE IF NOT EXISTS bhp_items (
     id SERIAL PRIMARY KEY,
     code VARCHAR(50) UNIQUE NOT NULL,
-    name VARCHAR(150) NOT NULL,
-    category VARCHAR(100) NOT NULL,          -- 'Toiletries', 'Laundry', 'Sanitasi & Pembersih', 'Hygiene & Dapur', 'Perlengkapan Kamar'
-    unit VARCHAR(20) DEFAULT 'pcs',          -- 'pcs', 'botol', 'kotak', 'roll', etc.
+    name VARCHAR(255) NOT NULL,
+    category VARCHAR(100) NOT NULL,          -- 'Bahan Makanan & Konsumsi', 'Kebersihan & Sanitasi', 'Toiletries & Mandi', etc.
+    unit VARCHAR(20) DEFAULT 'pcs',          -- 'pcs', 'botl', 'box', 'can', 'drum', 'kg', 'ltr', 'pack', 'roll', etc.
     pack_size INT DEFAULT 1,                 -- kelipatan isi pack untuk pembulatan forecast
     abc_class CHAR(1) DEFAULT 'B',           -- 'A', 'B', 'C'
+    price_est NUMERIC(12, 2) DEFAULT 0,      -- Harga FPA September 2026 (exclude PPN)
+    coa VARCHAR(100),                        -- Chart of Accounts
+    remarks TEXT,
     is_active BOOLEAN DEFAULT TRUE,
     created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP
