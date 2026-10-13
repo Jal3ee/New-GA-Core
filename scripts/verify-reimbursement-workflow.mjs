@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import express from 'express';
 import { pool } from '../server/db.js';
-import { authenticateToken, createSessionToken, requireRole } from '../server/auth.js';
+import { authenticateToken, createSessionToken, requireRole, verifySessionToken } from '../server/auth.js';
 import { registerReimbursementWorkflow } from '../server/reimbursementWorkflow.js';
 import { formatEmployeeName } from '../src/utils/reimbursementWorkflow.js';
 
@@ -17,7 +17,7 @@ const records = [
   { nik: '262210023', nama: 'KARYAWAN NOL', periode_tahun: 2026, periode_bulan: 'Januari', periode_ke: 'Periode 1 (1-15)' }
 ];
 const app = express(); app.use(express.json());
-registerReimbursementWorkflow(app, { query: (sql, params) => client.query(sql, params), authenticateToken, requireRole, loadRecords: async () => records });
+registerReimbursementWorkflow(app, { query: (sql, params) => client.query(sql, params), authenticateToken, requireRole, verifySessionToken, loadRecords: async () => records });
 const server = app.listen(0, '127.0.0.1');
 await new Promise(resolve => server.once('listening', resolve));
 const base = 'http://127.0.0.1:' + server.address().port;

@@ -39,7 +39,7 @@ app.use((req, res, next) => {
 });
 
 registerReimbursementAttachments(app, authenticateToken);
-registerReimbursementWorkflow(app, { query, authenticateToken, requireRole });
+registerReimbursementWorkflow(app, { query, authenticateToken, requireRole, verifySessionToken });
 
 app.use('/uploads', express.static(path.resolve(__dirname, '../public/uploads')));
 

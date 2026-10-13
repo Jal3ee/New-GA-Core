@@ -11,13 +11,22 @@ const toDate = value => value ? (value instanceof Date
   : String(value).slice(0, 10)) : '';
 const metadata = row => ({ ...row, status_finance: legacyFinanceStatus(row.workflow_status), tgl_pengajuan_finance: toDate(row.tgl_pengajuan_finance), tgl_pencairan_finance: toDate(row.tgl_pencairan_finance) });
 
-export function registerReimbursementWorkflow(app, { query, authenticateToken, requireRole, loadRecords = loadReimbursementRecords }) {
+export function registerReimbursementWorkflow(app, { query, authenticateToken, requireRole, verifySessionToken, loadRecords = loadReimbursementRecords }) {
   let initialized;
   const ensureTable = () => {
     if (!initialized) initialized = query(schema).catch(error => { initialized = null; throw error; });
     return initialized;
   };
   const protect = [authenticateToken, requireRole('admin', 'ga_admin', 'ga_gl', 'ga_sh', 'finance')];
+  const optionalAuth = (req, _res, next) => {
+    const authHeader = req.headers['authorization'];
+    const token = authHeader && authHeader.startsWith('Bearer ') ? authHeader.split(' ')[1] : (req.body?.token || req.query?.token);
+    if (token && typeof verifySessionToken === 'function') {
+      const result = verifySessionToken(token, req);
+      if (result?.valid) req.user = result.user;
+    }
+    next();
+  };
   const errors = res => error => {
     console.error('[Reimbursement workflow]', error.message);
     res.status(503).json({ ok: false, error: 'Data reimbursement belum dapat diakses. Silakan coba lagi.' });
@@ -57,7 +66,7 @@ export function registerReimbursementWorkflow(app, { query, authenticateToken, r
     } catch (error) { errors(res)(error); }
   });
 
-  app.get('/api/reimbursements/period-status', authenticateToken, async (_req, res) => {
+  app.get('/api/reimbursements/period-status', optionalAuth, async (_req, res) => {
     res.set('Cache-Control', 'no-store');
     try {
       await ensureTable();

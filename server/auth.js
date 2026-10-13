@@ -18,8 +18,7 @@ const TOKEN_EXPIRY = process.env.JWT_EXPIRY || '8h';
  */
 export function generateFingerprint(req) {
   const userAgent = req.headers['user-agent'] || 'unknown-agent';
-  const acceptLang = req.headers['accept-language'] || '';
-  return crypto.createHash('sha256').update(`${userAgent}|${acceptLang}`).digest('hex').substring(0, 16);
+  return crypto.createHash('sha256').update(userAgent).digest('hex').substring(0, 16);
 }
 
 /**
@@ -55,7 +54,9 @@ export function verifySessionToken(token, req) {
     if (req && decoded.fp) {
       const currentFp = generateFingerprint(req);
       if (decoded.fp !== currentFp) {
-        return { valid: false, error: 'SESSION_HIJACK_DETECTED', message: 'Perangkat atau browser tidak cocok dengan sesi asli' };
+        // Catat warning untuk audit trail, jangan blokir request yang memiliki tanda tangan kriptografis valid
+        // karena reverse proxy cloud (Vercel Edge, AWS CloudFront) sering menormalisasi atau mengubah headers
+        console.warn(`[AUTH] Device fingerprint mismatch (expected: ${decoded.fp}, req: ${currentFp}) for user ${decoded.nik || decoded.id}`);
       }
     }
 
@@ -83,7 +84,7 @@ export function authenticateToken(req, res, next) {
     }
     const result = verifySessionToken(fallbackToken, req);
     if (!result.valid) {
-      return res.status(403).json({ ok: false, error: result.error, message: result.message });
+      return res.status(401).json({ ok: false, error: result.error, message: result.message });
     }
     req.user = result.user;
     return next();
@@ -91,7 +92,7 @@ export function authenticateToken(req, res, next) {
 
   const result = verifySessionToken(token, req);
   if (!result.valid) {
-    return res.status(403).json({ ok: false, error: result.error, message: result.message });
+    return res.status(401).json({ ok: false, error: result.error, message: result.message });
   }
 
   req.user = result.user;

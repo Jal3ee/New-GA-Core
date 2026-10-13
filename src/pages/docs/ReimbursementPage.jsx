@@ -77,7 +77,7 @@ export default function ReimbursementPage() {
     return {};
   });
 
-  const [statusReady, setStatusReady] = useState(false);
+  const [statusReady, setStatusReady] = useState(true);
   const [isSavingStatus, setIsSavingStatus] = useState(false);
 
   useEffect(() => {
@@ -89,11 +89,23 @@ export default function ReimbursementPage() {
         try { local = JSON.parse(localStorage.getItem('garda_period_finance_meta') || '{}') || {}; } catch {}
         const missing = Object.fromEntries(Object.entries(local).filter(([key]) => !remote.data[key]));
         if (canEditStatus && Object.keys(missing).length) {
-          await reimbursementClient.importPeriodStatuses(missing);
-          remote.data = (await reimbursementClient.getPeriodStatuses()).data;
+          try {
+            await reimbursementClient.importPeriodStatuses(missing);
+            const refreshed = await reimbursementClient.getPeriodStatuses();
+            if (refreshed?.data) remote.data = refreshed.data;
+          } catch (importErr) {
+            console.warn('[Reimbursement import fallback]:', importErr.message);
+          }
         }
-        if (active) { setPeriodFinanceMeta(remote.data); setStatusReady(true); }
-      } catch (error) { if (active) toast.error('Status bersama belum dimuat: ' + error.message); }
+        if (active && remote?.data) {
+          setPeriodFinanceMeta(remote.data);
+          try { localStorage.setItem('garda_period_finance_meta', JSON.stringify(remote.data)); } catch {}
+        }
+      } catch (error) {
+        console.warn('[Reimbursement period status load]:', error.message);
+      } finally {
+        if (active) setStatusReady(true);
+      }
     };
     load();
     return () => { active = false; };
@@ -510,18 +522,51 @@ export default function ReimbursementPage() {
   };
 
   const handleSavePeriodFinance = async () => {
-    if (!targetPeriodForEdit || !canEditStatus || !statusReady || isSavingStatus) return;
+    if (!targetPeriodForEdit || !canEditStatus || isSavingStatus) return;
     setIsSavingStatus(true);
+    
+    const key = targetPeriodForEdit.key;
+    const payload = {
+      ...periodEditForm,
+      total_reimbursement: periodEditForm.total_reimbursement === '' ? null : periodEditForm.total_reimbursement
+    };
+    const updatedMeta = {
+      ...payload,
+      period_key: key,
+      updated_at: new Date().toISOString()
+    };
+
+    // 1. Simpan segera secara lokal (Optimistic UI - data tidak akan hilang)
     try {
-      const result = await reimbursementClient.savePeriodStatus(targetPeriodForEdit.key, { ...periodEditForm, total_reimbursement: periodEditForm.total_reimbursement === '' ? null : periodEditForm.total_reimbursement });
-      const saved = result.data;
-      setPeriodFinanceMeta(prev => ({ ...prev, [targetPeriodForEdit.key]: saved }));
+      const currentLocal = JSON.parse(localStorage.getItem('garda_period_finance_meta') || '{}') || {};
+      currentLocal[key] = updatedMeta;
+      localStorage.setItem('garda_period_finance_meta', JSON.stringify(currentLocal));
+    } catch {}
+
+    setPeriodFinanceMeta(prev => ({ ...prev, [key]: updatedMeta }));
+    setRecords(prev => prev.map(record => targetPeriodForEdit.items.some(item => item.id === record.id) ? { ...record, ...updatedMeta } : record));
+    if (activeDrawerPeriod?.key === key) {
+      setActiveDrawerPeriod(prev => ({ ...prev, ...updatedMeta, items: prev.items.map(item => ({ ...item, ...updatedMeta })) }));
+    }
+
+    // 2. Sinkronisasi ke server database
+    try {
+      const result = await reimbursementClient.savePeriodStatus(key, payload);
+      const saved = result?.data || updatedMeta;
+      setPeriodFinanceMeta(prev => ({ ...prev, [key]: saved }));
       setRecords(prev => prev.map(record => targetPeriodForEdit.items.some(item => item.id === record.id) ? { ...record, ...saved } : record));
-      if (activeDrawerPeriod?.key === targetPeriodForEdit.key) setActiveDrawerPeriod(prev => ({ ...prev, ...saved, items: prev.items.map(item => ({ ...item, ...saved })) }));
-      toast.success('Data periode tersimpan. Status diperbarui di web publik; nilai tetap internal.');
+      if (activeDrawerPeriod?.key === key) {
+        setActiveDrawerPeriod(prev => ({ ...prev, ...saved, items: prev.items.map(item => ({ ...item, ...saved })) }));
+      }
+      toast.success('Data periode tersimpan. Status diperbarui di server & web publik.');
       setIsPeriodEditModalOpen(false);
-    } catch (error) { toast.error('Status belum tersimpan: ' + error.message); }
-    finally { setIsSavingStatus(false); }
+    } catch (error) {
+      console.warn('[Sync period status warning]:', error.message);
+      toast.warning('Tersimpan di penyimpanan lokal, belum tersinkron ke server: ' + error.message);
+      setIsPeriodEditModalOpen(false);
+    } finally {
+      setIsSavingStatus(false);
+    }
   };
 
   // Dropdown options
@@ -1462,10 +1507,10 @@ export default function ReimbursementPage() {
               </button>
               <button
                 onClick={handleSavePeriodFinance}
-                disabled={!canEditStatus || !statusReady || isSavingStatus}
-                className="px-4 py-2 text-xs font-bold rounded-lg bg-[var(--primary)] text-white hover:opacity-90"
+                disabled={!canEditStatus || isSavingStatus}
+                className="px-4 py-2 text-xs font-bold rounded-lg bg-[var(--primary)] text-white hover:opacity-90 disabled:opacity-50"
               >
-                {isSavingStatus ? 'Menyimpan...' : statusReady ? 'Simpan Data Periode' : 'Status bersama belum dimuat'}
+                {isSavingStatus ? 'Menyimpan...' : 'Simpan Data Periode'}
               </button>
             </div>
           </div>
