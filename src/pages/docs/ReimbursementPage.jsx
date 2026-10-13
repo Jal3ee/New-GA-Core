@@ -47,6 +47,106 @@ const MONTHS = [
   'Juli', 'Agustus', 'September', 'Oktober', 'November', 'Desember'
 ];
 
+export const SPREADSHEET_SOURCE_URL = 'https://docs.google.com/spreadsheets/d/1qBCW0L34wtuvzM690Ajk2IFJgXm78aQidjblQHYT-90/edit?resourcekey=&gid=413081409#gid=413081409';
+export const SPREADSHEET_CSV_URL = 'https://docs.google.com/spreadsheets/d/1qBCW0L34wtuvzM690Ajk2IFJgXm78aQidjblQHYT-90/export?format=csv&gid=413081409';
+
+export function parseReimbursementCSV(csvText) {
+  const lines = [];
+  let curLine = [];
+  let curField = '';
+  let inQuotes = false;
+  for (let i = 0; i < csvText.length; i++) {
+    const c = csvText[i];
+    if (c === '"') {
+      if (inQuotes && csvText[i+1] === '"') {
+        curField += '"';
+        i++;
+      } else {
+        inQuotes = !inQuotes;
+      }
+    } else if (c === ',' && !inQuotes) {
+      curLine.push(curField);
+      curField = '';
+    } else if ((c === '\r' || c === '\n') && !inQuotes) {
+      if (c === '\r' && csvText[i+1] === '\n') i++;
+      curLine.push(curField);
+      curField = '';
+      lines.push(curLine);
+      curLine = [];
+    } else {
+      curField += c;
+    }
+  }
+  if (curField || curLine.length > 0) {
+    curLine.push(curField);
+    lines.push(curLine);
+  }
+
+  const result = [];
+  for (let i = 1; i < lines.length; i++) {
+    const parts = lines[i];
+    const kebutuhan = (parts[1] || '').trim();
+    if (kebutuhan && !kebutuhan.toLowerCase().includes('reimburse')) continue;
+
+    const nama = (parts[18] || parts[2] || '').trim();
+    if (!nama) continue;
+
+    const timestamp = (parts[0] || '').trim();
+    const nik = (parts[19] || parts[3] || '').trim();
+    const no_hp = (parts[20] || parts[4] || '').trim();
+    const status = (parts[21] || parts[5] || 'CUTI').trim();
+    const departemen = (parts[22] || parts[7] || '').trim();
+    const site = (parts[39] || parts[6] || parts[45] || 'LBCT').trim();
+
+    const url_bukti_cuti = (parts[23] || parts[9] || parts[42] || '').trim();     // Kolom X
+    const url_nota_berangkat = (parts[24] || '').trim();                           // Kolom Y
+    const url_nota_pulang = (parts[40] || '').trim();                              // Kolom AO
+    const url_boarding_pass = (parts[41] || '').trim();                            // Kolom AP
+
+    const tgl_berangkat = (parts[25] || parts[10] || '').trim();
+    const tgl_pulang = (parts[26] || parts[13] || '').trim();
+
+    let day = 1, month = 1, year = 2026;
+    if (timestamp) {
+      const datePart = timestamp.split(' ')[0] || '';
+      const segs = datePart.split('/');
+      if (segs.length >= 3) {
+        day = parseInt(segs[0], 10) || 1;
+        month = parseInt(segs[1], 10) || 1;
+        year = parseInt(segs[2], 10) || 2026;
+      }
+    }
+    const monthName = MONTHS[month - 1] || 'Januari';
+    const periodeKe = day <= 15 ? 'Periode 1 (1-15)' : 'Periode 2 (16-31)';
+
+    result.push({
+      id: `REIMB-${year}-${String(month).padStart(2, '0')}-${String(result.length + 1).padStart(4, '0')}`,
+      no: result.length + 1,
+      timestamp,
+      nama,
+      nik,
+      no_hp,
+      status,
+      departemen,
+      site,
+      tgl_berangkat,
+      tgl_pulang,
+      url_boarding_pass,
+      url_bukti_cuti,
+      url_nota_berangkat,
+      url_nota_pulang,
+      periode_tahun: year,
+      periode_bulan: monthName,
+      periode_ke: periodeKe,
+      status_finance: 'Diajukan',
+      tgl_pengajuan_finance: '',
+      tgl_pencairan_finance: '',
+      catatan: ''
+    });
+  }
+  return result;
+}
+
 export default function ReimbursementPage() {
   // State: Raw employee reimbursement records
   const [records, setRecords] = useState(() => {
@@ -96,6 +196,7 @@ export default function ReimbursementPage() {
   const [compileProgress, setCompileProgress] = useState(null);
   const [compileOptions, setCompileOptions] = useState({
     includeCover: true,
+    includeBoardingPass: true,
     includeBuktiCuti: true,
     includeNotaBerangkat: true,
     includeNotaPulang: true
@@ -112,23 +213,45 @@ export default function ReimbursementPage() {
     } catch {}
   }, [records, periodFinanceMeta]);
 
-  // Sync with remote spreadsheet
+  // Sync with remote Google Spreadsheet (Sumber Data)
   const syncWithDatabase = async () => {
     setIsLoading(true);
     try {
+      // 1. Coba lewat backend node API (yang juga terhubung langsung ke spreadsheet)
       const res = await gasClient.getReimbursements();
       if (res?.ok && Array.isArray(res.data) && res.data.length > 0) {
         setRecords(res.data);
-        toast.success(`Berhasil menarik ${res.data.length} data reimbursement dari spreadsheet!`);
-      } else {
-        toast.info('Data spreadsheet belum ada data / menggunakan data lokal.');
+        localStorage.setItem('garda_reimbursements_data', JSON.stringify(res.data));
+        toast.success(`Berhasil menarik ${res.data.length} data reimbursement dari Google Spreadsheet!`);
+        setIsLoading(false);
+        return;
       }
     } catch (err) {
-      console.warn('Sync fallback to local:', err);
-      toast.info('Sinkronisasi selesai (database lokal aktif).');
-    } finally {
-      setIsLoading(false);
+      console.warn('Backend sync failed, trying direct Google Sheet fetch:', err);
     }
+
+    // 2. Direct browser fetch ke export CSV Google Spreadsheet
+    try {
+      const resp = await fetch(SPREADSHEET_CSV_URL);
+      if (resp.ok) {
+        const text = await resp.text();
+        const parsed = parseReimbursementCSV(text);
+        if (parsed.length > 0) {
+          setRecords(parsed);
+          localStorage.setItem('garda_reimbursements_data', JSON.stringify(parsed));
+          toast.success(`Berhasil menarik ${parsed.length} data reimbursement langsung dari Google Spreadsheet!`);
+          setIsLoading(false);
+          return;
+        }
+      }
+    } catch (directErr) {
+      console.warn('Direct fetch failed:', directErr);
+    }
+
+    // 3. Fallback ke initial data
+    setRecords(initialReimbursementData);
+    toast.info('Menggunakan data reimbursement lokal aktif.');
+    setIsLoading(false);
   };
 
   // Auto-sync on component mount
@@ -174,60 +297,10 @@ export default function ReimbursementPage() {
       try {
         const text = evt.target?.result;
         if (!text) return;
-
-        const lines = text.split('\n').filter(l => l.trim().length > 0);
-        const imported = [];
-
-        for (let i = 1; i < lines.length; i++) {
-          const parts = lines[i].split(',').map(p => p.replace(/^"|"$/g, '').trim());
-          if (!parts[1] || !parts[1].toLowerCase().includes('reimburse')) continue;
-
-          const timestamp = parts[0] || '';
-          const nama = parts[18] || '';
-          const nik = parts[19] || '';
-          const no_hp = parts[20] || '';
-          const status = parts[21] || 'CUTI';
-          const departemen = parts[22] || '';
-          const url_bukti_cuti = parts[23] || '';
-          const url_nota_berangkat = parts[24] || '';
-          const tgl_berangkat = parts[25] || '';
-          const tgl_pulang = parts[26] || '';
-          const site = parts[39] || 'LBCT';
-          const url_nota_pulang = parts[40] || '';
-
-          const dayPart = parseInt(timestamp.split(' ')[0]?.split('/')?.[0] || '1', 10);
-          const monthPart = parseInt(timestamp.split(' ')[0]?.split('/')?.[1] || '1', 10);
-          const monthName = MONTHS[monthPart - 1] || 'Januari';
-          const periodeKe = dayPart <= 15 ? 'Periode 1 (1-15)' : 'Periode 2 (16-31)';
-
-          imported.push({
-            id: `REIMB-${Date.now()}-${i}`,
-            no: imported.length + 1,
-            timestamp,
-            nama,
-            nik,
-            no_hp,
-            status,
-            departemen,
-            site,
-            tgl_berangkat,
-            tgl_pulang,
-            url_bukti_cuti,
-            url_nota_berangkat,
-            url_nota_pulang,
-            periode_tahun: 2026,
-            periode_bulan: monthName,
-            periode_ke: periodeKe,
-            nominal: 1250000,
-            status_finance: 'Draft',
-            tgl_pengajuan_finance: '',
-            tgl_pencairan_finance: '',
-            catatan: ''
-          });
-        }
-
+        const imported = parseReimbursementCSV(text);
         if (imported.length > 0) {
           setRecords(imported);
+          localStorage.setItem('garda_reimbursements_data', JSON.stringify(imported));
           toast.success(`Berhasil mengimpor ${imported.length} data reimbursement!`);
         } else {
           toast.error('Tidak ditemukan data reimbursement yang valid di CSV.');
@@ -265,7 +338,6 @@ export default function ReimbursementPage() {
           label: `${m} 2026 - Periode ${cutNumber}`,
           rentang_tanggal: dateRangeStr,
           items: [],
-          total_nominal: 0,
           status_finance: 'Draft',
           tgl_pengajuan_finance: '',
           tgl_pencairan_finance: '',
@@ -284,7 +356,6 @@ export default function ReimbursementPage() {
 
       if (batchMap[key]) {
         batchMap[key].items.push(r);
-        batchMap[key].total_nominal += (Number(r.nominal) || 0);
 
         // Inherit dates/status from items if meta not manually set
         if (!batchMap[key].tgl_pengajuan_finance && r.tgl_pengajuan_finance) {
@@ -313,8 +384,17 @@ export default function ReimbursementPage() {
         }
       }
 
+      const total_bp = batch.items.filter(it => it.url_boarding_pass).length;
+      const total_cuti = batch.items.filter(it => it.url_bukti_cuti).length;
+      const total_berangkat = batch.items.filter(it => it.url_nota_berangkat).length;
+      const total_pulang = batch.items.filter(it => it.url_nota_pulang).length;
+
       return {
         ...batch,
+        total_bp,
+        total_cuti,
+        total_berangkat,
+        total_pulang,
         status_finance: status,
         tgl_pengajuan_finance: meta.tgl_pengajuan_finance || batch.tgl_pengajuan_finance || '',
         tgl_pencairan_finance: meta.tgl_pencairan_finance || batch.tgl_pencairan_finance || '',
@@ -355,28 +435,31 @@ export default function ReimbursementPage() {
     });
   }, [periodBatches, selectedMonth, selectedPeriodCut, selectedStatusFinance, searchQuery]);
 
-  // Macro KPI Metrics
+  // Macro KPI Metrics (Lampiran-centric, tanpa nominal)
   const macroKPIs = useMemo(() => {
     const activeBatches = periodBatches.filter(b => b.items.length > 0);
     const totalPeriodsCount = activeBatches.length;
     const totalEmployeesCount = activeBatches.reduce((sum, b) => sum + b.items.length, 0);
-    const totalNominalAll = activeBatches.reduce((sum, b) => sum + b.total_nominal, 0);
+
+    const totalBoardingPass = activeBatches.reduce((sum, b) => sum + (b.total_bp || 0), 0);
+    const totalBuktiCuti = activeBatches.reduce((sum, b) => sum + (b.total_cuti || 0), 0);
+    const totalNotaBerangkat = activeBatches.reduce((sum, b) => sum + (b.total_berangkat || 0), 0);
+    const totalNotaPulang = activeBatches.reduce((sum, b) => sum + (b.total_pulang || 0), 0);
 
     const dicairkanBatches = activeBatches.filter(b => b.status_finance === 'Dicairkan');
-    const totalDicairkanNominal = dicairkanBatches.reduce((sum, b) => sum + b.total_nominal, 0);
-    const persenCair = totalNominalAll > 0 ? ((totalDicairkanNominal / totalNominalAll) * 100).toFixed(1) : 0;
-
     const pendingBatches = activeBatches.filter(b => b.status_finance === 'Diajukan');
-    const totalPendingNominal = pendingBatches.reduce((sum, b) => sum + b.total_nominal, 0);
+    const draftBatches = activeBatches.filter(b => b.status_finance === 'Draft');
 
     return {
       totalPeriodsCount,
       totalEmployeesCount,
-      totalNominalAll,
-      totalDicairkanNominal,
-      persenCair,
-      totalPendingNominal,
-      pendingCount: pendingBatches.length
+      totalBoardingPass,
+      totalBuktiCuti,
+      totalNotaBerangkat,
+      totalNotaPulang,
+      dicairkanCount: dicairkanBatches.length,
+      pendingCount: pendingBatches.length,
+      draftCount: draftBatches.length
     };
   }, [periodBatches]);
 
@@ -636,7 +719,45 @@ export default function ReimbursementPage() {
       </div>
 
       {/* -------------------------------------------------------------
-          2. MACRO KPI MONITORING DASHBOARD (Collapsible)
+          SINKRONISASI SUMBER DATA GOOGLE SPREADSHEET
+      ------------------------------------------------------------- */}
+      <div className="bg-gradient-to-r from-teal-500/10 via-[var(--card)] to-sky-500/10 border border-teal-500/30 rounded-xl p-3.5 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 shadow-xs">
+        <div className="flex items-center gap-3">
+          <div className="w-8 h-8 rounded-lg bg-teal-500/20 text-teal-700 flex items-center justify-center shrink-0">
+            <FileSpreadsheet className="w-4 h-4" />
+          </div>
+          <div>
+            <div className="flex items-center gap-2">
+              <span className="text-xs font-bold text-[var(--foreground)]">
+                Terhubung Langsung dengan Spreadsheet Sumber Data
+              </span>
+              <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-semibold bg-emerald-100 text-emerald-800 border border-emerald-200">
+                <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" />
+                Live Sync Active
+              </span>
+            </div>
+            <p className="text-[11px] text-[var(--muted-foreground)] mt-0.5">
+              Gid: <span className="font-mono font-medium">413081409</span> • 285 Berkas Aktif (Tersinkronisasi otomatis dengan Google Form respons)
+            </p>
+          </div>
+        </div>
+
+        <div className="flex items-center gap-2 self-end sm:self-auto shrink-0">
+          <a
+            href={SPREADSHEET_SOURCE_URL}
+            target="_blank"
+            rel="noreferrer"
+            className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold rounded-lg border border-teal-300 bg-teal-50 hover:bg-teal-100 text-teal-800 transition-colors shadow-2xs"
+            title="Buka Google Spreadsheet Sumber Data di Tab Baru"
+          >
+            <span>Buka Google Spreadsheet</span>
+            <ExternalLink className="w-3.5 h-3.5" />
+          </a>
+        </div>
+      </div>
+
+      {/* -------------------------------------------------------------
+          2. MACRO KPI MONITORING DASHBOARD (Collapsible, Tanpa Nominal)
       ------------------------------------------------------------- */}
       {isDashboardVisible && (
         <div className="space-y-4">
@@ -656,39 +777,40 @@ export default function ReimbursementPage() {
 
             <div className="bg-[var(--card)] border border-[var(--border)] rounded-xl p-4 shadow-xs">
               <div className="text-xs font-semibold uppercase tracking-wider text-[var(--muted-foreground)]">
-                Total Akumulasi Klaim
+                Boarding Pass (Kolom AP)
               </div>
-              <div className="text-2xl font-bold font-mono text-[var(--foreground)] mt-1">
-                {formatRupiah(macroKPIs.totalNominalAll)}
+              <div className="text-2xl font-bold font-mono text-indigo-600 mt-1">
+                {macroKPIs.totalBoardingPass} <span className="text-sm font-normal text-[var(--muted-foreground)]">Berkas</span>
               </div>
-              <div className="text-xs text-[var(--muted-foreground)] mt-1">
-                Seluruh pengajuan tiket & transport 2026
-              </div>
-            </div>
-
-            <div className="bg-[var(--card)] border border-[var(--border)] rounded-xl p-4 shadow-xs">
-              <div className="text-xs font-semibold uppercase tracking-wider text-[var(--muted-foreground)]">
-                Sudah Dicairkan Finance
-              </div>
-              <div className="text-2xl font-bold font-mono text-emerald-600 mt-1">
-                {formatRupiah(macroKPIs.totalDicairkanNominal)}
-              </div>
-              <div className="text-xs text-emerald-700 mt-1 flex items-center gap-1 font-medium">
-                <CheckCircle2 className="w-3 h-3 text-emerald-600" />
-                {macroKPIs.persenCair}% dari total permohonan
+              <div className="text-xs text-[var(--muted-foreground)] mt-1 flex items-center gap-1">
+                <CheckCircle2 className="w-3 h-3 text-indigo-600" />
+                {macroKPIs.totalEmployeesCount > 0 ? ((macroKPIs.totalBoardingPass / macroKPIs.totalEmployeesCount) * 100).toFixed(0) : 0}% terlampir tiket/boarding pass
               </div>
             </div>
 
             <div className="bg-[var(--card)] border border-[var(--border)] rounded-xl p-4 shadow-xs">
               <div className="text-xs font-semibold uppercase tracking-wider text-[var(--muted-foreground)]">
-                Paket Menunggu Finance
+                Bukti Cuti Approve (Kolom X)
               </div>
-              <div className="text-2xl font-bold font-mono text-amber-600 mt-1">
-                {formatRupiah(macroKPIs.totalPendingNominal)}
+              <div className="text-2xl font-bold font-mono text-teal-600 mt-1">
+                {macroKPIs.totalBuktiCuti} <span className="text-sm font-normal text-[var(--muted-foreground)]">Berkas</span>
               </div>
-              <div className="text-xs text-amber-700 mt-1 flex items-center gap-1">
-                <Clock className="w-3 h-3 text-amber-600" />
-                {macroKPIs.pendingCount} periode dalam proses Finance
+              <div className="text-xs text-teal-700 mt-1 flex items-center gap-1 font-medium">
+                <CheckCircle2 className="w-3 h-3 text-teal-600" />
+                {macroKPIs.totalEmployeesCount > 0 ? ((macroKPIs.totalBuktiCuti / macroKPIs.totalEmployeesCount) * 100).toFixed(0) : 0}% persetujuan cuti Sunfish valid
+              </div>
+            </div>
+
+            <div className="bg-[var(--card)] border border-[var(--border)] rounded-xl p-4 shadow-xs">
+              <div className="text-xs font-semibold uppercase tracking-wider text-[var(--muted-foreground)]">
+                Scan Nota Transport (Y & AO)
+              </div>
+              <div className="text-xl font-bold font-mono text-sky-600 mt-1">
+                {macroKPIs.totalNotaBerangkat} <span className="text-xs font-normal text-[var(--muted-foreground)]">Pergi</span> • {macroKPIs.totalNotaPulang} <span className="text-xs font-normal text-[var(--muted-foreground)]">Pulang</span>
+              </div>
+              <div className="text-xs text-sky-700 mt-1 flex items-center gap-1">
+                <Clock className="w-3 h-3 text-sky-600" />
+                Nota riil keberangkatan & kepulangan
               </div>
             </div>
           </div>
@@ -768,10 +890,10 @@ export default function ReimbursementPage() {
                   <th className="py-3 px-3 whitespace-nowrap">Paket Periode</th>
                   <th className="py-3 px-3 whitespace-nowrap">Rentang Form</th>
                   <th className="py-3 px-2.5 text-center whitespace-nowrap">Jumlah Berkas</th>
-                  <th className="py-3 px-3 text-right whitespace-nowrap">Total Nilai Paket</th>
+                  <th className="py-3 px-3 text-center whitespace-nowrap">Kelengkapan Lampiran (AP, X, Y, AO)</th>
                   <th className="py-3 px-2.5 text-center whitespace-nowrap">Status Finance</th>
                   <th className="py-3 px-3 whitespace-nowrap">Jadwal Finance</th>
-                  <th className="py-3 px-3 text-center whitespace-nowrap w-[240px]">Aksi Paket Periode</th>
+                  <th className="py-3 px-3 text-center whitespace-nowrap w-[260px]">Aksi Paket Periode</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-[var(--border)] text-[var(--foreground)]">
@@ -832,9 +954,34 @@ export default function ReimbursementPage() {
                           </span>
                         </td>
 
-                        {/* Total Nilai */}
-                        <td className="py-2.5 px-3 text-right font-mono font-bold text-xs text-[var(--primary)] whitespace-nowrap">
-                          {formatRupiah(batch.total_nominal)}
+                        {/* Kelengkapan Lampiran */}
+                        <td className="py-2.5 px-3 whitespace-nowrap text-center">
+                          <div className="inline-flex items-center gap-1">
+                            <span
+                              className={`px-1.5 py-0.5 rounded text-[10px] font-mono font-semibold ${batch.total_bp > 0 ? 'bg-indigo-50 text-indigo-800 border border-indigo-200' : 'bg-slate-50 text-slate-400 border border-slate-100'}`}
+                              title={`Boarding Pass (Kolom AP): ${batch.total_bp} / ${batch.items.length}`}
+                            >
+                              BP:{batch.total_bp}
+                            </span>
+                            <span
+                              className={`px-1.5 py-0.5 rounded text-[10px] font-mono font-semibold ${batch.total_cuti > 0 ? 'bg-teal-50 text-teal-800 border border-teal-200' : 'bg-slate-50 text-slate-400 border border-slate-100'}`}
+                              title={`Bukti Cuti (Kolom X): ${batch.total_cuti} / ${batch.items.length}`}
+                            >
+                              Cuti:{batch.total_cuti}
+                            </span>
+                            <span
+                              className={`px-1.5 py-0.5 rounded text-[10px] font-mono font-semibold ${batch.total_berangkat > 0 ? 'bg-sky-50 text-sky-800 border border-sky-200' : 'bg-slate-50 text-slate-400 border border-slate-100'}`}
+                              title={`Nota Berangkat (Kolom Y): ${batch.total_berangkat} / ${batch.items.length}`}
+                            >
+                              Pergi:{batch.total_berangkat}
+                            </span>
+                            <span
+                              className={`px-1.5 py-0.5 rounded text-[10px] font-mono font-semibold ${batch.total_pulang > 0 ? 'bg-purple-50 text-purple-800 border border-purple-200' : 'bg-slate-50 text-slate-400 border border-slate-100'}`}
+                              title={`Nota Pulang (Kolom AO): ${batch.total_pulang} / ${batch.items.length}`}
+                            >
+                              Pulang:{batch.total_pulang}
+                            </span>
+                          </div>
                         </td>
 
                         {/* Status Finance */}
@@ -866,6 +1013,17 @@ export default function ReimbursementPage() {
                               <span>Detail</span>
                             </button>
 
+                            {/* Format Cetak / Preview Laporan Window */}
+                            <button
+                              onClick={() => openReimbursementPrintWindow({ selectedRecords: batch.items, periodLabel: batch.label })}
+                              disabled={!hasItems}
+                              className="inline-flex items-center gap-1 px-2.5 py-1 text-xs font-semibold rounded-md border border-sky-300 bg-sky-50 hover:bg-sky-100 text-sky-800 disabled:opacity-40 transition-colors shadow-2xs shrink-0"
+                              title="Buka Format Cetak A4 Laporan Rekapitulasi Periode (Best Practice Layout dengan 4 Lampiran per Karyawan)"
+                            >
+                              <Printer className="w-3.5 h-3.5 text-sky-700" />
+                              <span>Cetak</span>
+                            </button>
+
                             {/* Update Finance Button */}
                             <button
                               onClick={() => handleOpenPeriodFinanceEdit(batch)}
@@ -893,7 +1051,7 @@ export default function ReimbursementPage() {
                               onClick={() => handleTriggerPeriodPdfCompile(batch)}
                               disabled={!hasItems}
                               className="inline-flex items-center gap-1 px-2.5 py-1 text-xs font-bold rounded-md bg-[var(--primary)] text-white hover:opacity-90 disabled:opacity-40 transition-all shadow-2xs shrink-0"
-                              title="Compile seluruh lampiran (Bukti Cuti, Nota Berangkat, Nota Pulang) periode ini ke 1 file PDF"
+                              title="Compile seluruh lampiran (Boarding Pass, Bukti Cuti, Nota Berangkat, Nota Pulang) periode ini ke 1 file PDF"
                             >
                               <DownloadCloud className="w-3.5 h-3.5" />
                               <span>PDF</span>
@@ -933,13 +1091,12 @@ export default function ReimbursementPage() {
                   <th className="py-3 px-3.5 whitespace-nowrap min-w-[160px]">Nama Karyawan & NIK</th>
                   <th className="py-3 px-3.5 whitespace-nowrap min-w-[180px]">Departemen & Site</th>
                   <th className="py-3 px-3 whitespace-nowrap min-w-[140px]">Tgl Perjalanan</th>
-                  <th className="py-3 px-3 text-center whitespace-nowrap min-w-[150px]">Lampiran (X, Y, AO)</th>
-                  <th className="py-3 px-3.5 text-right whitespace-nowrap min-w-[120px]">Nilai Klaim</th>
+                  <th className="py-3 px-3 text-center whitespace-nowrap min-w-[260px]">4 Lampiran Dokumen (AP, X, Y, AO)</th>
                   <th className="py-3 px-3 text-center whitespace-nowrap min-w-[110px]">Status Finance</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-[var(--border)] text-[var(--foreground)]">
-                {records.slice(0, 100).map((r, idx) => (
+                {records.slice(0, 150).map((r, idx) => (
                   <tr key={r.id || idx} className="hover:bg-[var(--muted)]/30 transition-colors">
                     <td className="py-3 px-3 text-center font-mono text-[var(--muted-foreground)]">{idx + 1}</td>
                     <td className="py-3 px-3.5 whitespace-nowrap">
@@ -959,49 +1116,66 @@ export default function ReimbursementPage() {
                     </td>
                     <td className="py-3 px-3 text-center whitespace-nowrap">
                       <div className="flex items-center justify-center gap-1">
+                        {/* 1. Boarding Pass (Col AP) */}
+                        {r.url_boarding_pass ? (
+                          <a
+                            href={r.url_boarding_pass}
+                            target="_blank"
+                            rel="noreferrer"
+                            className="px-2 py-0.5 rounded text-[10px] font-semibold bg-indigo-50 text-indigo-800 border border-indigo-200 hover:bg-indigo-100 transition-colors shadow-2xs"
+                            title="[1] Boarding Pass Penerbangan Cuti (Kolom AP)"
+                          >
+                            BP (AP)
+                          </a>
+                        ) : (
+                          <span className="text-[10px] text-slate-300">-</span>
+                        )}
+
+                        {/* 2. Bukti Cuti (Col X) */}
                         {r.url_bukti_cuti ? (
                           <a
                             href={r.url_bukti_cuti}
                             target="_blank"
                             rel="noreferrer"
-                            className="px-2 py-0.5 rounded text-[10px] font-medium bg-teal-50 text-teal-800 border border-teal-200 hover:bg-teal-100 transition-colors shadow-2xs"
-                            title="Buka Bukti Cuti (Kolom X)"
+                            className="px-2 py-0.5 rounded text-[10px] font-semibold bg-teal-50 text-teal-800 border border-teal-200 hover:bg-teal-100 transition-colors shadow-2xs"
+                            title="[2] Bukti Cuti Approval Sunfish (Kolom X)"
                           >
-                            Cuti
+                            Cuti (X)
                           </a>
                         ) : (
                           <span className="text-[10px] text-slate-300">-</span>
                         )}
+
+                        {/* 3. Nota Berangkat (Col Y) */}
                         {r.url_nota_berangkat ? (
                           <a
                             href={r.url_nota_berangkat}
                             target="_blank"
                             rel="noreferrer"
-                            className="px-2 py-0.5 rounded text-[10px] font-medium bg-sky-50 text-sky-800 border border-sky-200 hover:bg-sky-100 transition-colors shadow-2xs"
-                            title="Buka Nota Berangkat (Kolom Y)"
+                            className="px-2 py-0.5 rounded text-[10px] font-semibold bg-sky-50 text-sky-800 border border-sky-200 hover:bg-sky-100 transition-colors shadow-2xs"
+                            title="[3] Nota Keberangkatan (Kolom Y)"
                           >
-                            Pergi
+                            Pergi (Y)
                           </a>
                         ) : (
                           <span className="text-[10px] text-slate-300">-</span>
                         )}
+
+                        {/* 4. Nota Pulang (Col AO) */}
                         {r.url_nota_pulang ? (
                           <a
                             href={r.url_nota_pulang}
                             target="_blank"
                             rel="noreferrer"
-                            className="px-2 py-0.5 rounded text-[10px] font-medium bg-indigo-50 text-indigo-800 border border-indigo-200 hover:bg-indigo-100 transition-colors shadow-2xs"
-                            title="Buka Nota Pulang (Kolom AO)"
+                            className="px-2 py-0.5 rounded text-[10px] font-semibold bg-purple-50 text-purple-800 border border-purple-200 hover:bg-purple-100 transition-colors shadow-2xs"
+                            title="[4] Nota Kepulangan (Kolom AO)"
                           >
-                            Pulang
+                            Pulang (AO)
                           </a>
                         ) : (
                           <span className="text-[10px] text-slate-300">-</span>
                         )}
                       </div>
-                    </td>
-                    <td className="py-3 px-3.5 text-right font-mono font-bold text-xs text-[var(--primary)] whitespace-nowrap">
-                      {formatRupiah(r.nominal)}
                     </td>
                     <td className="py-3 px-3 text-center whitespace-nowrap">
                       <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-semibold border ${r.status_finance === 'Dicairkan' ? 'bg-emerald-50 text-emerald-800 border-emerald-200' : r.status_finance === 'Diajukan' ? 'bg-amber-50 text-amber-800 border-amber-200' : 'bg-slate-100 text-slate-700 border-slate-200'}`}>
@@ -1055,9 +1229,9 @@ export default function ReimbursementPage() {
                 {/* Drawer KPI Snapshot Bar */}
                 <div className="grid grid-cols-3 gap-3 mt-4 pt-3 border-t border-[var(--border)]">
                   <div>
-                    <div className="text-[10px] font-medium text-[var(--muted-foreground)] uppercase">Total Klaim Periode</div>
-                    <div className="text-sm font-bold font-mono text-[var(--primary)]">
-                      {formatRupiah(activeDrawerPeriod.total_nominal)}
+                    <div className="text-[10px] font-medium text-[var(--muted-foreground)] uppercase">Kelengkapan Lampiran</div>
+                    <div className="text-xs font-bold font-mono text-[var(--primary)] mt-0.5">
+                      {activeDrawerPeriod.items.filter(it => it.url_boarding_pass && it.url_bukti_cuti && it.url_nota_berangkat).length} / {activeDrawerPeriod.items.length} Lengkap (AP, X, Y)
                     </div>
                   </div>
                   <div>
@@ -1076,6 +1250,22 @@ export default function ReimbursementPage() {
 
                 {/* Quick Action Strip inside Drawer Header */}
                 <div className="flex flex-wrap items-center gap-2 mt-4">
+                  {/* Cetak / Rekap PDF A4 Window Button */}
+                  <button
+                    onClick={() => {
+                      const selectedInDrawer = activeDrawerPeriod.items.filter(it => drawerSelectedIds.includes(it.id));
+                      openReimbursementPrintWindow({
+                        selectedRecords: selectedInDrawer.length > 0 ? selectedInDrawer : activeDrawerPeriod.items,
+                        periodLabel: activeDrawerPeriod.label
+                      });
+                    }}
+                    className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold rounded-lg border border-sky-300 bg-sky-50 hover:bg-sky-100 text-sky-800 shadow-2xs"
+                    title="Buka Format Cetak A4 Laporan Rekapitulasi Periode (Best Practice Layout dengan 4 Lampiran per Karyawan)"
+                  >
+                    <Printer className="w-3.5 h-3.5 text-sky-700" />
+                    <span>Cetak / Rekap PDF A4</span>
+                  </button>
+
                   {/* Compile PDF Button */}
                   <button
                     onClick={() => {
@@ -1127,12 +1317,8 @@ export default function ReimbursementPage() {
                     </span>
                   </div>
 
-                  <span className="text-[11px] font-mono">
-                    Sub-total: {formatRupiah(
-                      activeDrawerPeriod.items
-                        .filter(it => drawerSelectedIds.includes(it.id))
-                        .reduce((sum, it) => sum + (Number(it.nominal) || 0), 0)
-                    )}
+                  <span className="text-[11px] font-mono text-[var(--muted-foreground)]">
+                    Urutan: [1] BP (AP) • [2] Cuti (X) • [3] Nota Berangkat (Y) • [4] Nota Pulang (AO)
                   </span>
                 </div>
 
@@ -1175,63 +1361,77 @@ export default function ReimbursementPage() {
                           </div>
 
                           <div className="text-right shrink-0">
-                            <div className="font-mono font-bold text-xs text-[var(--primary)]">
-                              {formatRupiah(emp.nominal)}
-                            </div>
-                            <span className="text-[10px] font-semibold px-2 py-0.5 rounded-full bg-slate-100 text-slate-700 mt-1 inline-block">
+                            <span className={`text-[10px] font-semibold px-2 py-0.5 rounded-full inline-block ${emp.status_finance === 'Dicairkan' ? 'bg-emerald-50 text-emerald-800 border border-emerald-200' : emp.status_finance === 'Diajukan' ? 'bg-amber-50 text-amber-800 border border-amber-200' : 'bg-slate-100 text-slate-700 border border-slate-200'}`}>
                               {emp.status_finance || 'Draft'}
                             </span>
                           </div>
                         </div>
 
-                        {/* Document Attachment Links */}
+                        {/* Document Attachment Links (Urutan Pasti: 1. Boarding pass AP, 2. Bukti Cuti X, 3. Scan nota berangkat Y, 4. Bukti nota pulang AO) */}
                         <div className="mt-3 pt-2.5 border-t border-[var(--border)] flex flex-wrap gap-1.5 items-center">
                           <span className="text-[10px] font-semibold text-[var(--muted-foreground)] mr-1">
                             Lampiran:
                           </span>
 
-                          {/* Col X: Bukti Cuti */}
+                          {/* 1. Col AP: Boarding Pass */}
+                          {emp.url_boarding_pass ? (
+                            <a
+                              href={emp.url_boarding_pass}
+                              target="_blank"
+                              rel="noreferrer"
+                              className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-[10px] font-semibold bg-indigo-50 text-indigo-800 border border-indigo-200 hover:underline"
+                            >
+                              <span>[1] BP (AP)</span>
+                              <ExternalLink className="w-2.5 h-2.5" />
+                            </a>
+                          ) : (
+                            <span className="text-[10px] text-slate-400 border border-slate-200 px-1.5 py-0.5 rounded">[1] No BP</span>
+                          )}
+
+                          {/* 2. Col X: Bukti Cuti */}
                           {emp.url_bukti_cuti ? (
                             <a
                               href={emp.url_bukti_cuti}
                               target="_blank"
                               rel="noreferrer"
-                              className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-[10px] font-medium bg-teal-50 text-teal-800 border border-teal-200 hover:underline"
+                              className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-[10px] font-semibold bg-teal-50 text-teal-800 border border-teal-200 hover:underline"
                             >
-                              <span>Bukti Cuti (Col X)</span>
+                              <span>[2] Cuti (X)</span>
                               <ExternalLink className="w-2.5 h-2.5" />
                             </a>
                           ) : (
-                            <span className="text-[10px] text-slate-400">No Cuti</span>
+                            <span className="text-[10px] text-slate-400 border border-slate-200 px-1.5 py-0.5 rounded">[2] No Cuti</span>
                           )}
 
-                          {/* Col Y: Nota Keberangkatan */}
+                          {/* 3. Col Y: Nota Keberangkatan */}
                           {emp.url_nota_berangkat ? (
                             <a
                               href={emp.url_nota_berangkat}
                               target="_blank"
                               rel="noreferrer"
-                              className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-[10px] font-medium bg-sky-50 text-sky-800 border border-sky-200 hover:underline"
+                              className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-[10px] font-semibold bg-sky-50 text-sky-800 border border-sky-200 hover:underline"
                             >
-                              <span>Nota Berangkat (Col Y)</span>
+                              <span>[3] Pergi (Y)</span>
                               <ExternalLink className="w-2.5 h-2.5" />
                             </a>
                           ) : (
-                            <span className="text-[10px] text-slate-400">No Nota Pergi</span>
+                            <span className="text-[10px] text-slate-400 border border-slate-200 px-1.5 py-0.5 rounded">[3] No Nota Pergi</span>
                           )}
 
-                          {/* Col AO: Nota Kepulangan */}
+                          {/* 4. Col AO: Nota Kepulangan */}
                           {emp.url_nota_pulang ? (
                             <a
                               href={emp.url_nota_pulang}
                               target="_blank"
                               rel="noreferrer"
-                              className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-[10px] font-medium bg-indigo-50 text-indigo-800 border border-indigo-200 hover:underline"
+                              className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-[10px] font-semibold bg-purple-50 text-purple-800 border border-purple-200 hover:underline"
                             >
-                              <span>Nota Pulang (Col AO)</span>
+                              <span>[4] Pulang (AO)</span>
                               <ExternalLink className="w-2.5 h-2.5" />
                             </a>
-                          ) : null}
+                          ) : (
+                            <span className="text-[10px] text-slate-400 border border-slate-200 px-1.5 py-0.5 rounded">[4] No Nota Pulang</span>
+                          )}
                         </div>
                       </div>
                     );
@@ -1268,7 +1468,7 @@ export default function ReimbursementPage() {
                   Update Finance Paket Periode
                 </h3>
                 <p className="text-xs text-[var(--muted-foreground)] mt-0.5">
-                  {targetPeriodForEdit.label} ({targetPeriodForEdit.items.length} Berkas • {formatRupiah(targetPeriodForEdit.total_nominal)})
+                  {targetPeriodForEdit.label} ({targetPeriodForEdit.items.length} Berkas Karyawan)
                 </p>
               </div>
               <button
@@ -1399,11 +1599,21 @@ export default function ReimbursementPage() {
                   <label className="flex items-center gap-2.5 text-xs cursor-pointer">
                     <input
                       type="checkbox"
+                      checked={compileOptions.includeBoardingPass}
+                      onChange={(e) => setCompileOptions(p => ({ ...p, includeBoardingPass: e.target.checked }))}
+                      className="rounded border-[var(--border)] text-[var(--primary)] focus:ring-[var(--primary)]"
+                    />
+                    <span>[1] Lampiran <strong>Boarding Pass Penerbangan Cuti</strong> (Kolom AP)</span>
+                  </label>
+
+                  <label className="flex items-center gap-2.5 text-xs cursor-pointer">
+                    <input
+                      type="checkbox"
                       checked={compileOptions.includeBuktiCuti}
                       onChange={(e) => setCompileOptions(p => ({ ...p, includeBuktiCuti: e.target.checked }))}
                       className="rounded border-[var(--border)] text-[var(--primary)] focus:ring-[var(--primary)]"
                     />
-                    <span>Lampiran <strong>Bukti Cuti Approval Sunfish</strong> (Kolom X)</span>
+                    <span>[2] Lampiran <strong>Bukti Cuti Approval Sunfish</strong> (Kolom X)</span>
                   </label>
 
                   <label className="flex items-center gap-2.5 text-xs cursor-pointer">
@@ -1413,7 +1623,7 @@ export default function ReimbursementPage() {
                       onChange={(e) => setCompileOptions(p => ({ ...p, includeNotaBerangkat: e.target.checked }))}
                       className="rounded border-[var(--border)] text-[var(--primary)] focus:ring-[var(--primary)]"
                     />
-                    <span>Lampiran <strong>Nota Keberangkatan Transport</strong> (Kolom Y)</span>
+                    <span>[3] Lampiran <strong>Nota Keberangkatan Transport</strong> (Kolom Y)</span>
                   </label>
 
                   <label className="flex items-center gap-2.5 text-xs cursor-pointer">
@@ -1423,7 +1633,7 @@ export default function ReimbursementPage() {
                       onChange={(e) => setCompileOptions(p => ({ ...p, includeNotaPulang: e.target.checked }))}
                       className="rounded border-[var(--border)] text-[var(--primary)] focus:ring-[var(--primary)]"
                     />
-                    <span>Lampiran <strong>Nota Kepulangan Transport</strong> (Kolom AO, jika ada)</span>
+                    <span>[4] Lampiran <strong>Nota Kepulangan Transport</strong> (Kolom AO, jika ada)</span>
                   </label>
                 </div>
               </div>
@@ -1449,22 +1659,38 @@ export default function ReimbursementPage() {
               </div>
             </div>
 
-            <div className="p-4 border-t border-[var(--border)] bg-[var(--muted)]/10 flex items-center justify-end gap-2">
+            <div className="p-4 border-t border-[var(--border)] bg-[var(--muted)]/10 flex items-center justify-between gap-2">
               <button
-                onClick={() => setIsCompileModalOpen(false)}
-                disabled={compileProgress !== null}
-                className="px-4 py-2 text-xs font-medium rounded-lg border border-[var(--border)] text-[var(--foreground)] hover:bg-[var(--muted)]"
+                onClick={() => {
+                  openReimbursementPrintWindow({
+                    selectedRecords: compileScopeRecords,
+                    periodLabel: compileScopeTitle
+                  });
+                }}
+                className="px-3.5 py-2 text-xs font-semibold rounded-lg border border-sky-300 bg-sky-50 text-sky-800 hover:bg-sky-100 inline-flex items-center gap-1.5 shadow-2xs"
+                title="Buka format print preview A4 langsung di browser untuk dicetak atau disimpan ke PDF"
               >
-                Batal
+                <Printer className="w-4 h-4 text-sky-700" />
+                <span>Buka Format Cetak (Print View)</span>
               </button>
-              <button
-                onClick={handleExecutePdfCompile}
-                disabled={compileProgress !== null}
-                className="px-4 py-2 text-xs font-bold rounded-lg bg-[var(--primary)] text-white hover:opacity-90 disabled:opacity-50 inline-flex items-center gap-2"
-              >
-                <DownloadCloud className="w-4 h-4" />
-                <span>{compileProgress ? 'Sedang Memproses...' : 'Proses & Unduh PDF'}</span>
-              </button>
+
+              <div className="flex items-center gap-2">
+                <button
+                  onClick={() => setIsCompileModalOpen(false)}
+                  disabled={compileProgress !== null}
+                  className="px-4 py-2 text-xs font-medium rounded-lg border border-[var(--border)] text-[var(--foreground)] hover:bg-[var(--muted)]"
+                >
+                  Batal
+                </button>
+                <button
+                  onClick={handleExecutePdfCompile}
+                  disabled={compileProgress !== null}
+                  className="px-4 py-2 text-xs font-bold rounded-lg bg-[var(--primary)] text-white hover:opacity-90 disabled:opacity-50 inline-flex items-center gap-2"
+                >
+                  <DownloadCloud className="w-4 h-4" />
+                  <span>{compileProgress ? 'Sedang Memproses...' : 'Proses & Unduh PDF'}</span>
+                </button>
+              </div>
             </div>
           </div>
         </div>

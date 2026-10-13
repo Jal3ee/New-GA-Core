@@ -1,15 +1,13 @@
 import * as XLSX from 'xlsx';
 
 /**
- * Format currency to IDR number
- */
-export function formatRupiah(num) {
-  if (!num && num !== 0) return 'Rp 0';
-  return 'Rp ' + Number(num).toLocaleString('id-ID');
-}
-
-/**
  * Export a single period package to an Excel (.xlsx) file
+ * Standardized order:
+ * 1. Boarding Pass (Kolom AP)
+ * 2. Bukti Cuti Approve (Kolom X)
+ * 3. Scan Nota Keberangkatan (Kolom Y)
+ * 4. Bukti Nota Kepulangan (Kolom AO)
+ * Nominal tidak di-include sesuai instruksi pengguna.
  * 
  * @param {Object} periodBatch - The period package object
  * @param {string} periodBatch.label - e.g. "Januari 2026 - Periode 1 (1-15 Jan)"
@@ -24,14 +22,13 @@ export function exportPeriodToExcel(periodBatch) {
 
   // 1. Data Rows
   const rows = [
-    ['REKAPITULASI REIMBURSEMENT TIKET & TRANSPORT'],
+    ['REKAPITULASI BERKAS REIMBURSEMENT TIKET & TRANSPORT'],
     ['PT. ANTANG GUNUNG MERATUS - DEPARTEMEN GENERAL AFFAIRS'],
     [''],
     ['Periode', periodBatch.label || `${periodBatch.bulan} ${periodBatch.periode_ke}`],
     ['Rentang Waktu', periodBatch.rentang_tanggal || '-'],
     ['Jumlah Berkas', `${periodBatch.items.length} Karyawan`],
-    ['Total Nilai Reimbursement', Number(periodBatch.total_nominal || 0)],
-    ['Status Finance', periodBatch.status_finance || 'Draft'],
+    ['Status Finance', periodBatch.status_finance || 'Diajukan'],
     ['Tanggal Pengajuan ke Finance', periodBatch.tgl_pengajuan_finance || '-'],
     ['Tanggal Pencairan dari Finance', periodBatch.tgl_pencairan_finance || '-'],
     ['Tanggal Unduh Rekapan', new Date().toLocaleDateString('id-ID', { year: 'numeric', month: 'long', day: 'numeric' })],
@@ -48,11 +45,11 @@ export function exportPeriodToExcel(periodBatch) {
       'Site',
       'Tgl Berangkat',
       'Tgl Pulang',
-      'Nilai Klaim (Rp)',
       'Status Finance',
-      'Link Bukti Cuti (Col X)',
-      'Link Nota Keberangkatan (Col Y)',
-      'Link Nota Kepulangan (Col AO)',
+      '1. Link Boarding Pass (Col AP)',
+      '2. Link Bukti Cuti Sunfish (Col X)',
+      '3. Link Nota Keberangkatan (Col Y)',
+      '4. Link Nota Kepulangan (Col AO)',
       'Catatan'
     ]
   ];
@@ -70,8 +67,8 @@ export function exportPeriodToExcel(periodBatch) {
       item.site || '-',
       item.tgl_berangkat || '-',
       item.tgl_pulang || '-',
-      Number(item.nominal || 0),
-      item.status_finance || periodBatch.status_finance || 'Draft',
+      item.status_finance || periodBatch.status_finance || 'Diajukan',
+      item.url_boarding_pass || '-',
       item.url_bukti_cuti || '-',
       item.url_nota_berangkat || '-',
       item.url_nota_pulang || '-',
@@ -90,26 +87,25 @@ export function exportPeriodToExcel(periodBatch) {
     { wch: 14 }, // NIK
     { wch: 15 }, // HP
     { wch: 12 }, // Status
-    { wch: 22 }, // Dept
+    { wch: 25 }, // Dept
     { wch: 10 }, // Site
     { wch: 14 }, // Tgl Berangkat
     { wch: 14 }, // Tgl Pulang
-    { wch: 16 }, // Nominal
     { wch: 14 }, // Status Finance
-    { wch: 40 }, // Link X
-    { wch: 40 }, // Link Y
-    { wch: 40 }, // Link AO
-    { wch: 20 }, // Catatan
+    { wch: 42 }, // Link Boarding Pass AP
+    { wch: 42 }, // Link Bukti Cuti X
+    { wch: 42 }, // Link Nota Keberangkatan Y
+    { wch: 42 }, // Link Nota Kepulangan AO
+    { wch: 20 }  // Catatan
   ];
 
-  const sheetName = (periodBatch.periode_ke ? periodBatch.periode_ke.replace(/[^a-zA-Z0-9]/g, '_').substring(0, 25) : 'Rekap_Periode');
-  XLSX.utils.book_append_sheet(wb, ws, sheetName);
+  // Append to workbook
+  const safeSheetName = (periodBatch.bulan ? `${periodBatch.bulan.substring(0, 3)}_${periodBatch.periode_ke ? (periodBatch.periode_ke.includes('1') ? 'P1' : 'P2') : ''}` : 'Rekap').substring(0, 31);
+  XLSX.utils.book_append_sheet(wb, ws, safeSheetName);
 
-  // File Name
-  const safeTitle = (periodBatch.label || `${periodBatch.bulan}_${periodBatch.periode_ke}`)
-    .replace(/[^a-zA-Z0-9_-]/g, '_');
-  const fileName = `Rekap_Reimbursement_${safeTitle}.xlsx`;
+  // Generate file and trigger download
+  const safeTitle = (periodBatch.label || 'Periode').replace(/[^a-zA-Z0-9_-]/g, '_');
+  const fileName = `Rekap_Berkas_Reimbursement_${safeTitle}.xlsx`;
 
-  // Trigger write and download
   XLSX.writeFile(wb, fileName);
 }
