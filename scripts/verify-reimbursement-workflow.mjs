@@ -69,6 +69,23 @@ try {
   const privateResult = await request('/api/reimbursements/period-status', { token: admin });
   assert.equal(privateResult.result.data['2026-01-P1'].tgl_pencairan_finance, '2026-10-14');
   assert.equal(privateResult.result.data['2026-01-P1'].catatan, 'PRIVATE INTERNAL NOTE');
+  for (const total of [-1, '1.5', '1000000000000', 'Rp 1.000', false]) {
+    assert.equal((await request(path, { token: admin, method: 'PUT', data: { workflow_status: 'paid', total_reimbursement: total } })).status, 400);
+  }
+  const amountSaved = await request(path, { token: admin, method: 'PUT', data: { workflow_status: 'paid', total_reimbursement: '12500000' } });
+  assert.equal(amountSaved.status, 200);
+  assert.equal(amountSaved.result.data.total_reimbursement, '12500000');
+  const amountRead = await request('/api/reimbursements/period-status', { token: admin });
+  assert.equal(amountRead.result.data['2026-01-P1'].total_reimbursement, '12500000');
+  const publicWithAmount = await lookup('0000123456');
+  assert(!/12500000|total_reimbursement/.test(JSON.stringify(publicWithAmount.result)));
+  const statusOnly = await request(path, { token: admin, method: 'PUT', data: { workflow_status: 'compiling' } });
+  assert.equal(statusOnly.result.data.total_reimbursement, '12500000');
+  const zeroSaved = await request(path, { token: admin, method: 'PUT', data: { workflow_status: 'compiling', total_reimbursement: 0 } });
+  assert.equal(zeroSaved.result.data.total_reimbursement, '0');
+  const amountCleared = await request(path, { token: admin, method: 'PUT', data: { workflow_status: 'compiling', total_reimbursement: null } });
+  assert.equal(amountCleared.result.data.total_reimbursement, null);
+  console.log('PASS: private manual period totals persist, survive status-only updates, accept zero/clear, reject invalid amounts, and never appear publicly.');
   console.log('PASS: complete NIK matching despite lost leading zeros, mixed-format history, no suffix matching, Dept Head terminology, all workflow stages, database persistence, private-field allowlist, role protection and safe migration.');
 } finally {
   await new Promise(resolve => server.close(resolve));

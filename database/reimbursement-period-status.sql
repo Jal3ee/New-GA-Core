@@ -8,3 +8,5 @@ CREATE TABLE IF NOT EXISTS reimbursement_period_status (
   updated_by VARCHAR(100),
   updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
+ALTER TABLE reimbursement_period_status ADD COLUMN IF NOT EXISTS total_reimbursement NUMERIC(12,0)
+  CHECK (total_reimbursement >= 0);

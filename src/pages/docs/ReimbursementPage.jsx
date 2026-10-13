@@ -119,6 +119,7 @@ export default function ReimbursementPage() {
   const [periodEditForm, setPeriodEditForm] = useState({
     workflow_status: 'not_started',
     status_finance: 'Draft',
+    total_reimbursement: '',
     tgl_pengajuan_finance: '',
     tgl_pencairan_finance: '',
     catatan: ''
@@ -327,6 +328,7 @@ export default function ReimbursementPage() {
         total_pulang,
         status_finance: status,
         workflow_status: code,
+        total_reimbursement: meta.total_reimbursement ?? null,
         tgl_pengajuan_finance: meta.tgl_pengajuan_finance || batch.tgl_pengajuan_finance || '',
         tgl_pencairan_finance: meta.tgl_pencairan_finance || batch.tgl_pencairan_finance || '',
         catatan: meta.catatan || batch.catatan || ''
@@ -389,6 +391,8 @@ export default function ReimbursementPage() {
       totalBuktiCuti,
       totalNotaBerangkat,
       totalNotaPulang,
+      totalReimbursement: activeBatches.reduce((sum, batch) => sum + Number(batch.total_reimbursement || 0), 0),
+      recordedTotalsCount: activeBatches.filter(batch => batch.total_reimbursement !== null).length,
       dicairkanCount: dicairkanBatches.length,
       pendingCount: pendingBatches.length,
       draftCount: draftBatches.length
@@ -497,6 +501,7 @@ export default function ReimbursementPage() {
     setPeriodEditForm({
       workflow_status: batch.workflow_status,
       status_finance: legacyFinanceStatus(batch.workflow_status),
+      total_reimbursement: batch.total_reimbursement ?? '',
       tgl_pengajuan_finance: batch.tgl_pengajuan_finance || '',
       tgl_pencairan_finance: batch.tgl_pencairan_finance || '',
       catatan: batch.catatan || ''
@@ -508,12 +513,12 @@ export default function ReimbursementPage() {
     if (!targetPeriodForEdit || !canEditStatus || !statusReady || isSavingStatus) return;
     setIsSavingStatus(true);
     try {
-      const result = await reimbursementClient.savePeriodStatus(targetPeriodForEdit.key, periodEditForm);
+      const result = await reimbursementClient.savePeriodStatus(targetPeriodForEdit.key, { ...periodEditForm, total_reimbursement: periodEditForm.total_reimbursement === '' ? null : periodEditForm.total_reimbursement });
       const saved = result.data;
       setPeriodFinanceMeta(prev => ({ ...prev, [targetPeriodForEdit.key]: saved }));
       setRecords(prev => prev.map(record => targetPeriodForEdit.items.some(item => item.id === record.id) ? { ...record, ...saved } : record));
       if (activeDrawerPeriod?.key === targetPeriodForEdit.key) setActiveDrawerPeriod(prev => ({ ...prev, ...saved, items: prev.items.map(item => ({ ...item, ...saved })) }));
-      toast.success('Status periode tersimpan dan tersedia di halaman publik.');
+      toast.success('Data periode tersimpan. Status diperbarui di web publik; nilai tetap internal.');
       setIsPeriodEditModalOpen(false);
     } catch (error) { toast.error('Status belum tersimpan: ' + error.message); }
     finally { setIsSavingStatus(false); }
@@ -658,6 +663,11 @@ export default function ReimbursementPage() {
       ------------------------------------------------------------- */}
       {isDashboardVisible && (
         <div className="space-y-4">
+          <div className="bg-[var(--card)] border border-[var(--border)] rounded-xl p-4 shadow-xs">
+            <div className="flex items-center gap-2 text-xs font-semibold text-[var(--muted-foreground)]"><DollarSign className="w-4 h-4" /> Total Nilai Reimbursement</div>
+            <div className="text-2xl font-bold font-mono text-[var(--primary)] mt-1">{statusReady ? formatRupiah(macroKPIs.totalReimbursement) : 'Memuat...'}</div>
+            <p className="text-xs text-[var(--muted-foreground)] mt-1">{macroKPIs.recordedTotalsCount} dari {macroKPIs.totalPeriodsCount} periode sudah diisi. Klik <strong>Ubah Status & Nilai</strong> pada periode untuk mencatat total manual dan memperbarui tahap proses.</p>
+          </div>
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
             <div className="bg-[var(--card)] border border-[var(--border)] rounded-xl p-4 shadow-xs">
               <div className="text-xs font-semibold uppercase tracking-wider text-[var(--muted-foreground)]">
@@ -700,7 +710,7 @@ export default function ReimbursementPage() {
 
             <div className="bg-[var(--card)] border border-[var(--border)] rounded-xl p-4 shadow-xs">
               <div className="text-xs font-semibold uppercase tracking-wider text-[var(--muted-foreground)]">
-                Scan Nota Transport (Y & AO)
+                Scan Nota Transport
               </div>
               <div className="text-xl font-bold font-mono text-sky-600 mt-1">
                 {macroKPIs.totalNotaBerangkat} <span className="text-xs font-normal text-[var(--muted-foreground)]">Pergi</span> • {macroKPIs.totalNotaPulang} <span className="text-xs font-normal text-[var(--muted-foreground)]">Pulang</span>
@@ -787,8 +797,9 @@ export default function ReimbursementPage() {
                   <th className="py-3 px-3 whitespace-nowrap">Paket Periode</th>
                   <th className="py-3 px-3 whitespace-nowrap">Rentang Form</th>
                   <th className="py-3 px-2.5 text-center whitespace-nowrap">Jumlah Berkas</th>
-                  <th className="py-3 px-3 text-center whitespace-nowrap">Kelengkapan Lampiran (AP, X, Y, AO)</th>
+                  <th className="py-3 px-3 text-center whitespace-nowrap">Kelengkapan Lampiran</th>
                   <th className="py-3 px-2.5 text-center whitespace-nowrap">Status Proses</th>
+                  <th className="py-3 px-3 text-right whitespace-nowrap">Total Reimbursement</th>
                   <th className="py-3 px-3 whitespace-nowrap">Jadwal Finance</th>
                   <th className="py-3 px-3 text-center whitespace-nowrap w-[260px]">Aksi Paket Periode</th>
                 </tr>
@@ -796,7 +807,7 @@ export default function ReimbursementPage() {
               <tbody className="divide-y divide-[var(--border)] text-[var(--foreground)]">
                 {filteredPeriodBatches.length === 0 ? (
                   <tr>
-                    <td colSpan={8} className="py-12 text-center text-[var(--muted-foreground)]">
+                    <td colSpan={9} className="py-12 text-center text-[var(--muted-foreground)]">
                       <Calendar className="w-10 h-10 mx-auto text-[var(--muted-foreground)]/40 mb-2" />
                       <p className="font-semibold text-sm">Tidak ada paket periode yang cocok dengan filter.</p>
                       <p className="text-xs text-[var(--muted-foreground)] mt-1">Coba ubah filter bulan atau status finance.</p>
@@ -890,6 +901,9 @@ export default function ReimbursementPage() {
                           </span>
                         </td>
 
+                        <td className="py-2.5 px-3 text-right font-mono text-xs whitespace-nowrap">
+                          {statusReady ? batch.total_reimbursement === null ? <span className="text-[var(--muted-foreground)]">Belum diisi</span> : formatRupiah(batch.total_reimbursement) : 'Memuat...'}
+                        </td>
                         {/* Jadwal Finance */}
                         <td className="py-2.5 px-3 font-mono text-[10px] whitespace-nowrap">
                           <div className="text-[var(--foreground)]">Ajuan: <span className="font-semibold">{batch.tgl_pengajuan_finance || '-'}</span></div>
@@ -929,7 +943,7 @@ export default function ReimbursementPage() {
                               title="Ubah status proses periode dan tampilkan di halaman publik"
                             >
                               <Edit className="w-3.5 h-3.5 text-amber-700" />
-                              <span>Ubah Status</span>
+                              <span>Ubah Status & Nilai</span>
                             </button>
 
                             {/* Unduh Rekapan Excel */}
@@ -1190,7 +1204,7 @@ export default function ReimbursementPage() {
                     className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold rounded-lg border border-[var(--border)] bg-[var(--card)] hover:bg-[var(--muted)] text-[var(--foreground)] shadow-2xs"
                   >
                     <Edit className="w-3.5 h-3.5 text-amber-600" />
-                    <span>Ubah Status</span>
+                    <span>Ubah Status & Nilai</span>
                   </button>
                 </div>
               </div>
@@ -1362,7 +1376,7 @@ export default function ReimbursementPage() {
             <div className="p-5 border-b border-[var(--border)] flex items-center justify-between">
               <div>
                 <h3 className="text-base font-bold text-[var(--foreground)]">
-                  Ubah Status Proses Periode
+                  Ubah Status & Nilai Periode
                 </h3>
                 <p className="text-xs text-[var(--muted-foreground)] mt-0.5">
                   {targetPeriodForEdit.label} ({targetPeriodForEdit.items.length} Berkas Karyawan)
@@ -1377,6 +1391,11 @@ export default function ReimbursementPage() {
             </div>
 
             <div className="p-5 space-y-3.5">
+              <div>
+                <label htmlFor="reimbursement-total" className="block text-xs font-semibold text-[var(--foreground)] mb-1">Total Nilai Reimbursement (Rp)</label>
+                <input id="reimbursement-total" type="number" inputMode="numeric" min="0" max="999999999999" step="1" value={periodEditForm.total_reimbursement} onChange={event => setPeriodEditForm(form => ({ ...form, total_reimbursement: event.target.value }))} placeholder="Masukkan total periode" className="w-full px-3 py-2 text-xs rounded-lg border border-[var(--border)] bg-[var(--card)] text-[var(--foreground)] font-mono" />
+                <p className="text-[11px] text-[var(--muted-foreground)] mt-1">Diisi manual untuk pendataan internal. Kosongkan jika belum diketahui. Tidak tampil di web publik atau rekap PDF.</p>
+              </div>
               <div>
                 <label className="block text-xs font-semibold text-[var(--foreground)] mb-1">
                   Tahap Proses Periode
@@ -1446,7 +1465,7 @@ export default function ReimbursementPage() {
                 disabled={!canEditStatus || !statusReady || isSavingStatus}
                 className="px-4 py-2 text-xs font-bold rounded-lg bg-[var(--primary)] text-white hover:opacity-90"
               >
-                {isSavingStatus ? 'Menyimpan...' : statusReady ? 'Simpan Status Periode' : 'Status bersama belum dimuat'}
+                {isSavingStatus ? 'Menyimpan...' : statusReady ? 'Simpan Data Periode' : 'Status bersama belum dimuat'}
               </button>
             </div>
           </div>

@@ -73,9 +73,12 @@ export function registerReimbursementWorkflow(app, { query, authenticateToken, r
       if (data[field] && (!datePattern.test(data[field]) || Number.isNaN(Date.parse(data[field])) || new Date(data[field]).toISOString().slice(0, 10) !== data[field])) throw new Error('Tanggal tidak valid.');
     }
     if (typeof data.catatan !== 'undefined' && (typeof data.catatan !== 'string' || data.catatan.length > 2000)) throw new Error('Catatan maksimal 2000 karakter.');
-    const result = await query(`INSERT INTO reimbursement_period_status (period_key, workflow_status, tgl_pengajuan_finance, tgl_pencairan_finance, catatan, updated_by)
-      VALUES ($1,$2,$3,$4,$5,$6) ON CONFLICT (period_key) ${importOnly ? 'DO NOTHING' : `DO UPDATE SET workflow_status=EXCLUDED.workflow_status, tgl_pengajuan_finance=EXCLUDED.tgl_pengajuan_finance, tgl_pencairan_finance=EXCLUDED.tgl_pencairan_finance, catatan=EXCLUDED.catatan, updated_by=EXCLUDED.updated_by, updated_at=NOW()`} RETURNING *`,
-      [key, code, data.tgl_pengajuan_finance || null, code === 'paid' ? data.tgl_pencairan_finance || null : null, data.catatan || '', user.nik || user.id]);
+    const hasTotal = Object.hasOwn(data, 'total_reimbursement');
+    const total = data.total_reimbursement;
+    if (hasTotal && total !== null && (typeof total !== 'string' && typeof total !== 'number' || !/^\d{1,12}$/.test(String(total)))) throw new Error('Total reimbursement harus berupa rupiah bulat, 0 sampai 999999999999.');
+    const result = await query(`INSERT INTO reimbursement_period_status (period_key, workflow_status, tgl_pengajuan_finance, tgl_pencairan_finance, catatan, updated_by, total_reimbursement)
+      VALUES ($1,$2,$3,$4,$5,$6,$7) ON CONFLICT (period_key) ${importOnly ? 'DO NOTHING' : `DO UPDATE SET workflow_status=EXCLUDED.workflow_status, tgl_pengajuan_finance=EXCLUDED.tgl_pengajuan_finance, tgl_pencairan_finance=EXCLUDED.tgl_pencairan_finance, catatan=EXCLUDED.catatan, updated_by=EXCLUDED.updated_by, total_reimbursement=CASE WHEN $8::boolean THEN EXCLUDED.total_reimbursement ELSE reimbursement_period_status.total_reimbursement END, updated_at=NOW()`} RETURNING *`,
+      [key, code, data.tgl_pengajuan_finance || null, code === 'paid' ? data.tgl_pencairan_finance || null : null, data.catatan || '', user.nik || user.id, hasTotal ? total : null, ...(!importOnly ? [hasTotal] : [])]);
     return result.rows[0] ? metadata(result.rows[0]) : null;
   };
 
@@ -89,7 +92,7 @@ export function registerReimbursementWorkflow(app, { query, authenticateToken, r
       const saved = await save(key, data, req.user);
       return res.json({ ok: true, data: saved });
     } catch (error) {
-      if (/Tanggal tidak valid|Catatan maksimal/.test(error.message)) return res.status(400).json({ ok: false, error: error.message });
+      if (/Tanggal tidak valid|Catatan maksimal|Total reimbursement harus/.test(error.message)) return res.status(400).json({ ok: false, error: error.message });
       errors(res)(error);
     }
   });
