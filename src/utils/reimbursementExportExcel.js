@@ -1,4 +1,5 @@
 import * as XLSX from 'xlsx';
+import { formatEmployeeName, workflowLabel } from './reimbursementWorkflow';
 
 /**
  * Export a single period package to an Excel (.xlsx) file
@@ -28,7 +29,7 @@ export function exportPeriodToExcel(periodBatch) {
     ['Periode', periodBatch.label || `${periodBatch.bulan} ${periodBatch.periode_ke}`],
     ['Rentang Waktu', periodBatch.rentang_tanggal || '-'],
     ['Jumlah Berkas', `${periodBatch.items.length} Karyawan`],
-    ['Status Finance', periodBatch.status_finance || 'Diajukan'],
+    ['Status Proses', workflowLabel(periodBatch.workflow_status)],
     ['Tanggal Pengajuan ke Finance', periodBatch.tgl_pengajuan_finance || '-'],
     ['Tanggal Pencairan dari Finance', periodBatch.tgl_pencairan_finance || '-'],
     ['Tanggal Unduh Rekapan', new Date().toLocaleDateString('id-ID', { year: 'numeric', month: 'long', day: 'numeric' })],
@@ -45,11 +46,11 @@ export function exportPeriodToExcel(periodBatch) {
       'Site',
       'Tgl Berangkat',
       'Tgl Pulang',
-      'Status Finance',
-      '1. Link Boarding Pass (Col AP)',
-      '2. Link Bukti Cuti Sunfish (Col X)',
-      '3. Link Nota Keberangkatan (Col Y)',
-      '4. Link Nota Kepulangan (Col AO)',
+      'Status Proses',
+      '1. Link Boarding Pass',
+      '2. Link Bukti Cuti',
+      '3. Link Nota Keberangkatan',
+      '4. Link Nota Kepulangan',
       'Catatan'
     ]
   ];
@@ -59,7 +60,7 @@ export function exportPeriodToExcel(periodBatch) {
     rows.push([
       idx + 1,
       item.timestamp || '-',
-      item.nama || '-',
+      formatEmployeeName(item.nama) || '-',
       item.nik || '-',
       item.no_hp || '-',
       item.status || 'CUTI',
@@ -67,7 +68,7 @@ export function exportPeriodToExcel(periodBatch) {
       item.site || '-',
       item.tgl_berangkat || '-',
       item.tgl_pulang || '-',
-      item.status_finance || periodBatch.status_finance || 'Diajukan',
+      workflowLabel(periodBatch.workflow_status),
       item.url_boarding_pass || '-',
       item.url_bukti_cuti || '-',
       item.url_nota_berangkat || '-',

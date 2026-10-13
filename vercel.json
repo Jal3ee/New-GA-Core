@@ -1,5 +1,10 @@
 {
   "version": 2,
+  "functions": {
+    "api/index.js": {
+      "includeFiles": "database/reimbursement-period-status.sql"
+    }
+  },
   "rewrites": [
     {
       "source": "/api/(.*)",

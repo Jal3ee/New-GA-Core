@@ -32,6 +32,9 @@ import {
   Sparkles,
   DollarSign
 } from 'lucide-react';
+import { reimbursementClient } from '../../lib/reimbursementClient';
+import { useAuth } from '../../context/AuthContext';
+import { REIMBURSEMENT_STEPS, workflowCode, workflowLabel, legacyFinanceStatus, formatEmployeeName } from '../../utils/reimbursementWorkflow';
 import CustomSelect from '../../components/ui/CustomSelect';
 import { parseReimbursementCSV } from '../../utils/reimbursementSource';
 import initialReimbursementData from '../../data/initialReimbursementData.json';
@@ -54,6 +57,8 @@ export const SPREADSHEET_CSV_URL = 'https://docs.google.com/spreadsheets/d/1qBCW
 export { parseReimbursementCSV } from '../../utils/reimbursementSource';
 
 export default function ReimbursementPage() {
+  const { user } = useAuth();
+  const canEditStatus = ['admin', 'ga_admin', 'ga_gl', 'ga_sh', 'finance'].includes(user?.role?.toLowerCase());
   // State: Raw employee reimbursement records
   const [records, setRecords] = useState(() => {
     try {
@@ -71,6 +76,28 @@ export default function ReimbursementPage() {
     } catch {}
     return {};
   });
+
+  const [statusReady, setStatusReady] = useState(false);
+  const [isSavingStatus, setIsSavingStatus] = useState(false);
+
+  useEffect(() => {
+    let active = true;
+    const load = async () => {
+      try {
+        const remote = await reimbursementClient.getPeriodStatuses();
+        let local = {};
+        try { local = JSON.parse(localStorage.getItem('garda_period_finance_meta') || '{}') || {}; } catch {}
+        const missing = Object.fromEntries(Object.entries(local).filter(([key]) => !remote.data[key]));
+        if (canEditStatus && Object.keys(missing).length) {
+          await reimbursementClient.importPeriodStatuses(missing);
+          remote.data = (await reimbursementClient.getPeriodStatuses()).data;
+        }
+        if (active) { setPeriodFinanceMeta(remote.data); setStatusReady(true); }
+      } catch (error) { if (active) toast.error('Status bersama belum dimuat: ' + error.message); }
+    };
+    load();
+    return () => { active = false; };
+  }, [canEditStatus]);
 
   // UI state
   const [viewMode, setViewMode] = useState('periods'); // 'periods' (1 paket per periode) or 'individuals' (flat list)
@@ -90,7 +117,8 @@ export default function ReimbursementPage() {
   const [isPeriodEditModalOpen, setIsPeriodEditModalOpen] = useState(false);
   const [targetPeriodForEdit, setTargetPeriodForEdit] = useState(null);
   const [periodEditForm, setPeriodEditForm] = useState({
-    status_finance: 'Diajukan',
+    workflow_status: 'not_started',
+    status_finance: 'Draft',
     tgl_pengajuan_finance: '',
     tgl_pencairan_finance: '',
     catatan: ''
@@ -283,18 +311,8 @@ export default function ReimbursementPage() {
     return Object.values(batchMap).map(batch => {
       const meta = periodFinanceMeta[batch.key] || {};
 
-      let status = meta.status_finance;
-      if (!status) {
-        if (batch.items.length === 0) {
-          status = 'Belum Ada Berkas';
-        } else if (batch.items.every(item => item.status_finance === 'Dicairkan')) {
-          status = 'Dicairkan';
-        } else if (batch.items.some(item => item.status_finance === 'Diajukan' || item.status_finance === 'Dicairkan')) {
-          status = 'Diajukan';
-        } else {
-          status = 'Draft';
-        }
-      }
+      const code = workflowCode(meta);
+      const status = batch.items.length ? legacyFinanceStatus(code) : 'Belum Ada Berkas';
 
       const total_bp = batch.items.filter(it => it.url_boarding_pass).length;
       const total_cuti = batch.items.filter(it => it.url_bukti_cuti).length;
@@ -308,6 +326,7 @@ export default function ReimbursementPage() {
         total_berangkat,
         total_pulang,
         status_finance: status,
+        workflow_status: code,
         tgl_pengajuan_finance: meta.tgl_pengajuan_finance || batch.tgl_pengajuan_finance || '',
         tgl_pencairan_finance: meta.tgl_pencairan_finance || batch.tgl_pencairan_finance || '',
         catatan: meta.catatan || batch.catatan || ''
@@ -328,8 +347,8 @@ export default function ReimbursementPage() {
       if (selectedPeriodCut === 'p1' && batch.cutNumber !== 1) return false;
       if (selectedPeriodCut === 'p2' && batch.cutNumber !== 2) return false;
 
-      // Status Finance
-      if (selectedStatusFinance !== 'all' && batch.status_finance !== selectedStatusFinance) return false;
+      // Status Proses
+      if (selectedStatusFinance !== 'all' && batch.workflow_status !== selectedStatusFinance) return false;
 
       // Search (matches month name or employee name inside this period)
       if (searchQuery.trim()) {
@@ -475,62 +494,28 @@ export default function ReimbursementPage() {
   const handleOpenPeriodFinanceEdit = (batch) => {
     setTargetPeriodForEdit(batch);
     setPeriodEditForm({
-      status_finance: batch.status_finance === 'Belum Ada Berkas' ? 'Draft' : batch.status_finance,
-      tgl_pengajuan_finance: batch.tgl_pengajuan_finance || new Date().toISOString().slice(0, 10),
+      workflow_status: batch.workflow_status,
+      status_finance: legacyFinanceStatus(batch.workflow_status),
+      tgl_pengajuan_finance: batch.tgl_pengajuan_finance || '',
       tgl_pencairan_finance: batch.tgl_pencairan_finance || '',
       catatan: batch.catatan || ''
     });
     setIsPeriodEditModalOpen(true);
   };
 
-  const handleSavePeriodFinance = () => {
-    if (!targetPeriodForEdit) return;
-
-    // 1. Update period finance meta
-    setPeriodFinanceMeta(prev => ({
-      ...prev,
-      [targetPeriodForEdit.key]: {
-        status_finance: periodEditForm.status_finance,
-        tgl_pengajuan_finance: periodEditForm.tgl_pengajuan_finance,
-        tgl_pencairan_finance: periodEditForm.tgl_pencairan_finance,
-        catatan: periodEditForm.catatan
-      }
-    }));
-
-    // 2. Propagate to individual records belonging to this period
-    setRecords(prev =>
-      prev.map(r => {
-        const isThisPeriod = targetPeriodForEdit.items.some(it => it.id === r.id);
-        if (!isThisPeriod) return r;
-        return {
-          ...r,
-          status_finance: periodEditForm.status_finance,
-          tgl_pengajuan_finance: periodEditForm.tgl_pengajuan_finance,
-          tgl_pencairan_finance: periodEditForm.tgl_pencairan_finance,
-          catatan: periodEditForm.catatan
-        };
-      })
-    );
-
-    // If currently active in drawer, update active drawer copy too
-    if (activeDrawerPeriod && activeDrawerPeriod.key === targetPeriodForEdit.key) {
-      setActiveDrawerPeriod(prev => ({
-        ...prev,
-        status_finance: periodEditForm.status_finance,
-        tgl_pengajuan_finance: periodEditForm.tgl_pengajuan_finance,
-        tgl_pencairan_finance: periodEditForm.tgl_pencairan_finance,
-        catatan: periodEditForm.catatan,
-        items: prev.items.map(it => ({
-          ...it,
-          status_finance: periodEditForm.status_finance,
-          tgl_pengajuan_finance: periodEditForm.tgl_pengajuan_finance,
-          tgl_pencairan_finance: periodEditForm.tgl_pencairan_finance
-        }))
-      }));
-    }
-
-    toast.success(`Status Finance untuk paket ${targetPeriodForEdit.label} berhasil diperbarui.`);
-    setIsPeriodEditModalOpen(false);
+  const handleSavePeriodFinance = async () => {
+    if (!targetPeriodForEdit || !canEditStatus || !statusReady || isSavingStatus) return;
+    setIsSavingStatus(true);
+    try {
+      const result = await reimbursementClient.savePeriodStatus(targetPeriodForEdit.key, periodEditForm);
+      const saved = result.data;
+      setPeriodFinanceMeta(prev => ({ ...prev, [targetPeriodForEdit.key]: saved }));
+      setRecords(prev => prev.map(record => targetPeriodForEdit.items.some(item => item.id === record.id) ? { ...record, ...saved } : record));
+      if (activeDrawerPeriod?.key === targetPeriodForEdit.key) setActiveDrawerPeriod(prev => ({ ...prev, ...saved, items: prev.items.map(item => ({ ...item, ...saved })) }));
+      toast.success('Status periode tersimpan dan tersedia di halaman publik.');
+      setIsPeriodEditModalOpen(false);
+    } catch (error) { toast.error('Status belum tersimpan: ' + error.message); }
+    finally { setIsSavingStatus(false); }
   };
 
   // Dropdown options
@@ -546,10 +531,8 @@ export default function ReimbursementPage() {
   ];
 
   const statusFinanceOptions = [
-    { value: 'all', label: 'Semua Status Finance' },
-    { value: 'Draft', label: 'Draft / Belum Diajukan' },
-    { value: 'Diajukan', label: 'Diajukan ke Finance' },
-    { value: 'Dicairkan', label: 'Sudah Dicairkan (Lunas)' }
+    { value: 'all', label: 'Semua Status Proses' },
+    ...REIMBURSEMENT_STEPS.map(step => ({ value: step.code, label: step.label }))
   ];
 
   return (
@@ -569,6 +552,7 @@ export default function ReimbursementPage() {
         </div>
 
         <div className="flex items-center gap-2 shrink-0">
+          <a href="/cek-reimbursement" target="_blank" rel="noopener noreferrer" className="inline-flex items-center gap-1.5 px-3 py-2 text-sm rounded-lg border border-[var(--border)] text-[var(--foreground)]"><ExternalLink className="w-4 h-4" /> Halaman Publik</a>
           {/* Toggle Dashboard Button */}
           <button
             onClick={() => setIsDashboardVisible(!isDashboardVisible)}
@@ -689,7 +673,7 @@ export default function ReimbursementPage() {
 
             <div className="bg-[var(--card)] border border-[var(--border)] rounded-xl p-4 shadow-xs">
               <div className="text-xs font-semibold uppercase tracking-wider text-[var(--muted-foreground)]">
-                Boarding Pass (Kolom AP)
+                Boarding Pass
               </div>
               <div className="text-2xl font-bold font-mono text-indigo-600 mt-1">
                 {macroKPIs.totalBoardingPass} <span className="text-sm font-normal text-[var(--muted-foreground)]">Berkas</span>
@@ -702,7 +686,7 @@ export default function ReimbursementPage() {
 
             <div className="bg-[var(--card)] border border-[var(--border)] rounded-xl p-4 shadow-xs">
               <div className="text-xs font-semibold uppercase tracking-wider text-[var(--muted-foreground)]">
-                Bukti Cuti Approve (Kolom X)
+                Bukti Cuti Approve
               </div>
               <div className="text-2xl font-bold font-mono text-teal-600 mt-1">
                 {macroKPIs.totalBuktiCuti} <span className="text-sm font-normal text-[var(--muted-foreground)]">Berkas</span>
@@ -756,14 +740,14 @@ export default function ReimbursementPage() {
             />
           </div>
 
-          {/* Status Finance Filter */}
+          {/* Status Proses Filter */}
           <div className="w-52">
             <CustomSelect
               icon={CheckCircle2}
               value={selectedStatusFinance}
               onChange={setSelectedStatusFinance}
               options={statusFinanceOptions}
-              placeholder="Status Finance..."
+              placeholder="Status Proses..."
             />
           </div>
         </div>
@@ -803,7 +787,7 @@ export default function ReimbursementPage() {
                   <th className="py-3 px-3 whitespace-nowrap">Rentang Form</th>
                   <th className="py-3 px-2.5 text-center whitespace-nowrap">Jumlah Berkas</th>
                   <th className="py-3 px-3 text-center whitespace-nowrap">Kelengkapan Lampiran (AP, X, Y, AO)</th>
-                  <th className="py-3 px-2.5 text-center whitespace-nowrap">Status Finance</th>
+                  <th className="py-3 px-2.5 text-center whitespace-nowrap">Status Proses</th>
                   <th className="py-3 px-3 whitespace-nowrap">Jadwal Finance</th>
                   <th className="py-3 px-3 text-center whitespace-nowrap w-[260px]">Aksi Paket Periode</th>
                 </tr>
@@ -871,37 +855,37 @@ export default function ReimbursementPage() {
                           <div className="inline-flex items-center gap-1">
                             <span
                               className={`px-1.5 py-0.5 rounded text-[10px] font-mono font-semibold ${batch.total_bp > 0 ? 'bg-indigo-50 text-indigo-800 border border-indigo-200' : 'bg-slate-50 text-slate-400 border border-slate-100'}`}
-                              title={`Boarding Pass (Kolom AP): ${batch.total_bp} / ${batch.items.length}`}
+                              title={`Boarding Pass: ${batch.total_bp} / ${batch.items.length}`}
                             >
                               BP:{batch.total_bp}
                             </span>
                             <span
                               className={`px-1.5 py-0.5 rounded text-[10px] font-mono font-semibold ${batch.total_cuti > 0 ? 'bg-teal-50 text-teal-800 border border-teal-200' : 'bg-slate-50 text-slate-400 border border-slate-100'}`}
-                              title={`Bukti Cuti (Kolom X): ${batch.total_cuti} / ${batch.items.length}`}
+                              title={`Bukti Cuti: ${batch.total_cuti} / ${batch.items.length}`}
                             >
                               Cuti:{batch.total_cuti}
                             </span>
                             <span
                               className={`px-1.5 py-0.5 rounded text-[10px] font-mono font-semibold ${batch.total_berangkat > 0 ? 'bg-sky-50 text-sky-800 border border-sky-200' : 'bg-slate-50 text-slate-400 border border-slate-100'}`}
-                              title={`Nota Berangkat (Kolom Y): ${batch.total_berangkat} / ${batch.items.length}`}
+                              title={`Nota Berangkat: ${batch.total_berangkat} / ${batch.items.length}`}
                             >
                               Pergi:{batch.total_berangkat}
                             </span>
                             <span
                               className={`px-1.5 py-0.5 rounded text-[10px] font-mono font-semibold ${batch.total_pulang > 0 ? 'bg-purple-50 text-purple-800 border border-purple-200' : 'bg-slate-50 text-slate-400 border border-slate-100'}`}
-                              title={`Nota Pulang (Kolom AO): ${batch.total_pulang} / ${batch.items.length}`}
+                              title={`Nota Pulang: ${batch.total_pulang} / ${batch.items.length}`}
                             >
                               Pulang:{batch.total_pulang}
                             </span>
                           </div>
                         </td>
 
-                        {/* Status Finance */}
+                        {/* Status Proses */}
                         <td className="py-2.5 px-2.5 text-center whitespace-nowrap">
                           <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-semibold border ${statusBadgeClass}`}>
                             {batch.status_finance === 'Dicairkan' && <CheckCircle2 className="w-3 h-3 text-emerald-600 shrink-0" />}
                             {batch.status_finance === 'Diajukan' && <Clock className="w-3 h-3 text-amber-600 shrink-0" />}
-                            {batch.status_finance}
+                            {batch.items.length ? workflowLabel(batch.workflow_status) : 'Belum Ada Berkas'}
                           </span>
                         </td>
 
@@ -941,10 +925,10 @@ export default function ReimbursementPage() {
                               onClick={() => handleOpenPeriodFinanceEdit(batch)}
                               disabled={!hasItems}
                               className="inline-flex items-center gap-1 px-2.5 py-1 text-xs font-semibold rounded-md border border-amber-300/80 bg-amber-50/70 hover:bg-amber-100 text-amber-900 disabled:opacity-40 transition-colors shadow-2xs shrink-0"
-                              title="Update status dan jadwal Finance 1 paket periode ini"
+                              title="Ubah status proses periode dan tampilkan di halaman publik"
                             >
                               <Edit className="w-3.5 h-3.5 text-amber-700" />
-                              <span>Finance</span>
+                              <span>Ubah Status</span>
                             </button>
 
                             {/* Unduh Rekapan Excel */}
@@ -1004,7 +988,7 @@ export default function ReimbursementPage() {
                   <th className="py-3 px-3.5 whitespace-nowrap min-w-[180px]">Departemen & Site</th>
                   <th className="py-3 px-3 whitespace-nowrap min-w-[140px]">Tgl Perjalanan</th>
                   <th className="py-3 px-3 text-center whitespace-nowrap min-w-[260px]">4 Lampiran Dokumen (AP, X, Y, AO)</th>
-                  <th className="py-3 px-3 text-center whitespace-nowrap min-w-[110px]">Status Finance</th>
+                  <th className="py-3 px-3 text-center whitespace-nowrap min-w-[110px]">Status Proses</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-[var(--border)] text-[var(--foreground)]">
@@ -1016,7 +1000,7 @@ export default function ReimbursementPage() {
                       <div className="text-[10px] text-[var(--primary)] font-bold">{r.periode_bulan} • {r.periode_ke}</div>
                     </td>
                     <td className="py-3 px-3.5 whitespace-nowrap">
-                      <div className="font-bold text-xs text-[var(--foreground)]">{r.nama}</div>
+                      <div className="font-bold text-xs text-[var(--foreground)]">{formatEmployeeName(r.nama)}</div>
                       <div className="text-[10px] font-mono text-[var(--muted-foreground)]">NIK: {r.nik}</div>
                     </td>
                     <td className="py-3 px-3.5">
@@ -1035,9 +1019,9 @@ export default function ReimbursementPage() {
                             target="_blank"
                             rel="noreferrer"
                             className="px-2 py-0.5 rounded text-[10px] font-semibold bg-indigo-50 text-indigo-800 border border-indigo-200 hover:bg-indigo-100 transition-colors shadow-2xs"
-                            title="[1] Boarding Pass Penerbangan Cuti (Kolom AP)"
+                            title="[1] Boarding Pass Penerbangan Cuti"
                           >
-                            BP (AP)
+                            BP
                           </a>
                         ) : (
                           <span className="text-[10px] text-slate-300">-</span>
@@ -1050,9 +1034,9 @@ export default function ReimbursementPage() {
                             target="_blank"
                             rel="noreferrer"
                             className="px-2 py-0.5 rounded text-[10px] font-semibold bg-teal-50 text-teal-800 border border-teal-200 hover:bg-teal-100 transition-colors shadow-2xs"
-                            title="[2] Bukti Cuti Approval Sunfish (Kolom X)"
+                            title="[2] Bukti Cuti Approval Sunfish"
                           >
-                            Cuti (X)
+                            Cuti
                           </a>
                         ) : (
                           <span className="text-[10px] text-slate-300">-</span>
@@ -1065,9 +1049,9 @@ export default function ReimbursementPage() {
                             target="_blank"
                             rel="noreferrer"
                             className="px-2 py-0.5 rounded text-[10px] font-semibold bg-sky-50 text-sky-800 border border-sky-200 hover:bg-sky-100 transition-colors shadow-2xs"
-                            title="[3] Nota Keberangkatan (Kolom Y)"
+                            title="[3] Nota Keberangkatan"
                           >
-                            Pergi (Y)
+                            Pergi
                           </a>
                         ) : (
                           <span className="text-[10px] text-slate-300">-</span>
@@ -1080,9 +1064,9 @@ export default function ReimbursementPage() {
                             target="_blank"
                             rel="noreferrer"
                             className="px-2 py-0.5 rounded text-[10px] font-semibold bg-purple-50 text-purple-800 border border-purple-200 hover:bg-purple-100 transition-colors shadow-2xs"
-                            title="[4] Nota Kepulangan (Kolom AO)"
+                            title="[4] Nota Kepulangan"
                           >
-                            Pulang (AO)
+                            Pulang
                           </a>
                         ) : (
                           <span className="text-[10px] text-slate-300">-</span>
@@ -1091,7 +1075,7 @@ export default function ReimbursementPage() {
                     </td>
                     <td className="py-3 px-3 text-center whitespace-nowrap">
                       <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-semibold border ${r.status_finance === 'Dicairkan' ? 'bg-emerald-50 text-emerald-800 border-emerald-200' : r.status_finance === 'Diajukan' ? 'bg-amber-50 text-amber-800 border-amber-200' : 'bg-slate-100 text-slate-700 border-slate-200'}`}>
-                        {r.status_finance || 'Draft'}
+                        {workflowLabel(workflowCode(periodFinanceMeta[`${r.periode_tahun}-${String(MONTHS.indexOf(r.periode_bulan)+1).padStart(2,'0')}-${r.periode_ke?.includes('1-15') ? 'P1' : 'P2'}`] || {}))}
                       </span>
                     </td>
                   </tr>
@@ -1147,9 +1131,9 @@ export default function ReimbursementPage() {
                     </div>
                   </div>
                   <div>
-                    <div className="text-[10px] font-medium text-[var(--muted-foreground)] uppercase">Status Finance</div>
+                    <div className="text-[10px] font-medium text-[var(--muted-foreground)] uppercase">Status Proses</div>
                     <div className="text-xs font-bold text-[var(--foreground)]">
-                      {activeDrawerPeriod.status_finance}
+                      {workflowLabel(activeDrawerPeriod.workflow_status)}
                     </div>
                   </div>
                   <div>
@@ -1205,7 +1189,7 @@ export default function ReimbursementPage() {
                     className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold rounded-lg border border-[var(--border)] bg-[var(--card)] hover:bg-[var(--muted)] text-[var(--foreground)] shadow-2xs"
                   >
                     <Edit className="w-3.5 h-3.5 text-amber-600" />
-                    <span>Update Finance</span>
+                    <span>Ubah Status</span>
                   </button>
                 </div>
               </div>
@@ -1230,7 +1214,7 @@ export default function ReimbursementPage() {
                   </div>
 
                   <span className="text-[11px] font-mono text-[var(--muted-foreground)]">
-                    Urutan: [1] BP (AP) • [2] Cuti (X) • [3] Nota Berangkat (Y) • [4] Nota Pulang (AO)
+                    Urutan: [1] BP • [2] Cuti • [3] Nota Berangkat • [4] Nota Pulang
                   </span>
                 </div>
 
@@ -1258,7 +1242,7 @@ export default function ReimbursementPage() {
 
                             <div>
                               <div className="font-bold text-xs text-[var(--foreground)]">
-                                {emp.nama}
+                                {formatEmployeeName(emp.nama)}
                               </div>
                               <div className="text-[11px] font-mono text-[var(--muted-foreground)]">
                                 NIK: {emp.nik || '-'} • HP: {emp.no_hp || '-'}
@@ -1274,7 +1258,7 @@ export default function ReimbursementPage() {
 
                           <div className="text-right shrink-0">
                             <span className={`text-[10px] font-semibold px-2 py-0.5 rounded-full inline-block ${emp.status_finance === 'Dicairkan' ? 'bg-emerald-50 text-emerald-800 border border-emerald-200' : emp.status_finance === 'Diajukan' ? 'bg-amber-50 text-amber-800 border border-amber-200' : 'bg-slate-100 text-slate-700 border border-slate-200'}`}>
-                              {emp.status_finance || 'Draft'}
+                              {workflowLabel(activeDrawerPeriod.workflow_status)}
                             </span>
                           </div>
                         </div>
@@ -1293,7 +1277,7 @@ export default function ReimbursementPage() {
                               rel="noreferrer"
                               className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-[10px] font-semibold bg-indigo-50 text-indigo-800 border border-indigo-200 hover:underline"
                             >
-                              <span>[1] BP (AP)</span>
+                              <span>[1] BP</span>
                               <ExternalLink className="w-2.5 h-2.5" />
                             </a>
                           ) : (
@@ -1308,7 +1292,7 @@ export default function ReimbursementPage() {
                               rel="noreferrer"
                               className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-[10px] font-semibold bg-teal-50 text-teal-800 border border-teal-200 hover:underline"
                             >
-                              <span>[2] Cuti (X)</span>
+                              <span>[2] Cuti</span>
                               <ExternalLink className="w-2.5 h-2.5" />
                             </a>
                           ) : (
@@ -1323,7 +1307,7 @@ export default function ReimbursementPage() {
                               rel="noreferrer"
                               className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-[10px] font-semibold bg-sky-50 text-sky-800 border border-sky-200 hover:underline"
                             >
-                              <span>[3] Pergi (Y)</span>
+                              <span>[3] Pergi</span>
                               <ExternalLink className="w-2.5 h-2.5" />
                             </a>
                           ) : (
@@ -1338,7 +1322,7 @@ export default function ReimbursementPage() {
                               rel="noreferrer"
                               className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-[10px] font-semibold bg-purple-50 text-purple-800 border border-purple-200 hover:underline"
                             >
-                              <span>[4] Pulang (AO)</span>
+                              <span>[4] Pulang</span>
                               <ExternalLink className="w-2.5 h-2.5" />
                             </a>
                           ) : (
@@ -1377,7 +1361,7 @@ export default function ReimbursementPage() {
             <div className="p-5 border-b border-[var(--border)] flex items-center justify-between">
               <div>
                 <h3 className="text-base font-bold text-[var(--foreground)]">
-                  Update Finance Paket Periode
+                  Ubah Status Proses Periode
                 </h3>
                 <p className="text-xs text-[var(--muted-foreground)] mt-0.5">
                   {targetPeriodForEdit.label} ({targetPeriodForEdit.items.length} Berkas Karyawan)
@@ -1394,16 +1378,14 @@ export default function ReimbursementPage() {
             <div className="p-5 space-y-3.5">
               <div>
                 <label className="block text-xs font-semibold text-[var(--foreground)] mb-1">
-                  Status Finance untuk 1 Paket Ini
+                  Tahap Proses Periode
                 </label>
                 <select
-                  value={periodEditForm.status_finance}
-                  onChange={(e) => setPeriodEditForm(p => ({ ...p, status_finance: e.target.value }))}
+                  value={periodEditForm.workflow_status}
+                  onChange={(e) => setPeriodEditForm(p => ({ ...p, workflow_status: e.target.value, status_finance: legacyFinanceStatus(e.target.value) }))}
                   className="w-full px-3 py-2 text-xs rounded-lg border border-[var(--border)] bg-[var(--card)] text-[var(--foreground)] font-semibold"
                 >
-                  <option value="Draft">Draft (Belum Diajukan)</option>
-                  <option value="Diajukan">Diajukan ke Finance</option>
-                  <option value="Dicairkan">Sudah Dicairkan (Lunas)</option>
+                  {REIMBURSEMENT_STEPS.map(step => <option key={step.code} value={step.code}>{step.label}</option>)}
                 </select>
               </div>
 
@@ -1425,6 +1407,7 @@ export default function ReimbursementPage() {
                   </label>
                   <input
                     type="date"
+                    disabled={periodEditForm.workflow_status !== 'paid'}
                     value={periodEditForm.tgl_pencairan_finance}
                     onChange={(e) => setPeriodEditForm(p => ({ ...p, tgl_pencairan_finance: e.target.value }))}
                     className="w-full px-2.5 py-1.5 text-xs rounded-lg border border-[var(--border)] bg-[var(--card)] text-[var(--foreground)]"
@@ -1459,9 +1442,10 @@ export default function ReimbursementPage() {
               </button>
               <button
                 onClick={handleSavePeriodFinance}
+                disabled={!canEditStatus || !statusReady || isSavingStatus}
                 className="px-4 py-2 text-xs font-bold rounded-lg bg-[var(--primary)] text-white hover:opacity-90"
               >
-                Simpan Perubahan Paket
+                {isSavingStatus ? 'Menyimpan...' : statusReady ? 'Simpan Status Periode' : 'Status bersama belum dimuat'}
               </button>
             </div>
           </div>
@@ -1515,7 +1499,7 @@ export default function ReimbursementPage() {
                       onChange={(e) => setCompileOptions(p => ({ ...p, includeBoardingPass: e.target.checked }))}
                       className="rounded border-[var(--border)] text-[var(--primary)] focus:ring-[var(--primary)]"
                     />
-                    <span>[1] Lampiran <strong>Boarding Pass Penerbangan Cuti</strong> (Kolom AP)</span>
+                    <span>[1] Lampiran <strong>Boarding Pass Penerbangan Cuti</strong></span>
                   </label>
 
                   <label className="flex items-center gap-2.5 text-xs cursor-pointer">
@@ -1525,7 +1509,7 @@ export default function ReimbursementPage() {
                       onChange={(e) => setCompileOptions(p => ({ ...p, includeBuktiCuti: e.target.checked }))}
                       className="rounded border-[var(--border)] text-[var(--primary)] focus:ring-[var(--primary)]"
                     />
-                    <span>[2] Lampiran <strong>Bukti Cuti Approval Sunfish</strong> (Kolom X)</span>
+                    <span>[2] Lampiran <strong>Bukti Cuti Approval Sunfish</strong></span>
                   </label>
 
                   <label className="flex items-center gap-2.5 text-xs cursor-pointer">
@@ -1535,7 +1519,7 @@ export default function ReimbursementPage() {
                       onChange={(e) => setCompileOptions(p => ({ ...p, includeNotaBerangkat: e.target.checked }))}
                       className="rounded border-[var(--border)] text-[var(--primary)] focus:ring-[var(--primary)]"
                     />
-                    <span>[3] Lampiran <strong>Nota Keberangkatan Transport</strong> (Kolom Y)</span>
+                    <span>[3] Lampiran <strong>Nota Keberangkatan Transport</strong></span>
                   </label>
 
                   <label className="flex items-center gap-2.5 text-xs cursor-pointer">
@@ -1545,7 +1529,7 @@ export default function ReimbursementPage() {
                       onChange={(e) => setCompileOptions(p => ({ ...p, includeNotaPulang: e.target.checked }))}
                       className="rounded border-[var(--border)] text-[var(--primary)] focus:ring-[var(--primary)]"
                     />
-                    <span>[4] Lampiran <strong>Nota Kepulangan Transport</strong> (Kolom AO, jika ada)</span>
+                    <span>[4] Lampiran <strong>Nota Kepulangan Transport</strong></span>
                   </label>
                 </div>
               </div>

@@ -1,4 +1,5 @@
 import { PDFDocument, rgb, StandardFonts, degrees } from 'pdf-lib';
+import { formatEmployeeName } from './reimbursementWorkflow.js';
 
 const TYPES = [
   ['includeBoardingPass', 'url_boarding_pass', 'Boarding Pass', 'AP'],
@@ -65,7 +66,7 @@ export async function compileReimbursementPdf({ selectedRecords = [], options = 
   if (new Set(selectedRecords.map(reimbursementPeriodKey)).size !== 1) throw new Error('Pilih karyawan dari satu periode yang sama.');
   const types = TYPES.filter(([option]) => options[option] !== false);
   if (!types.length) throw new Error('Pilih minimal satu jenis lampiran.');
-  const records = [...selectedRecords].sort((a, b) => String(a.nama).localeCompare(String(b.nama), 'id') || String(a.nik).localeCompare(String(b.nik)) || String(a.id).localeCompare(String(b.id)));
+  const records = selectedRecords.map(record => ({ ...record, nama: formatEmployeeName(record.nama) })).sort((a, b) => a.nama.localeCompare(b.nama, 'id') || String(a.nik).localeCompare(String(b.nik)) || String(a.id).localeCompare(String(b.id)));
   const pdf = await PDFDocument.create();
   const regular = await pdf.embedFont(StandardFonts.Helvetica);
   const bold = await pdf.embedFont(StandardFonts.HelveticaBold);
@@ -129,7 +130,7 @@ export async function compileReimbursementPdf({ selectedRecords = [], options = 
           }
           assets.push(cache.get(url));
         } catch (error) {
-          throw new Error(`${record.nama} - ${label} (${column}): ${error.message}`);
+          throw new Error(`${record.nama} - ${label}: ${error.message}`);
         }
       }
       docs.push({ option, label, column, assets });
@@ -180,7 +181,7 @@ export async function compileReimbursementPdf({ selectedRecords = [], options = 
   }
 
   for (const { record, docs } of employees) {
-    for (const { option, label, column, assets } of docs) {
+    for (const { option, label, assets } of docs) {
       const units = assets.flatMap(asset => asset.pages ? asset.pages.map(unit => ({ unit, isPdf: true })) : [{ unit: asset.image, isPdf: false }]);
       // Missing submissions remain explicit in their correct position.
       for (const [index, item] of (units.length ? units : [null]).entries()) {
@@ -191,7 +192,7 @@ export async function compileReimbursementPdf({ selectedRecords = [], options = 
         y = text(page, `Departemen: ${record.departemen || '-'}`, 36, y - 2, 523, 10);
         y = text(page, period, 36, y - 3, 523, 9, regular, MUTED);
         const order = TYPES.findIndex(type => type[0] === option) + 1;
-        y = text(page, `${order}. ${label} (${column})${units.length > 1 ? ` | Halaman lampiran ${index + 1}/${units.length}` : ''}`, 36, y - 12, 523, 12, bold) - 10;
+        y = text(page, `${order}. ${label}${units.length > 1 ? ` | Halaman lampiran ${index + 1}/${units.length}` : ''}`, 36, y - 12, 523, 12, bold) - 10;
         page.drawLine({ start: { x: 36, y }, end: { x: 559, y }, thickness: 1, color: TEAL });
         if (item) {
           const { unit, isPdf } = item;
@@ -202,7 +203,7 @@ export async function compileReimbursementPdf({ selectedRecords = [], options = 
           if (isPdf) page.drawPage(unit, bounds);
           else page.drawImage(unit, bounds);
         } else {
-          text(page, 'Tidak ada lampiran pada kolom ' + column + ' di spreadsheet sumber.', 52, y - 48, 491, 12, regular, MUTED);
+          text(page, 'Lampiran ' + label.toLowerCase() + ' belum tersedia pada pengajuan ini.', 52, y - 48, 491, 12, regular, MUTED);
         }
       }
     }

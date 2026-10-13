@@ -1,10 +1,11 @@
 import { StrictMode } from 'react'
 import { createRoot } from 'react-dom/client'
-import './index.css'
-import App from './App.jsx'
+// The public service has its own entry, styles and data requests; it never mounts GA Core auth/layout.
+const publicService = /^\/cek-reimbursement\/?$/.test(window.location.pathname)
+const component = publicService
+  ? import('./pages/public/PublicReimbursementPage.jsx')
+  : Promise.all([import('./App.jsx'), import('./index.css')]).then(([app]) => app)
 
-createRoot(document.getElementById('root')).render(
-  <StrictMode>
-    <App />
-  </StrictMode>,
-)
+component.then(({ default: Page }) => {
+  createRoot(document.getElementById('root')).render(<StrictMode><Page /></StrictMode>)
+})

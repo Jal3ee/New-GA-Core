@@ -1,4 +1,5 @@
-import { parseReimbursementCSV, SPREADSHEET_CSV_URL } from '../src/utils/reimbursementSource.js';
+import { loadReimbursementRecords } from './reimbursementRecords.js';
+import { registerReimbursementWorkflow } from './reimbursementWorkflow.js';
 import { registerReimbursementAttachments } from './reimbursementAttachments.js';
 import express from 'express';
 import cors from 'cors';
@@ -38,6 +39,7 @@ app.use((req, res, next) => {
 });
 
 registerReimbursementAttachments(app, authenticateToken);
+registerReimbursementWorkflow(app, { query, authenticateToken, requireRole });
 
 app.use('/uploads', express.static(path.resolve(__dirname, '../public/uploads')));
 
@@ -822,9 +824,7 @@ app.post('/api/action', async (req, res) => {
     // 9. REIMBURSEMENTS (SINKRON DENGAN GOOGLE SPREADSHEET SUMBER DATA)
     if (action === 'GET_REIMBURSEMENTS' || action === 'SYNC_REIMBURSEMENTS') {
       try {
-        const response = await fetch(SPREADSHEET_CSV_URL, { signal: AbortSignal.timeout(20000) });
-        if (!response.ok || !(response.headers.get('content-type') || '').includes('csv')) throw new Error('Spreadsheet tidak dapat diakses');
-        const records = parseReimbursementCSV(await response.text());
+        const records = await loadReimbursementRecords();
         return res.json({ ok: true, data: records, count: records.length, source: 'google_spreadsheet' });
       } catch (error) {
         return res.status(502).json({ ok: false, error: 'Gagal membaca spreadsheet sumber. ' + error.message });

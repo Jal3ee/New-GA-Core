@@ -21,7 +21,14 @@ Tanpa kredensial, backend mencoba mengunduh berkas yang tersedia melalui tautan 
 
 ## Verifikasi
 
+Halaman publik `/cek-reimbursement` memiliki tampilan tersendiri dan tidak memerlukan login. Pencarian memakai NIK lengkap, mempertahankan nol di depan, serta menampilkan periode lama sampai terbaru. API hanya mengirim nama, NIK, departemen, site, periode dan status; nominal, kontak, catatan internal dan tautan lampiran tidak dikirim.
+
+Di GA Core, pilih periode reimbursement lalu **Ubah Status Proses Periode**. Status disimpan di PostgreSQL (`reimbursement_period_status`), sehingga pencarian publik membaca status yang sama. Tahapnya: Belum Diproses, Penyusunan Rekap, Persetujuan GA Site, Persetujuan Kepala GA & Finance, Proses Pencairan, Selesai Dicairkan. Periode tanpa status tersimpan dimulai sebagai Belum Diproses. Admin/GA/Finance berwenang menyimpan status; pengunjung publik hanya dapat mencari NIK. Data lama yang tersimpan di browser admin dimigrasikan hanya jika periode belum mempunyai status di server.
+
+Tabel dibuat secara aditif saat endpoint pertama kali dipakai; skema tersedia di `database/reimbursement-period-status.sql` dan disertakan dalam fungsi Vercel. Tidak perlu menjalankan ulang migrasi/seeding aplikasi. Nama pada rekap memakai kapital awal setiap kata dan judul lampiran tidak menampilkan kode kolom.
+
 - `npm run build`
+- `node scripts/verify-reimbursement-workflow.mjs`: pencarian persis, urutan periode, pembatasan informasi publik, izin edit, semua tahap, persistensi dan migrasi. Perubahan data uji dibatalkan dengan rollback transaksi.
 - `node scripts/verify-reimbursement.mjs`: pemetaan CSV referensi dan spreadsheet live, pengawetan NIK, periode, gambar, PDF multi-halaman dan rotasi, pagination daftar, penolakan campuran periode dan kegagalan unduh, serta rendering PNG untuk pemeriksaan visual.
 - `node scripts/verify-reimbursement-api.mjs`: server pengujian lokal terpisah, autentikasi wajib, penolakan ID yang tidak tercantum dan pemeriksaan akses Drive asli. Tidak mengubah data aplikasi.
 

@@ -39,7 +39,7 @@ const sourceBytes=await source.save();
 const canvas=createCanvas(1200,600); const ctx=canvas.getContext('2d');
 ctx.fillStyle='#ffffff';ctx.fillRect(0,0,1200,600);ctx.fillStyle='#0f5c56';ctx.fillRect(40,40,1120,520);ctx.fillStyle='#ffffff';ctx.font='60px sans-serif';ctx.fillText('BOARDING PASS - SAMPLE',70,260);
 const image=new Uint8Array(canvas.toBuffer('image/png'));
-const record={...records[0],nama:'Karyawan Contoh dengan Nama Panjang',departemen:'CPP Hauling & Road Maintenance / Departemen Operasional',url_boarding_pass:'https://drive.google.com/open?id=boarding_sample',url_bukti_cuti:'https://drive.google.com/open?id=cuti_sample',url_nota_berangkat:'',url_nota_pulang:''};
+const record={...records[0],nama:'KARYAWAN CONTOH DENGAN NAMA PANJANG',departemen:'CPP Hauling & Road Maintenance / Departemen Operasional',url_boarding_pass:'https://drive.google.com/open?id=boarding_sample',url_bukti_cuti:'https://drive.google.com/open?id=cuti_sample',url_nota_berangkat:'',url_nota_pulang:''};
 const loadAttachment=async url=>url.includes('boarding')?image:sourceBytes;
 const blob=await compileReimbursementPdf({selectedRecords:[record],loadAttachment});
 const bytes=new Uint8Array(await blob.arrayBuffer());
@@ -72,6 +72,8 @@ for(let i=1;i<=rendered.numPages;i++) {
  await fs.writeFile(`tmp/pdfs/reimbursement/page-${i}.png`,output.toBuffer('image/png'));
  const text=(await page.getTextContent()).items.map(item=>item.str).join(' ');
  assert(!text.includes('Rp '));
+ assert(!/\((AP|X|Y|AO)\)/.test(text));
+ assert(text.includes('Karyawan Contoh Dengan Nama Panjang'));
  if(i===3) assert(text.includes('ORIGINAL DOCUMENT PAGE 1'));
  if(i===4) assert(text.includes('ORIGINAL DOCUMENT PAGE 2'));
 }
