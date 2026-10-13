@@ -48,7 +48,9 @@ function App() {
                 <Route path="/mess/transfer" element={<MessTransferPage />} />
                 <Route path="/mess/bhp" element={<BhpMessPage />} />
                 <Route path="/bhp" element={<Navigate to="/mess/bhp" replace />} />
-                <Route path="/karyawan" element={<KaryawanPage />} />
+                <Route path="/users" element={<KaryawanPage />} />
+                <Route path="/user" element={<Navigate to="/users" replace />} />
+                <Route path="/karyawan" element={<Navigate to="/users" replace />} />
                 <Route path="/audit-log" element={<AuditLogPage />} />
                 <Route path="/profile" element={<ProfilePage />} />
                 

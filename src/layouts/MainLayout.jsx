@@ -29,10 +29,12 @@ export function MainLayout() {
     return () => clearInterval(interval);
   }, [checkExpiry, navigate]);
 
+  const isAdmin = String(user?.role || '').toLowerCase() === 'admin';
+
   // Open the parent menu automatically based on current location
   useEffect(() => {
     if (user) {
-      const activeParent = getNavItems(user.role === 'Admin').find(item =>
+      const activeParent = getNavItems(isAdmin).find(item =>
         item.subItems?.some(sub =>
           sub.path === '/' ? location.pathname === '/' : location.pathname.startsWith(sub.path)
         )
@@ -41,10 +43,9 @@ export function MainLayout() {
         setOpenMenus(prev => ({ ...prev, [activeParent.label]: true }));
       }
     }
-  }, [location.pathname, user, isCollapsed]);
+  }, [location.pathname, user, isCollapsed, isAdmin]);
 
   if (!user) return null;
-  const isAdmin = user.role === 'Admin';
 
   const getNavItems = (admin) => {
     const items = [
@@ -102,7 +103,7 @@ export function MainLayout() {
         icon: Shield,
         isDividerBefore: true,
         subItems: [
-          { label: 'Karyawan', path: '/karyawan' },
+          { label: 'Manajemen User', path: '/users' },
           { label: 'Audit Log', path: '/audit-log' }
         ]
       });

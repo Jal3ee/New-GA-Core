@@ -127,8 +127,10 @@ export default function KaryawanPage() {
   const filteredUsers = users.filter(u => {
     const matchesSearch = (u.name || '').toLowerCase().includes(searchTerm.toLowerCase()) || 
                           (u.nik || '').toLowerCase().includes(searchTerm.toLowerCase());
-    const matchesRole = filterRole === 'Semua' || u.role === filterRole;
-    const matchesStatus = filterStatus === 'Semua' || u.status === filterStatus;
+    const matchesRole = filterRole === 'Semua' || 
+                        String(u.role || '').toLowerCase() === filterRole.toLowerCase();
+    const matchesStatus = filterStatus === 'Semua' || 
+                          String(u.status || '').toLowerCase() === filterStatus.toLowerCase();
     
     return matchesSearch && matchesRole && matchesStatus;
   });
@@ -138,14 +140,14 @@ export default function KaryawanPage() {
       {/* Header section */}
       <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
         <div>
-          <h1 className="text-2xl font-bold font-display text-[var(--foreground)] tracking-tight">Manajemen Karyawan</h1>
-          <p className="text-[var(--muted-foreground)] text-sm">Kelola data, akses, dan tanggal lahir seluruh karyawan</p>
+          <h1 className="text-2xl font-bold font-display text-[var(--foreground)] tracking-tight">Manajemen User & Karyawan</h1>
+          <p className="text-[var(--muted-foreground)] text-sm">Kelola data pengguna, hak akses role, dan status aktif akun sistem</p>
         </div>
         <button 
           onClick={() => openModal()}
           className="bg-[var(--primary)] text-white px-4 py-2 rounded-[var(--radius-md)] text-sm font-medium hover:bg-[var(--primary)]/90 transition-colors shadow-sm flex items-center group active:scale-95"
         >
-          <Plus className="w-4 h-4 mr-2 group-hover:rotate-90 transition-transform" /> Tambah Karyawan
+          <Plus className="w-4 h-4 mr-2 group-hover:rotate-90 transition-transform" /> Tambah User
         </button>
       </div>
 
@@ -166,10 +168,12 @@ export default function KaryawanPage() {
           <CustomSelect 
             value={filterRole} 
             onChange={setFilterRole}
-            className="sm:w-40 z-20"
+            className="sm:w-44 z-20"
             options={[
               { value: 'Semua', label: 'Semua Role' },
-              { value: 'Admin', label: 'Admin' },
+              { value: 'admin', label: 'Admin' },
+              { value: 'ga_gl', label: 'GA GL' },
+              { value: 'pic_lapangan', label: 'PIC Lapangan' },
               { value: 'Karyawan', label: 'Karyawan' }
             ]}
           />
@@ -222,12 +226,26 @@ export default function KaryawanPage() {
                       </div>
                     </td>
                     <td className="px-6 py-4">
-                      <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium ${
-                        u.role === 'Admin' ? 'bg-indigo-100 text-indigo-800 dark:bg-indigo-900/30 dark:text-indigo-300' 
-                                           : 'bg-blue-100 text-blue-800 dark:bg-blue-900/30 dark:text-blue-300'
-                      }`}>
-                        {u.role}
-                      </span>
+                      {(() => {
+                        const r = String(u.role || '').toLowerCase();
+                        let badgeClass = 'bg-blue-100 text-blue-800 dark:bg-blue-900/30 dark:text-blue-300';
+                        let label = u.role || 'Karyawan';
+                        if (r === 'admin') {
+                          badgeClass = 'bg-indigo-100 text-indigo-800 dark:bg-indigo-900/30 dark:text-indigo-300 font-semibold';
+                          label = 'Admin';
+                        } else if (r === 'ga_gl') {
+                          badgeClass = 'bg-amber-100 text-amber-800 dark:bg-amber-900/30 dark:text-amber-300 font-semibold';
+                          label = 'GA GL';
+                        } else if (r === 'pic_lapangan') {
+                          badgeClass = 'bg-emerald-100 text-emerald-800 dark:bg-emerald-900/30 dark:text-emerald-300';
+                          label = 'PIC Lapangan';
+                        }
+                        return (
+                          <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${badgeClass}`}>
+                            {label}
+                          </span>
+                        );
+                      })()}
                     </td>
                     <td className="px-6 py-4">
                       <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium border ${
@@ -339,8 +357,10 @@ export default function KaryawanPage() {
                       value={formData.role} 
                       onChange={(val) => setFormData({...formData, role: val})}
                       options={[
-                        { value: 'Karyawan', label: 'Karyawan' },
-                        { value: 'Admin', label: 'Admin' }
+                        { value: 'admin', label: 'Admin (Super Administrator)' },
+                        { value: 'ga_gl', label: 'GA GL (Group Leader)' },
+                        { value: 'pic_lapangan', label: 'PIC Lapangan' },
+                        { value: 'Karyawan', label: 'Karyawan' }
                       ]}
                     />
                   </div>

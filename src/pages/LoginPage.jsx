@@ -98,9 +98,9 @@ export default function LoginPage() {
           </button>
         </form>
         
-        <div className="mt-6 text-center text-sm text-[var(--muted-foreground)]">
-          Gunakan NIK <strong>admin</strong> / <strong>admin</strong> untuk demo Admin.<br/>
-          Atau NIK <strong>karyawan</strong> / <strong>karyawan</strong> untuk Karyawan.
+        <div className="mt-6 text-center text-sm text-[var(--muted-foreground)] space-y-1">
+          <p>Admin: NIK <strong>ADM001</strong> (atau <strong>admin</strong>) • Password: <strong>admin</strong></p>
+          <p className="text-xs text-[var(--muted-foreground)]/80">Akun lain: GL: <strong>GL001</strong> | PIC: <strong>PIC001</strong> (Password: <strong>admin</strong>)</p>
         </div>
       </div>
     </div>

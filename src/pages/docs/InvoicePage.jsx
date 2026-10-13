@@ -41,7 +41,10 @@ export default function InvoicePage() {
     { label: 'Ila Miawa', value: 'Ila Miawa' },
     { label: 'Manggala Raya Catering', value: 'Manggala Raya Catering' },
     { label: 'Manggala Raya gas & galon', value: 'Manggala Raya gas & galon' },
-    { label: 'Salsa Laundry', value: 'Salsa Laundry' }
+    { label: 'Salsa Laundry', value: 'Salsa Laundry' },
+    { label: 'Yuli Supplier', value: 'Yuli Supplier' },
+    { label: 'CV. Barito Kuala', value: 'CV. Barito Kuala' },
+    { label: 'Amanah Hilla', value: 'Amanah Hilla' }
   ];
 
   const SITES = [

@@ -274,7 +274,7 @@ app.post('/api/auth/login', async (req, res) => {
 
   try {
     const result = await query(
-      'SELECT id, nik, nama as name, email, password_hash, role, site, department FROM users WHERE (nik = $1 OR email = $1) AND is_active = TRUE;',
+      `SELECT id, nik, nama as name, email, password_hash, role, site, department FROM users WHERE (LOWER(nik) = LOWER($1) OR LOWER(email) = LOWER($1) OR (LOWER($1) = 'admin' AND nik = 'ADM001')) AND is_active = TRUE;`,
       [nik]
     );
 
@@ -423,7 +423,7 @@ app.post('/api/action', async (req, res) => {
     // 1. AUTH / LOGIN (DENGAN CRYPTOGRAPHIC JWT SIGNATURE)
     if (action === 'LOGIN') {
       const result = await query(
-        'SELECT id, nik, nama as name, email, password_hash, role, site, department, birthdate, is_active FROM users WHERE (nik = $1 OR email = $1) AND is_active = TRUE;',
+        `SELECT id, nik, nama as name, email, password_hash, role, site, department, birthdate, is_active FROM users WHERE (LOWER(nik) = LOWER($1) OR LOWER(email) = LOWER($1) OR (LOWER($1) = 'admin' AND nik = 'ADM001')) AND is_active = TRUE;`,
         [nik]
       );
       if (result.rows.length === 0) {
@@ -500,20 +500,39 @@ app.post('/api/action', async (req, res) => {
       const u = payload?.data || payload || data || req.body;
       const targetId = id || u.id;
       const isActive = u.status ? (u.status === 'Active' || u.status === 'aktif') : (u.is_active !== undefined ? u.is_active : null);
-      const result = await query(
-        `UPDATE users 
-         SET nama = COALESCE($1, nama), 
-             email = COALESCE($2, email), 
-             role = COALESCE($3, role), 
-             site = COALESCE($4, site), 
-             birthdate = COALESCE($5, birthdate),
-             is_active = COALESCE($6, is_active),
-             updated_at = CURRENT_TIMESTAMP
-         WHERE id = $7 
-         RETURNING id, nik, nama as name, email, role, site, department, birthdate, is_active,
-                   CASE WHEN is_active THEN 'Active' ELSE 'Inactive' END as status;`,
-        [u.name || u.nama, u.email, u.role, u.site, u.birthdate, isActive, targetId]
-      );
+      let result;
+      if (u.password && String(u.password).trim()) {
+        result = await query(
+          `UPDATE users 
+           SET nama = COALESCE($1, nama), 
+               email = COALESCE($2, email), 
+               role = COALESCE($3, role), 
+               site = COALESCE($4, site), 
+               birthdate = COALESCE($5, birthdate),
+               is_active = COALESCE($6, is_active),
+               password_hash = $7,
+               updated_at = CURRENT_TIMESTAMP
+           WHERE id = $8 
+           RETURNING id, nik, nama as name, email, role, site, department, birthdate, is_active,
+                     CASE WHEN is_active THEN 'Active' ELSE 'Inactive' END as status;`,
+          [u.name || u.nama, u.email, u.role, u.site, u.birthdate, isActive, String(u.password).trim(), targetId]
+        );
+      } else {
+        result = await query(
+          `UPDATE users 
+           SET nama = COALESCE($1, nama), 
+               email = COALESCE($2, email), 
+               role = COALESCE($3, role), 
+               site = COALESCE($4, site), 
+               birthdate = COALESCE($5, birthdate),
+               is_active = COALESCE($6, is_active),
+               updated_at = CURRENT_TIMESTAMP
+           WHERE id = $7 
+           RETURNING id, nik, nama as name, email, role, site, department, birthdate, is_active,
+                     CASE WHEN is_active THEN 'Active' ELSE 'Inactive' END as status;`,
+          [u.name || u.nama, u.email, u.role, u.site, u.birthdate, isActive, targetId]
+        );
+      }
       await recordAuditLog(req, 'UPDATE', 'User Management', targetId, { role: u.role, site: u.site, status: u.status });
       return res.json({ ok: true, data: result.rows[0] });
     }
