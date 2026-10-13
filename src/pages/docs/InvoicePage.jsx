@@ -44,7 +44,30 @@ export default function InvoicePage() {
     { label: 'Salsa Laundry', value: 'Salsa Laundry' },
     { label: 'Yuli Supplier', value: 'Yuli Supplier' },
     { label: 'CV. Barito Kuala', value: 'CV. Barito Kuala' },
-    { label: 'Amanah Hilla', value: 'Amanah Hilla' }
+    { label: 'Amanah Hilla', value: 'Amanah Hilla' },
+    { label: 'Achmad Riduan Syah (Ketua DPRD Tapin)', value: 'Achmad Riduan Syah (Ketua DPRD Tapin)' },
+    { label: 'Adi Fakhrudin', value: 'Adi Fakhrudin' },
+    { label: 'Ardiansyah (Haji Untui)', value: 'Ardiansyah (Haji Untui)' },
+    { label: 'Bumdes Munggu Talu', value: 'Bumdes Munggu Talu' },
+    { label: 'CV Akbar Makmur Perkasa', value: 'CV Akbar Makmur Perkasa' },
+    { label: 'CV Batu Cemerlang Sinergi', value: 'CV Batu Cemerlang Sinergi' },
+    { label: 'CV Karya Sejati', value: 'CV Karya Sejati' },
+    { label: 'CV Mitra Elvan Mandiri', value: 'CV Mitra Elvan Mandiri' },
+    { label: 'Danrem 101 Banjarmasin (CV Sena)', value: 'Danrem 101 Banjarmasin (CV Sena)' },
+    { label: 'Danrem 101 Banjarmasin (Rudi Puruwito)', value: 'Danrem 101 Banjarmasin (Rudi Puruwito)' },
+    { label: 'Erick Frendiz', value: 'Erick Frendiz' },
+    { label: 'Kades Kaliring', value: 'Kades Kaliring' },
+    { label: 'Kompol Rokhim', value: 'Kompol Rokhim' },
+    { label: 'M Ispahan Noor (Pembekal Kambang Habang)', value: 'M Ispahan Noor (Pembekal Kambang Habang)' },
+    { label: 'Mulyadi', value: 'Mulyadi' },
+    { label: 'PT Borneo Sarana Margasana', value: 'PT Borneo Sarana Margasana' },
+    { label: 'PT Trans Duta Kalimantan', value: 'PT Trans Duta Kalimantan' },
+    { label: 'Sujitno', value: 'Sujitno' },
+    { label: 'Matawi', value: 'Matawi' },
+    { label: 'Bumdes Rumintin', value: 'Bumdes Rumintin' },
+    { label: 'Maharani Asih', value: 'Maharani Asih' },
+    { label: 'PT Serasi Auto Raya (TRAC)', value: 'PT Serasi Auto Raya (TRAC)' },
+    { label: 'Dishut', value: 'Dishut' }
   ];
 
   const SITES = [
