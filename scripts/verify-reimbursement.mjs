@@ -1,0 +1,88 @@
+import assert from 'node:assert/strict';
+import fs from 'node:fs/promises';
+import { fileURLToPath } from 'node:url';
+import { PDFDocument, StandardFonts, degrees, rgb } from 'pdf-lib';
+import { createCanvas } from '@napi-rs/canvas';
+import { parseReimbursementCSV, SPREADSHEET_CSV_URL } from '../src/utils/reimbursementSource.js';
+import { compileReimbursementPdf, splitAttachmentUrls } from '../src/utils/reimbursementPdfCompiler.js';
+const csv=await fs.readFile('Form Order Kebutuhan Tiket Karyawan PT. Antang Gunung Meratus (Jawaban) - All.csv','utf8');
+const records=parseReimbursementCSV(csv);
+assert(records.length>0);
+assert.throws(()=>parseReimbursementCSV('<html>Login</html>'),/Format spreadsheet/);
+const edge = csv.split('\n')[0]+'\n'+[...Array(46)].map((_,i)=>i===0?'16/02/2028 10:00:00':i===1?'Reimbursement':i===2?'Wrong Ticket Name':i===18?'Correct Reimbursement Name':i===19?'00123':i===23?'https://drive.google.com/open?id=cuti':i===39?'SPCT':i===40?'https://drive.google.com/open?id=return':i===41?'https://drive.google.com/open?id=boarding':'').join(',');
+const [mapped]=parseReimbursementCSV(edge);
+assert.equal(mapped.nama,'Correct Reimbursement Name');
+assert.equal(mapped.nik,'00123');
+assert.equal(mapped.periode_tahun,2028);
+assert.equal(mapped.periode_ke,'Periode 2 (16-31)');
+assert(mapped.url_boarding_pass.endsWith('boarding'));
+assert(mapped.url_nota_pulang.endsWith('return'));
+assert.equal(mapped.site,'SPCT');
+assert.equal(records[0].nama,'Muchtar Syahroni');
+assert.equal(records[0].nik,'0152210412');
+assert.equal(records[0].site,'IDMG');
+assert.equal(records[0].periode_bulan,'Januari');
+const response=await fetch(SPREADSHEET_CSV_URL,{signal:AbortSignal.timeout(20000)});
+assert.equal(response.status,200);
+const live=parseReimbursementCSV(await response.text());
+assert(live.length>0);
+console.log('CSV reference:',records.length,'Live spreadsheet:',live.length);
+const source=await PDFDocument.create();
+const font=await source.embedFont(StandardFonts.Helvetica);
+for(let i=0;i<2;i++) {
+ const page=source.addPage([400,600]);
+ page.drawText('ORIGINAL DOCUMENT PAGE '+(i+1),{x:20,y:560,font,size:16});
+ page.drawRectangle({x:20,y:20,width:360,height:500,borderColor:rgb(0,0.5,0.3),borderWidth:2});
+ if(i===1) page.setRotation(degrees(90));
+}
+const sourceBytes=await source.save();
+const canvas=createCanvas(1200,600); const ctx=canvas.getContext('2d');
+ctx.fillStyle='#ffffff';ctx.fillRect(0,0,1200,600);ctx.fillStyle='#0f5c56';ctx.fillRect(40,40,1120,520);ctx.fillStyle='#ffffff';ctx.font='60px sans-serif';ctx.fillText('BOARDING PASS - SAMPLE',70,260);
+const image=new Uint8Array(canvas.toBuffer('image/png'));
+const record={...records[0],nama:'Karyawan Contoh dengan Nama Panjang',departemen:'CPP Hauling & Road Maintenance / Departemen Operasional',url_boarding_pass:'https://drive.google.com/open?id=boarding_sample',url_bukti_cuti:'https://drive.google.com/open?id=cuti_sample',url_nota_berangkat:'',url_nota_pulang:''};
+const loadAttachment=async url=>url.includes('boarding')?image:sourceBytes;
+const blob=await compileReimbursementPdf({selectedRecords:[record],loadAttachment});
+const bytes=new Uint8Array(await blob.arrayBuffer());
+assert.equal((await PDFDocument.load(bytes)).getPageCount(),6);
+const duplicateBlob=await compileReimbursementPdf({selectedRecords:[record,{...record,id:'second-submission'}],loadAttachment});
+assert.equal((await PDFDocument.load(await duplicateBlob.arrayBuffer())).getPageCount(),9);
+await assert.rejects(compileReimbursementPdf({selectedRecords:[record,{...record,periode_bulan:'Februari'}],loadAttachment}),/satu periode/);
+await assert.rejects(compileReimbursementPdf({selectedRecords:[record],loadAttachment:async()=>{throw new Error('akses ditolak');}}),/akses ditolak/);
+assert.equal(splitAttachmentUrls('https://drive.google.com/open?id=a, https://drive.google.com/open?id=b').length,2);
+const many=Array.from({length:35},(_,i)=>({...record,id:String(i),nik:String(i).padStart(10,'0'),nama:`Karyawan ${String(i).padStart(2,'0')} Nama Panjang untuk Verifikasi`,url_boarding_pass:'',url_bukti_cuti:''}));
+const manyBlob=await compileReimbursementPdf({selectedRecords:many,loadAttachment});
+assert((await PDFDocument.load(await manyBlob.arrayBuffer())).getPageCount()>141);
+await fs.mkdir('tmp/pdfs/reimbursement',{recursive:true});
+await fs.writeFile('tmp/pdfs/reimbursement/preview.pdf',bytes);
+const {getDocument}=await import('pdfjs-dist/legacy/build/pdf.mjs');
+const fontPath = fileURLToPath(new URL('../node_modules/pdfjs-dist/standard_fonts/', import.meta.url)).replaceAll('\\', '/');
+const duplicateLoading=getDocument({data:new Uint8Array(await duplicateBlob.arrayBuffer()),standardFontDataUrl:fontPath});
+const duplicatePdf=await duplicateLoading.promise;
+const expectedOrder=[1,1,2,2,2,2,3,4];
+for(let i=2;i<=duplicatePdf.numPages;i++) {
+ const text=(await(await duplicatePdf.getPage(i)).getTextContent()).items.map(item=>item.str).join(' ');
+ assert(text.includes(expectedOrder[i-2]+'. '));
+}
+await duplicateLoading.destroy();
+const loading=getDocument({data:bytes,standardFontDataUrl: fontPath}); const rendered=await loading.promise;
+for(let i=1;i<=rendered.numPages;i++) {
+ const page=await rendered.getPage(i); const viewport=page.getViewport({scale:1.3});
+ const output=createCanvas(Math.ceil(viewport.width),Math.ceil(viewport.height));
+ await page.render({canvasContext:output.getContext('2d'),viewport}).promise;
+ await fs.writeFile(`tmp/pdfs/reimbursement/page-${i}.png`,output.toBuffer('image/png'));
+ const text=(await page.getTextContent()).items.map(item=>item.str).join(' ');
+ assert(!text.includes('Rp '));
+ if(i===3) assert(text.includes('ORIGINAL DOCUMENT PAGE 1'));
+ if(i===4) assert(text.includes('ORIGINAL DOCUMENT PAGE 2'));
+}
+await loading.destroy();
+const summaryLoading=getDocument({data:new Uint8Array(await manyBlob.arrayBuffer()),standardFontDataUrl:fontPath});
+const summaries=await summaryLoading.promise;
+for (const i of [1,2]) {
+ const page=await summaries.getPage(i);const viewport=page.getViewport({scale:1.3});
+ const output=createCanvas(Math.ceil(viewport.width),Math.ceil(viewport.height));
+ await page.render({canvasContext:output.getContext('2d'),viewport}).promise;
+ await fs.writeFile('tmp/pdfs/reimbursement/summary-'+i+'.png',output.toBuffer('image/png'));
+}
+await summaryLoading.destroy();
+console.log('PASS: mapping, live source, full PDF pages, image embedding, rotated PDF, mixed-period rejection, download failure, summary pagination, no amount summary.');

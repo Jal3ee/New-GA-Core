@@ -33,6 +33,7 @@ import {
   DollarSign
 } from 'lucide-react';
 import CustomSelect from '../../components/ui/CustomSelect';
+import { parseReimbursementCSV } from '../../utils/reimbursementSource';
 import initialReimbursementData from '../../data/initialReimbursementData.json';
 import {
   compileReimbursementPdf,
@@ -50,102 +51,7 @@ const MONTHS = [
 export const SPREADSHEET_SOURCE_URL = 'https://docs.google.com/spreadsheets/d/1qBCW0L34wtuvzM690Ajk2IFJgXm78aQidjblQHYT-90/edit?resourcekey=&gid=413081409#gid=413081409';
 export const SPREADSHEET_CSV_URL = 'https://docs.google.com/spreadsheets/d/1qBCW0L34wtuvzM690Ajk2IFJgXm78aQidjblQHYT-90/export?format=csv&gid=413081409';
 
-export function parseReimbursementCSV(csvText) {
-  const lines = [];
-  let curLine = [];
-  let curField = '';
-  let inQuotes = false;
-  for (let i = 0; i < csvText.length; i++) {
-    const c = csvText[i];
-    if (c === '"') {
-      if (inQuotes && csvText[i+1] === '"') {
-        curField += '"';
-        i++;
-      } else {
-        inQuotes = !inQuotes;
-      }
-    } else if (c === ',' && !inQuotes) {
-      curLine.push(curField);
-      curField = '';
-    } else if ((c === '\r' || c === '\n') && !inQuotes) {
-      if (c === '\r' && csvText[i+1] === '\n') i++;
-      curLine.push(curField);
-      curField = '';
-      lines.push(curLine);
-      curLine = [];
-    } else {
-      curField += c;
-    }
-  }
-  if (curField || curLine.length > 0) {
-    curLine.push(curField);
-    lines.push(curLine);
-  }
-
-  const result = [];
-  for (let i = 1; i < lines.length; i++) {
-    const parts = lines[i];
-    const kebutuhan = (parts[1] || '').trim();
-    if (kebutuhan && !kebutuhan.toLowerCase().includes('reimburse')) continue;
-
-    const nama = (parts[18] || parts[2] || '').trim();
-    if (!nama) continue;
-
-    const timestamp = (parts[0] || '').trim();
-    const nik = (parts[19] || parts[3] || '').trim();
-    const no_hp = (parts[20] || parts[4] || '').trim();
-    const status = (parts[21] || parts[5] || 'CUTI').trim();
-    const departemen = (parts[22] || parts[7] || '').trim();
-    const site = (parts[39] || parts[6] || parts[45] || 'LBCT').trim();
-
-    const url_bukti_cuti = (parts[23] || parts[9] || parts[42] || '').trim();     // Kolom X
-    const url_nota_berangkat = (parts[24] || '').trim();                           // Kolom Y
-    const url_nota_pulang = (parts[40] || '').trim();                              // Kolom AO
-    const url_boarding_pass = (parts[41] || '').trim();                            // Kolom AP
-
-    const tgl_berangkat = (parts[25] || parts[10] || '').trim();
-    const tgl_pulang = (parts[26] || parts[13] || '').trim();
-
-    let day = 1, month = 1, year = 2026;
-    if (timestamp) {
-      const datePart = timestamp.split(' ')[0] || '';
-      const segs = datePart.split('/');
-      if (segs.length >= 3) {
-        day = parseInt(segs[0], 10) || 1;
-        month = parseInt(segs[1], 10) || 1;
-        year = parseInt(segs[2], 10) || 2026;
-      }
-    }
-    const monthName = MONTHS[month - 1] || 'Januari';
-    const periodeKe = day <= 15 ? 'Periode 1 (1-15)' : 'Periode 2 (16-31)';
-
-    result.push({
-      id: `REIMB-${year}-${String(month).padStart(2, '0')}-${String(result.length + 1).padStart(4, '0')}`,
-      no: result.length + 1,
-      timestamp,
-      nama,
-      nik,
-      no_hp,
-      status,
-      departemen,
-      site,
-      tgl_berangkat,
-      tgl_pulang,
-      url_boarding_pass,
-      url_bukti_cuti,
-      url_nota_berangkat,
-      url_nota_pulang,
-      periode_tahun: year,
-      periode_bulan: monthName,
-      periode_ke: periodeKe,
-      status_finance: 'Diajukan',
-      tgl_pengajuan_finance: '',
-      tgl_pencairan_finance: '',
-      catatan: ''
-    });
-  }
-  return result;
-}
+export { parseReimbursementCSV } from '../../utils/reimbursementSource';
 
 export default function ReimbursementPage() {
   // State: Raw employee reimbursement records
@@ -174,6 +80,7 @@ export default function ReimbursementPage() {
   const [selectedStatusFinance, setSelectedStatusFinance] = useState('all');
   const [searchQuery, setSearchQuery] = useState('');
   const [isLoading, setIsLoading] = useState(false);
+  const [syncStatus, setSyncStatus] = useState('Data tersimpan; belum diverifikasi dengan sumber');
 
   // Drawer state: active selected period
   const [activeDrawerPeriod, setActiveDrawerPeriod] = useState(null);
@@ -219,10 +126,11 @@ export default function ReimbursementPage() {
     try {
       // 1. Coba lewat backend node API (yang juga terhubung langsung ke spreadsheet)
       const res = await gasClient.getReimbursements();
-      if (res?.ok && Array.isArray(res.data) && res.data.length > 0) {
+      if (res?.ok && Array.isArray(res.data) && res.source === 'google_spreadsheet') {
         setRecords(res.data);
         localStorage.setItem('garda_reimbursements_data', JSON.stringify(res.data));
         toast.success(`Berhasil menarik ${res.data.length} data reimbursement dari Google Spreadsheet!`);
+        setSyncStatus('Tersinkron dari spreadsheet sumber');
         setIsLoading(false);
         return;
       }
@@ -232,14 +140,15 @@ export default function ReimbursementPage() {
 
     // 2. Direct browser fetch ke export CSV Google Spreadsheet
     try {
-      const resp = await fetch(SPREADSHEET_CSV_URL);
-      if (resp.ok) {
+      const resp = await fetch(SPREADSHEET_CSV_URL, { signal: AbortSignal.timeout(20000) });
+      if (resp.ok && resp.headers.get('content-type')?.includes('csv')) {
         const text = await resp.text();
         const parsed = parseReimbursementCSV(text);
-        if (parsed.length > 0) {
+        if (Array.isArray(parsed)) {
           setRecords(parsed);
           localStorage.setItem('garda_reimbursements_data', JSON.stringify(parsed));
           toast.success(`Berhasil menarik ${parsed.length} data reimbursement langsung dari Google Spreadsheet!`);
+          setSyncStatus('Tersinkron dari spreadsheet sumber');
           setIsLoading(false);
           return;
         }
@@ -248,9 +157,9 @@ export default function ReimbursementPage() {
       console.warn('Direct fetch failed:', directErr);
     }
 
-    // 3. Fallback ke initial data
-    setRecords(initialReimbursementData);
-    toast.info('Menggunakan data reimbursement lokal aktif.');
+    // Keep the last known data if synchronization fails.
+    setSyncStatus('Sinkronisasi gagal; menampilkan data terakhir');
+    toast.error('Sinkronisasi spreadsheet gagal. Data terakhir tetap ditampilkan; coba sinkronkan kembali.');
     setIsLoading(false);
   };
 
@@ -302,6 +211,7 @@ export default function ReimbursementPage() {
           setRecords(imported);
           localStorage.setItem('garda_reimbursements_data', JSON.stringify(imported));
           toast.success(`Berhasil mengimpor ${imported.length} data reimbursement!`);
+          setSyncStatus('Data impor CSV; belum disinkronkan dari spreadsheet');
         } else {
           toast.error('Tidak ditemukan data reimbursement yang valid di CSV.');
         }
@@ -317,25 +227,26 @@ export default function ReimbursementPage() {
   // GROUPING: Build Period Batches (1 Paket per Periode)
   // -------------------------------------------------------------
   const periodBatches = useMemo(() => {
-    // Generate standard order of periods for 2026: Januari P1, P2, Februari P1, P2, ...
+    // Build periods for every source year.
     const batchMap = {};
 
-    MONTHS.forEach((m, mIdx) => {
+    const years = [...new Set([new Date().getFullYear(), ...records.map(r => Number(r.periode_tahun)).filter(Boolean)])].sort();
+    years.forEach(year => MONTHS.forEach((m, mIdx) => {
       ['Periode 1 (1-15)', 'Periode 2 (16-31)'].forEach((pCut, pIdx) => {
-        const key = `2026-${String(mIdx + 1).padStart(2, '0')}-${pIdx === 0 ? 'P1' : 'P2'}`;
+        const key = `${year}-${String(mIdx + 1).padStart(2, '0')}-${pIdx === 0 ? 'P1' : 'P2'}`;
         const cutNumber = pIdx === 0 ? 1 : 2;
         const dateRangeStr = pIdx === 0 
-          ? `01 ${m} 2026 - 15 ${m} 2026` 
-          : `16 ${m} 2026 - ${[3, 5, 8, 10].includes(mIdx) ? '30' : mIdx === 1 ? '28' : '31'} ${m} 2026`;
+          ? `01 ${m} ${year} - 15 ${m} ${year}`
+          : `16 ${m} ${year} - ${new Date(year, mIdx + 1, 0).getDate()} ${m} ${year}`;
 
         batchMap[key] = {
           key,
-          tahun: 2026,
+          tahun: year,
           bulan: m,
           monthIndex: mIdx,
           cutNumber,
           periode_ke: pCut,
-          label: `${m} 2026 - Periode ${cutNumber}`,
+          label: `${m} ${year} - Periode ${cutNumber}`,
           rentang_tanggal: dateRangeStr,
           items: [],
           status_finance: 'Draft',
@@ -344,15 +255,16 @@ export default function ReimbursementPage() {
           catatan: ''
         };
       });
-    });
+    }));
 
     // Populate with actual records
     records.forEach(r => {
       const mIdx = MONTHS.indexOf(r.periode_bulan);
       if (mIdx === -1) return;
 
+      const year = Number(r.periode_tahun);
       const isP1 = r.periode_ke?.includes('1-15');
-      const key = `2026-${String(mIdx + 1).padStart(2, '0')}-${isP1 ? 'P1' : 'P2'}`;
+      const key = `${year}-${String(mIdx + 1).padStart(2, '0')}-${isP1 ? 'P1' : 'P2'}`;
 
       if (batchMap[key]) {
         batchMap[key].items.push(r);
@@ -623,7 +535,7 @@ export default function ReimbursementPage() {
 
   // Dropdown options
   const monthOptions = [
-    { value: 'all', label: 'Semua Bulan (2026)' },
+    { value: 'all', label: 'Semua Bulan' },
     ...MONTHS.map(m => ({ value: m, label: `Bulan ${m}` }))
   ];
 
@@ -737,7 +649,7 @@ export default function ReimbursementPage() {
               </span>
             </div>
             <p className="text-[11px] text-[var(--muted-foreground)] mt-0.5">
-              Gid: <span className="font-mono font-medium">413081409</span> • 285 Berkas Aktif (Tersinkronisasi otomatis dengan Google Form respons)
+              Gid: <span className="font-mono font-medium">413081409</span> • {records.length} berkas • {syncStatus}
             </p>
           </div>
         </div>
@@ -1664,7 +1576,8 @@ export default function ReimbursementPage() {
                 onClick={() => {
                   openReimbursementPrintWindow({
                     selectedRecords: compileScopeRecords,
-                    periodLabel: compileScopeTitle
+                    periodLabel: compileScopeTitle,
+                    options: compileOptions
                   });
                 }}
                 className="px-3.5 py-2 text-xs font-semibold rounded-lg border border-sky-300 bg-sky-50 text-sky-800 hover:bg-sky-100 inline-flex items-center gap-1.5 shadow-2xs"

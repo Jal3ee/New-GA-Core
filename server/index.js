@@ -1,6 +1,7 @@
+import { parseReimbursementCSV, SPREADSHEET_CSV_URL } from '../src/utils/reimbursementSource.js';
+import { registerReimbursementAttachments } from './reimbursementAttachments.js';
 import express from 'express';
 import cors from 'cors';
-import fs from 'fs';
 import dotenv from 'dotenv';
 import path from 'path';
 import multer from 'multer';
@@ -35,6 +36,8 @@ app.use((req, res, next) => {
   }
   next();
 });
+
+registerReimbursementAttachments(app, authenticateToken);
 
 app.use('/uploads', express.static(path.resolve(__dirname, '../public/uploads')));
 
@@ -818,133 +821,14 @@ app.post('/api/action', async (req, res) => {
 
     // 9. REIMBURSEMENTS (SINKRON DENGAN GOOGLE SPREADSHEET SUMBER DATA)
     if (action === 'GET_REIMBURSEMENTS' || action === 'SYNC_REIMBURSEMENTS') {
-      const SPREADSHEET_URL = 'https://docs.google.com/spreadsheets/d/1qBCW0L34wtuvzM690Ajk2IFJgXm78aQidjblQHYT-90/export?format=csv&gid=413081409';
       try {
-        const resSheet = await fetch(SPREADSHEET_URL, {
-          headers: { 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)' },
-          signal: AbortSignal.timeout(8000)
-        });
-
-        if (resSheet.ok) {
-          const csvText = await resSheet.text();
-          const lines = [];
-          let curLine = [];
-          let curField = '';
-          let inQuotes = false;
-          for (let i = 0; i < csvText.length; i++) {
-            const c = csvText[i];
-            if (c === '"') {
-              if (inQuotes && csvText[i+1] === '"') {
-                curField += '"';
-                i++;
-              } else {
-                inQuotes = !inQuotes;
-              }
-            } else if (c === ',' && !inQuotes) {
-              curLine.push(curField);
-              curField = '';
-            } else if ((c === '\r' || c === '\n') && !inQuotes) {
-              if (c === '\r' && csvText[i+1] === '\n') i++;
-              curLine.push(curField);
-              curField = '';
-              lines.push(curLine);
-              curLine = [];
-            } else {
-              curField += c;
-            }
-          }
-          if (curField || curLine.length > 0) {
-            curLine.push(curField);
-            lines.push(curLine);
-          }
-
-          const MONTHS = [
-            'Januari', 'Februari', 'Maret', 'April', 'Mei', 'Juni',
-            'Juli', 'Agustus', 'September', 'Oktober', 'November', 'Desember'
-          ];
-
-          const sheetRecords = [];
-          for (let i = 1; i < lines.length; i++) {
-            const parts = lines[i];
-            const kebutuhan = (parts[1] || '').trim();
-            if (kebutuhan && !kebutuhan.toLowerCase().includes('reimburse')) continue;
-
-            const nama = (parts[18] || parts[2] || '').trim();
-            if (!nama) continue;
-
-            const timestamp = (parts[0] || '').trim();
-            const nik = (parts[19] || parts[3] || '').trim();
-            const no_hp = (parts[20] || parts[4] || '').trim();
-            const status = (parts[21] || parts[5] || 'CUTI').trim();
-            const departemen = (parts[22] || parts[7] || '').trim();
-            const site = (parts[39] || parts[6] || parts[45] || 'LBCT').trim();
-
-            const url_bukti_cuti = (parts[23] || parts[9] || parts[42] || '').trim();     // Kolom X
-            const url_nota_berangkat = (parts[24] || '').trim();                           // Kolom Y
-            const url_nota_pulang = (parts[40] || '').trim();                              // Kolom AO
-            const url_boarding_pass = (parts[41] || '').trim();                            // Kolom AP
-
-            const tgl_berangkat = (parts[25] || parts[10] || '').trim();
-            const tgl_pulang = (parts[26] || parts[13] || '').trim();
-
-            let day = 1, month = 1, year = 2026;
-            if (timestamp) {
-              const datePart = timestamp.split(' ')[0] || '';
-              const segs = datePart.split('/');
-              if (segs.length >= 3) {
-                day = parseInt(segs[0], 10) || 1;
-                month = parseInt(segs[1], 10) || 1;
-                year = parseInt(segs[2], 10) || 2026;
-              }
-            }
-            const monthName = MONTHS[month - 1] || 'Januari';
-            const periodeKe = day <= 15 ? 'Periode 1 (1-15)' : 'Periode 2 (16-31)';
-
-            sheetRecords.push({
-              id: `REIMB-${year}-${String(month).padStart(2, '0')}-${String(sheetRecords.length + 1).padStart(4, '0')}`,
-              no: sheetRecords.length + 1,
-              timestamp,
-              nama,
-              nik,
-              no_hp,
-              status,
-              departemen,
-              site,
-              tgl_berangkat,
-              tgl_pulang,
-              url_boarding_pass,
-              url_bukti_cuti,
-              url_nota_berangkat,
-              url_nota_pulang,
-              periode_tahun: year,
-              periode_bulan: monthName,
-              periode_ke: periodeKe,
-              status_finance: 'Diajukan',
-              tgl_pengajuan_finance: '',
-              tgl_pencairan_finance: '',
-              catatan: ''
-            });
-          }
-
-          if (sheetRecords.length > 0) {
-            return res.json({ ok: true, data: sheetRecords, count: sheetRecords.length, source: 'google_spreadsheet' });
-          }
-        }
-      } catch (sheetErr) {
-        console.warn('[Google Spreadsheet Sync] Fetch failed, using database/file fallback:', sheetErr.message);
+        const response = await fetch(SPREADSHEET_CSV_URL, { signal: AbortSignal.timeout(20000) });
+        if (!response.ok || !(response.headers.get('content-type') || '').includes('csv')) throw new Error('Spreadsheet tidak dapat diakses');
+        const records = parseReimbursementCSV(await response.text());
+        return res.json({ ok: true, data: records, count: records.length, source: 'google_spreadsheet' });
+      } catch (error) {
+        return res.status(502).json({ ok: false, error: 'Gagal membaca spreadsheet sumber. ' + error.message });
       }
-
-      // Fallback: baca dari file initial data lokal
-      try {
-        const localPath = path.resolve(__dirname, '../src/data/initialReimbursementData.json');
-        if (fs.existsSync(localPath)) {
-          const localData = JSON.parse(fs.readFileSync(localPath, 'utf8'));
-          return res.json({ ok: true, data: localData, count: localData.length, source: 'local_fallback' });
-        }
-      } catch (fErr) {}
-
-      const result = await query('SELECT * FROM reimbursements ORDER BY claim_date DESC;');
-      return res.json({ ok: true, data: result.rows, source: 'postgres' });
     }
     if (action === 'CREATE_REIMBURSEMENT') {
       const r = payload?.data || data || req.body;
