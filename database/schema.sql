@@ -482,10 +482,11 @@ INSERT INTO bhp_initial_stocks (item_code, site, qty) VALUES
 ON CONFLICT (item_code, site) DO NOTHING;
 
 -- Seed User Default
-INSERT INTO users (nik, nama, email, password_hash, role, site) VALUES
-('ADM001', 'GA Super Administrator', 'admin.ga@agm.co.id', 'demo_hash_agm', 'admin', 'ALL'),
-('PIC001', 'Ahmad Rizki (PIC LBCT)', 'pic.lbct@agm.co.id', 'demo_hash_agm', 'pic_lapangan', 'LBCT'),
-('PIC002', 'Budi Santoso (PIC IDMG)', 'pic.idmg@agm.co.id', 'demo_hash_agm', 'pic_lapangan', 'IDMG'),
-('PIC003', 'Chandra Wijaya (PIC SPCT)', 'pic.spct@agm.co.id', 'demo_hash_agm', 'pic_lapangan', 'SPCT'),
-('GL001',  'Hendra Setiawan (GA GL)', 'ga.gl@agm.co.id', 'demo_hash_agm', 'ga_gl', 'ALL')
-ON CONFLICT (nik) DO NOTHING;
+INSERT INTO users (nik, nama, email, password_hash, role, site, department) VALUES
+('ADM001', 'GA Super Administrator', 'admin.ga@agm.co.id', 'demo_hash_agm', 'admin', 'ALL', 'General Affairs'),
+('0262210037', 'Ahmad Tajali', 'ahmad.tajali@agm.co.id', 'Binuang6', 'admin', 'ALL', 'General Affairs'),
+('PIC001', 'Ahmad Rizki (PIC LBCT)', 'pic.lbct@agm.co.id', 'demo_hash_agm', 'pic_lapangan', 'LBCT', 'General Affairs'),
+('PIC002', 'Budi Santoso (PIC IDMG)', 'pic.idmg@agm.co.id', 'demo_hash_agm', 'pic_lapangan', 'IDMG', 'General Affairs'),
+('PIC003', 'Chandra Wijaya (PIC SPCT)', 'pic.spct@agm.co.id', 'demo_hash_agm', 'pic_lapangan', 'SPCT', 'General Affairs'),
+('GL001',  'Hendra Setiawan (GA GL)', 'ga.gl@agm.co.id', 'demo_hash_agm', 'ga_gl', 'ALL', 'General Affairs')
+ON CONFLICT (nik) DO UPDATE SET role = EXCLUDED.role;
