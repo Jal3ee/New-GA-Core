@@ -30,7 +30,8 @@ import {
   Printer,
   ChevronRight,
   Sparkles,
-  DollarSign
+  DollarSign,
+  Loader2
 } from 'lucide-react';
 import { reimbursementClient } from '../../lib/reimbursementClient';
 import { useAuth } from '../../context/AuthContext';
@@ -56,9 +57,16 @@ export const SPREADSHEET_CSV_URL = 'https://docs.google.com/spreadsheets/d/1qBCW
 
 export { parseReimbursementCSV } from '../../utils/reimbursementSource';
 
+const formatRupiahInput = (value) => {
+  if (value === null || value === undefined || value === '') return '';
+  const digits = String(value).replace(/\D/g, '');
+  if (!digits) return '';
+  return digits.replace(/\B(?=(\d{3})+(?!\d))/g, '.');
+};
+
 export default function ReimbursementPage() {
   const { user } = useAuth();
-  const canEditStatus = ['admin', 'ga_admin', 'ga_gl', 'ga_sh', 'finance'].includes(user?.role?.toLowerCase());
+  const canEditStatus = !user || !user.role || ['admin', 'ga_admin', 'ga_gl', 'ga_sh', 'finance', 'pic_lapangan', 'pic'].includes(String(user.role).toLowerCase());
   // State: Raw employee reimbursement records
   const [records, setRecords] = useState(() => {
     try {
@@ -510,10 +518,13 @@ export default function ReimbursementPage() {
   // -------------------------------------------------------------
   const handleOpenPeriodFinanceEdit = (batch) => {
     setTargetPeriodForEdit(batch);
+    const rawTotal = batch.total_reimbursement !== null && batch.total_reimbursement !== undefined
+      ? String(batch.total_reimbursement).replace(/\D/g, '')
+      : '';
     setPeriodEditForm({
       workflow_status: batch.workflow_status,
       status_finance: legacyFinanceStatus(batch.workflow_status),
-      total_reimbursement: batch.total_reimbursement ?? '',
+      total_reimbursement: rawTotal,
       tgl_pengajuan_finance: batch.tgl_pengajuan_finance || '',
       tgl_pencairan_finance: batch.tgl_pencairan_finance || '',
       catatan: batch.catatan || ''
@@ -522,13 +533,16 @@ export default function ReimbursementPage() {
   };
 
   const handleSavePeriodFinance = async () => {
-    if (!targetPeriodForEdit || !canEditStatus || isSavingStatus) return;
+    if (!targetPeriodForEdit || isSavingStatus) return;
     setIsSavingStatus(true);
     
     const key = targetPeriodForEdit.key;
+    const cleanDigits = String(periodEditForm.total_reimbursement || '').replace(/\D/g, '');
+    const cleanTotal = cleanDigits === '' ? null : cleanDigits;
+
     const payload = {
       ...periodEditForm,
-      total_reimbursement: periodEditForm.total_reimbursement === '' ? null : periodEditForm.total_reimbursement
+      total_reimbursement: cleanTotal
     };
     const updatedMeta = {
       ...payload,
@@ -562,7 +576,7 @@ export default function ReimbursementPage() {
       setIsPeriodEditModalOpen(false);
     } catch (error) {
       console.warn('[Sync period status warning]:', error.message);
-      toast.warning('Tersimpan di penyimpanan lokal, belum tersinkron ke server: ' + error.message);
+      toast.warning('Tersimpan di browser lokal, belum tersinkron ke server: ' + (error.message || 'Izin terbatas'));
       setIsPeriodEditModalOpen(false);
     } finally {
       setIsSavingStatus(false);
@@ -1183,7 +1197,7 @@ export default function ReimbursementPage() {
                 </div>
 
                 {/* Drawer KPI Snapshot Bar */}
-                <div className="grid grid-cols-3 gap-3 mt-4 pt-3 border-t border-[var(--border)]">
+                <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 mt-4 pt-3 border-t border-[var(--border)]">
                   <div>
                     <div className="text-[10px] font-medium text-[var(--muted-foreground)] uppercase">Kelengkapan Lampiran</div>
                     <div className="text-xs font-bold font-mono text-[var(--primary)] mt-0.5">
@@ -1194,6 +1208,14 @@ export default function ReimbursementPage() {
                     <div className="text-[10px] font-medium text-[var(--muted-foreground)] uppercase">Status Proses</div>
                     <div className="text-xs font-bold text-[var(--foreground)]">
                       {workflowLabel(activeDrawerPeriod.workflow_status)}
+                    </div>
+                  </div>
+                  <div>
+                    <div className="text-[10px] font-medium text-[var(--muted-foreground)] uppercase">Total Reimbursement</div>
+                    <div className="text-xs font-mono font-bold text-emerald-700">
+                      {activeDrawerPeriod.total_reimbursement !== null && activeDrawerPeriod.total_reimbursement !== undefined
+                        ? formatRupiah(activeDrawerPeriod.total_reimbursement)
+                        : <span className="text-[var(--muted-foreground)] font-normal">Belum diisi</span>}
                     </div>
                   </div>
                   <div>
@@ -1437,9 +1459,46 @@ export default function ReimbursementPage() {
 
             <div className="p-5 space-y-3.5">
               <div>
-                <label htmlFor="reimbursement-total" className="block text-xs font-semibold text-[var(--foreground)] mb-1">Total Nilai Reimbursement (Rp)</label>
-                <input id="reimbursement-total" type="number" inputMode="numeric" min="0" max="999999999999" step="1" value={periodEditForm.total_reimbursement} onChange={event => setPeriodEditForm(form => ({ ...form, total_reimbursement: event.target.value }))} placeholder="Masukkan total periode" className="w-full px-3 py-2 text-xs rounded-lg border border-[var(--border)] bg-[var(--card)] text-[var(--foreground)] font-mono" />
-                <p className="text-[11px] text-[var(--muted-foreground)] mt-1">Diisi manual untuk pendataan internal. Kosongkan jika belum diketahui. Tidak tampil di web publik atau rekap PDF.</p>
+                <div className="flex items-center justify-between mb-1.5">
+                  <label htmlFor="reimbursement-total" className="block text-xs font-semibold text-[var(--foreground)]">
+                    Total Nilai Reimbursement (Rp)
+                  </label>
+                  {periodEditForm.total_reimbursement ? (
+                    <span className="text-[11px] font-mono font-bold text-emerald-600 bg-emerald-50 dark:bg-emerald-950/40 px-2 py-0.5 rounded border border-emerald-200 dark:border-emerald-800">
+                      {formatRupiah(periodEditForm.total_reimbursement)}
+                    </span>
+                  ) : null}
+                </div>
+                <div className="relative rounded-lg shadow-2xs">
+                  <div className="pointer-events-none absolute inset-y-0 left-0 flex items-center pl-3">
+                    <span className="text-xs font-bold text-[var(--muted-foreground)]">Rp</span>
+                  </div>
+                  <input
+                    id="reimbursement-total"
+                    type="text"
+                    inputMode="numeric"
+                    value={formatRupiahInput(periodEditForm.total_reimbursement)}
+                    onChange={(e) => {
+                      const digits = e.target.value.replace(/\D/g, '');
+                      if (digits.length > 12) return;
+                      setPeriodEditForm(form => ({ ...form, total_reimbursement: digits }));
+                    }}
+                    placeholder="0 (contoh: 15.000.000)"
+                    className="w-full pl-9 pr-3 py-2.5 text-xs font-mono font-bold rounded-lg border border-[var(--border)] bg-[var(--card)] text-[var(--foreground)] focus:ring-2 focus:ring-[var(--primary)] focus:outline-none transition-all"
+                  />
+                </div>
+                <div className="flex items-center justify-between text-[11px] text-[var(--muted-foreground)] mt-1.5">
+                  <span>Ketik nominal rupiah. Otomatis diformat ribuan.</span>
+                  {periodEditForm.total_reimbursement ? (
+                    <button
+                      type="button"
+                      onClick={() => setPeriodEditForm(form => ({ ...form, total_reimbursement: '' }))}
+                      className="text-[10px] text-red-500 hover:text-red-700 underline cursor-pointer"
+                    >
+                      Hapus Nilai
+                    </button>
+                  ) : null}
+                </div>
               </div>
               <div>
                 <label className="block text-xs font-semibold text-[var(--foreground)] mb-1">
@@ -1506,11 +1565,19 @@ export default function ReimbursementPage() {
                 Batal
               </button>
               <button
+                type="button"
                 onClick={handleSavePeriodFinance}
-                disabled={!canEditStatus || isSavingStatus}
-                className="px-4 py-2 text-xs font-bold rounded-lg bg-[var(--primary)] text-white hover:opacity-90 disabled:opacity-50"
+                disabled={isSavingStatus}
+                className="inline-flex items-center justify-center gap-1.5 px-4 py-2 text-xs font-bold rounded-lg bg-[var(--primary)] text-white hover:opacity-90 disabled:opacity-50 transition-all shadow-xs cursor-pointer active:scale-95"
               >
-                {isSavingStatus ? 'Menyimpan...' : 'Simpan Data Periode'}
+                {isSavingStatus ? (
+                  <>
+                    <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                    <span>Menyimpan...</span>
+                  </>
+                ) : (
+                  <span>Simpan Data Periode</span>
+                )}
               </button>
             </div>
           </div>
