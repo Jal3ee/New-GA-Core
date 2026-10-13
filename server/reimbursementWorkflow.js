@@ -1,6 +1,6 @@
 import fs from 'node:fs';
 import { loadReimbursementRecords } from './reimbursementRecords.js';
-import { formatEmployeeName, periodKey, workflowCode, workflowLabel, legacyFinanceStatus, REIMBURSEMENT_STEPS } from '../src/utils/reimbursementWorkflow.js';
+import { formatEmployeeName, reimbursementNikKey, periodKey, workflowCode, workflowLabel, legacyFinanceStatus, REIMBURSEMENT_STEPS } from '../src/utils/reimbursementWorkflow.js';
 
 const schema = fs.readFileSync(new URL('../database/reimbursement-period-status.sql', import.meta.url), 'utf8');
 const codes = new Set(REIMBURSEMENT_STEPS.map(step => step.code));
@@ -27,7 +27,8 @@ export function registerReimbursementWorkflow(app, { query, authenticateToken, r
   app.post('/api/public/reimbursements/lookup', async (req, res) => {
     res.set({ 'Cache-Control': 'no-store', 'X-Robots-Tag': 'noindex, nofollow' });
     const nik = typeof req.body?.nik === 'string' ? req.body.nik.trim() : '';
-    if (!/^\d{4,24}$/.test(nik)) return res.status(400).json({ ok: false, error: 'Masukkan NIK lengkap sesuai data karyawan.' });
+    const nikKey = reimbursementNikKey(nik);
+    if (!/^\d{4,24}$/.test(nik) || !nikKey) return res.status(400).json({ ok: false, error: 'Masukkan NIK lengkap sesuai data karyawan.' });
     const ip = String(req.headers['x-forwarded-for'] || req.ip).split(',')[0].trim();
     const now = Date.now();
     for (const [key, entry] of rate) if (entry.until < now) rate.delete(key);
@@ -35,7 +36,7 @@ export function registerReimbursementWorkflow(app, { query, authenticateToken, r
     rate.set(ip, entry);
     if (++entry.count > 30) return res.status(429).json({ ok: false, error: 'Terlalu banyak pencarian. Coba kembali dalam satu menit.' });
     try {
-      const matches = (await loadRecords()).filter(record => record.nik?.trim() === nik);
+      const matches = (await loadRecords()).filter(record => reimbursementNikKey(record.nik) === nikKey);
       if (!matches.length) return res.json({ ok: true, employee: null, periods: [] });
       await ensureTable();
       const groups = Object.groupBy(matches, periodKey);

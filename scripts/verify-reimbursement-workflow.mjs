@@ -9,11 +9,12 @@ import { formatEmployeeName } from '../src/utils/reimbursementWorkflow.js';
 const client = await pool.connect();
 await client.query('BEGIN');
 const records = [
-  { nik: '0000123456', nama: 'ANTOK SUBAKTI', departemen: 'Engineering', site: 'LBCT', periode_tahun: 2026, periode_bulan: 'Januari', periode_ke: 'Periode 2 (16-31)', no_hp: 'PRIVATE PHONE', amount: 999, catatan: 'PRIVATE NOTE', url_boarding_pass: 'PRIVATE DRIVE URL' },
-  { nik: '0000123456', nama: 'ANTOK SUBAKTI', departemen: 'Engineering', site: 'LBCT', periode_tahun: 2025, periode_bulan: 'Desember', periode_ke: 'Periode 1 (1-15)' },
+  { nik: '123456', nama: 'ANTOK SUBAKTI', departemen: 'Engineering', site: 'LBCT', periode_tahun: 2026, periode_bulan: 'Januari', periode_ke: 'Periode 2 (16-31)', no_hp: 'PRIVATE PHONE', amount: 999, catatan: 'PRIVATE NOTE', url_boarding_pass: 'PRIVATE DRIVE URL' },
+  { nik: '123456', nama: 'ANTOK SUBAKTI', departemen: 'Engineering', site: 'LBCT', periode_tahun: 2025, periode_bulan: 'Desember', periode_ke: 'Periode 1 (1-15)' },
   { nik: '0000123456', nama: 'ANTOK SUBAKTI', departemen: 'Engineering', site: 'LBCT', periode_tahun: 2026, periode_bulan: 'Januari', periode_ke: 'Periode 1 (1-15)' },
   { nik: '0000123456', nama: 'ANTOK SUBAKTI', periode_tahun: 2026, periode_bulan: 'Januari', periode_ke: 'Periode 1 (1-15)' },
-  { nik: '9999999999', nama: 'OTHER PERSON', periode_tahun: 2026, periode_bulan: 'Januari', periode_ke: 'Periode 1 (1-15)' }
+  { nik: '9999999999', nama: 'OTHER PERSON', periode_tahun: 2026, periode_bulan: 'Januari', periode_ke: 'Periode 1 (1-15)' },
+  { nik: '262210023', nama: 'KARYAWAN NOL', periode_tahun: 2026, periode_bulan: 'Januari', periode_ke: 'Periode 1 (1-15)' }
 ];
 const app = express(); app.use(express.json());
 registerReimbursementWorkflow(app, { query: (sql, params) => client.query(sql, params), authenticateToken, requireRole, loadRecords: async () => records });
@@ -32,12 +33,19 @@ try {
   await client.query("DELETE FROM reimbursement_period_status WHERE period_key IN ('2025-12-P1','2026-01-P1','2026-01-P2')");
   assert.equal(formatEmployeeName('aNTOK SUBAKTI'), 'Antok Subakti');
   assert.equal((await lookup('123')).status, 400);
-  assert.equal((await lookup('123456')).result.employee, null);
+  assert.equal((await lookup('0000000000')).status, 400);
+  assert.equal((await lookup('123457')).result.employee, null);
+  assert.equal((await lookup('23456')).result.employee, null);
+  const lostZero = await lookup('0262210023');
+  assert.equal(lostZero.result.employee.nama, 'Karyawan Nol');
+  assert.equal(lostZero.result.employee.nik, '0262210023');
+  assert.equal((await lookup('0262210024')).result.employee, null);
   const initial = await lookup('0000123456');
   assert.equal(initial.status, 200);
   assert.equal(initial.result.employee.nama, 'Antok Subakti');
   assert.equal(initial.result.employee.nik, '0000123456');
   assert.deepEqual(initial.result.periods.map(period => period.key), ['2025-12-P1', '2026-01-P1', '2026-01-P2']);
+  assert.deepEqual((await lookup('123456')).result.periods, initial.result.periods);
   assert(initial.result.periods.every(period => period.workflow_status === 'not_started'));
   assert(!/PRIVATE|OTHER PERSON|amount|url_|catatan|no_hp/.test(JSON.stringify(initial.result)));
   const path = '/api/reimbursements/period-status/2026-01-P1';
@@ -51,6 +59,7 @@ try {
     assert.equal(saved.status, 200);
     const publicResult = await lookup('0000123456');
     assert.equal(publicResult.result.periods[1].workflow_status, status);
+    if (status === 'head_finance_approval') assert.equal(publicResult.result.periods[1].status_label, 'Approval Dept Head GA & Finance');
     assert(!JSON.stringify(publicResult.result).includes('PRIVATE'));
   }
   await request('/api/reimbursements/period-status/import', { token: admin, method: 'POST', data: { periods: { '2026-01-P1': { status_finance: 'Draft' }, '2026-01-P2': { status_finance: 'Diajukan' } } } });
@@ -60,7 +69,7 @@ try {
   const privateResult = await request('/api/reimbursements/period-status', { token: admin });
   assert.equal(privateResult.result.data['2026-01-P1'].tgl_pencairan_finance, '2026-10-14');
   assert.equal(privateResult.result.data['2026-01-P1'].catatan, 'PRIVATE INTERNAL NOTE');
-  console.log('PASS: exact NIK, leading zeros, chronological history, duplicates grouped, all workflow stages, database writes visible publicly, private-field allowlist, role protection, invalid inputs, migration without overwriting statuses.');
+  console.log('PASS: complete NIK matching despite lost leading zeros, mixed-format history, no suffix matching, Dept Head terminology, all workflow stages, database persistence, private-field allowlist, role protection and safe migration.');
 } finally {
   await new Promise(resolve => server.close(resolve));
   await client.query('ROLLBACK'); client.release(); await pool.end();

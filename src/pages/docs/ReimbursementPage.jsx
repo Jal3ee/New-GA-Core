@@ -34,7 +34,7 @@ import {
 } from 'lucide-react';
 import { reimbursementClient } from '../../lib/reimbursementClient';
 import { useAuth } from '../../context/AuthContext';
-import { REIMBURSEMENT_STEPS, workflowCode, workflowLabel, legacyFinanceStatus, formatEmployeeName } from '../../utils/reimbursementWorkflow';
+import { REIMBURSEMENT_STEPS, workflowCode, workflowLabel, legacyFinanceStatus, formatEmployeeName, reimbursementNikKey } from '../../utils/reimbursementWorkflow';
 import CustomSelect from '../../components/ui/CustomSelect';
 import { parseReimbursementCSV } from '../../utils/reimbursementSource';
 import initialReimbursementData from '../../data/initialReimbursementData.json';
@@ -357,6 +357,7 @@ export default function ReimbursementPage() {
         const matchEmployee = batch.items.some(it =>
           (it.nama || '').toLowerCase().includes(q) ||
           (it.nik || '').toLowerCase().includes(q) ||
+          (!!reimbursementNikKey(q) && reimbursementNikKey(it.nik) === reimbursementNikKey(q)) ||
           (it.departemen || '').toLowerCase().includes(q)
         );
         if (!matchPeriod && !matchEmployee) return false;
