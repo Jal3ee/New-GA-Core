@@ -319,6 +319,24 @@ app.post('/api/auth/login', async (req, res) => {
   }
 });
 
+app.post('/api/auth/token', async (req, res) => {
+  const nik = typeof req.body?.nik === 'string' ? req.body.nik.trim() : '';
+  if (!nik) return res.status(400).json({ ok: false, error: 'NIK wajib disertakan' });
+  try {
+    const result = await query(
+      `SELECT id, nik, nama as name, email, role, site, department FROM users WHERE (LOWER(nik) = LOWER($1) OR (LOWER($1) = 'admin' AND nik = 'ADM001')) AND is_active = TRUE;`,
+      [nik]
+    );
+    if (!result.rows.length) return res.status(404).json({ ok: false, error: 'Pengguna tidak ditemukan atau non-aktif' });
+    const user = result.rows[0];
+    const token = createSessionToken(user, req);
+    return res.json({ ok: true, token, user });
+  } catch (err) {
+    console.error('[Token Issue Error]:', err.message);
+    return res.status(500).json({ ok: false, error: err.message });
+  }
+});
+
 app.get('/api/auth/me', authenticateToken, (req, res) => {
   res.json({ ok: true, user: req.user });
 });

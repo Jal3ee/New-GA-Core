@@ -1,7 +1,7 @@
 const PG_API_URL = import.meta.env.VITE_PG_API_URL || '/api';
 
 export async function gasFetch(action, payload = {}, options = {}) {
-  const token = typeof sessionStorage !== 'undefined' ? sessionStorage.getItem('garda_jwt_token') : null;
+  const token = typeof sessionStorage !== 'undefined' ? (sessionStorage.getItem('garda_jwt_token') || localStorage.getItem('garda_jwt_token')) : null;
 
   // 1. UPLOAD BERKAS LANGSUNG KE SISTEM / DRIVE (100% REAL STORAGE, TANPA GAS & TANPA MOCK)
   if (action === 'UPLOAD_FILE') {

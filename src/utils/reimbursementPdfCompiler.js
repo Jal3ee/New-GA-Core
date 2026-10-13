@@ -30,7 +30,7 @@ export async function fetchReimbursementAttachment(url) {
   if (!id) throw new Error('Tautan lampiran Google Drive tidak valid.');
   const resourceKey = new URL(url).searchParams.get('resourcekey');
   const base = import.meta.env?.VITE_PG_API_URL || '/api';
-  const token = typeof sessionStorage !== 'undefined' ? sessionStorage.getItem('garda_jwt_token') : null;
+  const token = typeof sessionStorage !== 'undefined' ? (sessionStorage.getItem('garda_jwt_token') || localStorage.getItem('garda_jwt_token')) : null;
   const response = await fetch(`${base}/reimbursements/attachment/${encodeURIComponent(id)}${resourceKey ? '?resourcekey=' + encodeURIComponent(resourceKey) : ''}`, {
     headers: token ? { Authorization: `Bearer ${token}` } : {}, signal: AbortSignal.timeout(60000)
   });
