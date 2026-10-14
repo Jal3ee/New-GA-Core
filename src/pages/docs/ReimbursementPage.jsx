@@ -44,7 +44,8 @@ import {
   openReimbursementPrintWindow,
   formatRupiah
 } from '../../utils/reimbursementPdfCompiler';
-import { exportPeriodToExcel } from '../../utils/reimbursementExportExcel';
+import { exportPeriodToExcel, exportPeriodSummaryTableToExcel } from '../../utils/reimbursementExportExcel';
+import { exportReimbursementTableToPdf } from '../../utils/reimbursementTablePdfExport';
 import { api as gasClient } from '../../lib/gasClient';
 
 const MONTHS = [
@@ -460,6 +461,53 @@ export default function ReimbursementPage() {
   };
 
   // -------------------------------------------------------------
+  // Table Data Reimbursement Download Handlers (PDF & Excel)
+  // -------------------------------------------------------------
+  const handleDownloadTablePdf = (targetBatches = null) => {
+    try {
+      const batches = targetBatches || filteredPeriodBatches;
+      if (!batches || batches.length === 0) {
+        toast.error('Tidak ada data tabel reimbursement yang dapat dicetak/diunduh.');
+        return;
+      }
+      exportReimbursementTableToPdf({
+        periodBatches: batches,
+        filterInfo: {
+          month: selectedMonth,
+          cut: selectedPeriodCut,
+          status: selectedStatusFinance
+        },
+        userName: user?.nama || user?.name || user?.username || 'GA Admin'
+      });
+      toast.success('Format cetak PDF tabel reimbursement berhasil dibuka!');
+    } catch (err) {
+      toast.error('Gagal membuka format cetak PDF tabel: ' + err.message);
+    }
+  };
+
+  const handleDownloadTableExcel = (targetBatches = null) => {
+    try {
+      const batches = targetBatches || filteredPeriodBatches;
+      if (!batches || batches.length === 0) {
+        toast.error('Tidak ada data tabel reimbursement untuk diekspor ke Excel.');
+        return;
+      }
+      exportPeriodSummaryTableToExcel({
+        periodBatches: batches,
+        filterInfo: {
+          month: selectedMonth,
+          cut: selectedPeriodCut,
+          status: selectedStatusFinance
+        },
+        userName: user?.nama || user?.name || user?.username || 'GA Admin'
+      });
+      toast.success('Rekapitulasi Excel tabel reimbursement berhasil diunduh!');
+    } catch (err) {
+      toast.error('Gagal mengekspor Excel tabel: ' + err.message);
+    }
+  };
+
+  // -------------------------------------------------------------
   // PDF Compilation Trigger for 1 Period Package
   // -------------------------------------------------------------
   const handleTriggerPeriodPdfCompile = (batch, itemsToCompile = null) => {
@@ -848,6 +896,40 @@ export default function ReimbursementPage() {
       ------------------------------------------------------------- */}
       {viewMode === 'periods' ? (
         <div className="bg-[var(--card)] border border-[var(--border)] rounded-xl shadow-xs overflow-hidden">
+          {/* Action Bar for Table Download (PDF & Excel) */}
+          <div className="px-4 py-3 bg-[var(--muted)]/20 border-b border-[var(--border)] flex flex-col sm:flex-row sm:items-center justify-between gap-2.5">
+            <div className="flex items-center gap-2">
+              <span className="font-bold text-xs text-[var(--foreground)]">
+                Tabel Rekapitulasi Data Reimbursement
+              </span>
+              <span className="text-[11px] px-2 py-0.5 rounded-full bg-[var(--primary)]/10 text-[var(--primary)] font-semibold font-mono">
+                {filteredPeriodBatches.length} Periode
+              </span>
+            </div>
+
+            <div className="flex items-center gap-2">
+              {/* Tombol Cetak / Unduh PDF Reworked Table */}
+              <button
+                onClick={() => handleDownloadTablePdf()}
+                className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-bold rounded-lg border border-teal-600/30 bg-teal-50 hover:bg-teal-100 text-teal-800 transition-colors shadow-2xs cursor-pointer"
+                title="Buka & Unduh PDF Format Rekapitulasi Tabel (Landscape Reworked Layout Lengkap dengan Nilai Rupiah, Tanggal Pengajuan, Pencairan, dan Status)"
+              >
+                <Printer className="w-3.5 h-3.5 text-teal-700" />
+                <span>Cetak / PDF Tabel</span>
+              </button>
+
+              {/* Tombol Unduh Excel Tabel */}
+              <button
+                onClick={() => handleDownloadTableExcel()}
+                className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-bold rounded-lg border border-emerald-600/30 bg-emerald-50 hover:bg-emerald-100 text-emerald-800 transition-colors shadow-2xs cursor-pointer"
+                title="Unduh Tabel Rekapitulasi ke Excel (.xlsx) dengan Nilai Rupiah, Tanggal Pengajuan, Pencairan, dan Status"
+              >
+                <FileSpreadsheet className="w-3.5 h-3.5 text-emerald-700" />
+                <span>Unduh Excel Tabel</span>
+              </button>
+            </div>
+          </div>
+
           <div className="overflow-x-auto">
             <table className="w-full text-left text-xs border-collapse">
               <thead className="bg-[var(--muted)]/50 text-[var(--muted-foreground)] font-semibold border-b border-[var(--border)]">
@@ -1263,6 +1345,16 @@ export default function ReimbursementPage() {
                   >
                     <FileSpreadsheet className="w-3.5 h-3.5" />
                     <span>Unduh Excel Rekapan</span>
+                  </button>
+
+                  {/* Cetak / PDF Tabel Ringkasan Periode Ini */}
+                  <button
+                    onClick={() => handleDownloadTablePdf([activeDrawerPeriod])}
+                    className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold rounded-lg border border-teal-600/30 bg-teal-50 hover:bg-teal-100 text-teal-800 shadow-2xs"
+                    title="Cetak Format PDF Reworked Tabel untuk Periode Ini Saja"
+                  >
+                    <Printer className="w-3.5 h-3.5 text-teal-700" />
+                    <span>PDF Ringkasan Periode</span>
                   </button>
 
                   {/* Edit Finance Button */}
