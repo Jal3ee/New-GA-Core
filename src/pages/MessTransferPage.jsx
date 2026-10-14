@@ -7,6 +7,7 @@ import { motion, AnimatePresence } from 'framer-motion';
 import CustomSelect from '../components/ui/CustomSelect';
 import { toPng } from 'html-to-image';
 import SimulationReportGraphic from '../components/mess/SimulationReportGraphic';
+import { buildMessTransferBatch, sameMessId, undoMessTransferAction } from '../utils/messTransfer';
 
 export default function MessTransferPage() {
   const { showLoading, hideLoading } = useGlobalLoading();
@@ -16,6 +17,8 @@ export default function MessTransferPage() {
   const [selectedSite, setSelectedSite] = useState('LBCT');
   const [selectedBuildingId, setSelectedBuildingId] = useState('');
   const [pendingActions, setPendingActions] = useState([]);
+  const [isSaving, setIsSaving] = useState(false);
+  const savingRef = useRef(false);
   
   const draftPanelRef = useRef(null);
   const reportGraphicRef = useRef(null);
@@ -79,9 +82,9 @@ export default function MessTransferPage() {
       if (action.type === 'CHECK_IN') {
         currentStays.push({ ...action.payload, id: action.tempId });
       } else if (action.type === 'CHECK_OUT') {
-        currentStays = currentStays.filter(s => s.id !== action.stayId);
+        currentStays = currentStays.filter(s => !sameMessId(s.id, action.stayId));
       } else if (action.type === 'TRANSFER') {
-        currentStays = currentStays.filter(s => s.id !== action.stayId);
+        currentStays = currentStays.filter(s => !sameMessId(s.id, action.stayId));
         currentStays.push({ ...action.payload, id: action.tempId });
       }
     });
@@ -103,7 +106,7 @@ export default function MessTransferPage() {
       for (let r = start; r <= end; r++) {
         for (let bed = 1; bed <= beds; bed++) {
           const bedFullId = `${b.id}_K${r}_B${bed}`;
-          const occupant = currentState.find(s => s.building_id === b.id && s.room_no === `K${r}` && s.bed_no === `B${bed}`);
+          const occupant = currentState.find(s => sameMessId(s.building_id, b.id) && s.room_no === `K${r}` && s.bed_no === `B${bed}`);
           
           list.push({
             building_id: b.id,
@@ -138,8 +141,8 @@ export default function MessTransferPage() {
     }
     
     setPendingActions(prev => [...prev, {
-      id: Date.now().toString(),
-      tempId: `temp_${Date.now()}`,
+      id: crypto.randomUUID(),
+      tempId: `temp_${crypto.randomUUID()}`,
       type: 'CHECK_IN',
       desc: `Check-in ${guestName} ke ${selectedBed.building_name} (${selectedBed.label})`,
       payload: {
@@ -165,8 +168,8 @@ export default function MessTransferPage() {
     // Simulate Status Change as TRANSFER to same bed
     const occupant = selectedBed.occupant;
     setPendingActions(prev => [...prev, {
-      id: Date.now().toString(),
-      tempId: `temp_${Date.now()}`,
+      id: crypto.randomUUID(),
+      tempId: `temp_${crypto.randomUUID()}`,
       type: 'TRANSFER',
       stayId: occupant.id,
       originalBedFullId: selectedBed.full_id,
@@ -191,7 +194,7 @@ export default function MessTransferPage() {
     if (!selectedBed || !selectedBed.occupant) return;
     
     setPendingActions(prev => [...prev, {
-      id: Date.now().toString(),
+      id: crypto.randomUUID(),
       type: 'CHECK_OUT',
       stayId: selectedBed.occupant.id,
       originalBedFullId: selectedBed.full_id,
@@ -211,8 +214,8 @@ export default function MessTransferPage() {
     }
     
     setPendingActions(prev => [...prev, {
-      id: Date.now().toString(),
-      tempId: `temp_${Date.now()}`,
+      id: crypto.randomUUID(),
+      tempId: `temp_${crypto.randomUUID()}`,
       type: 'TRANSFER',
       stayId: selectedBed.occupant.id,
       originalBedFullId: selectedBed.full_id,
@@ -234,7 +237,7 @@ export default function MessTransferPage() {
   };
 
   const undoAction = (actionId) => {
-    setPendingActions(prev => prev.filter(a => a.id !== actionId));
+    setPendingActions(prev => undoMessTransferAction(prev, actionId));
   };
 
   const closeModal = () => {
@@ -247,33 +250,21 @@ export default function MessTransferPage() {
   };
 
   const commitChanges = async () => {
-    if (pendingActions.length === 0) return;
-    const today = new Date().toISOString();
-    const batchApiPayload = [];
-    
-    pendingActions.forEach(action => {
-      if (action.type === 'CHECK_IN') {
-        batchApiPayload.push({ type: 'CREATE', payload: action.payload });
-      } else if (action.type === 'CHECK_OUT') {
-        if (!action.stayId.startsWith('temp_')) {
-          batchApiPayload.push({ type: 'UPDATE', id: action.stayId, payload: { end_date: today } });
-        }
-      } else if (action.type === 'TRANSFER') {
-        if (!action.stayId.startsWith('temp_')) {
-          batchApiPayload.push({ type: 'UPDATE', id: action.stayId, payload: { end_date: today } });
-        }
-        batchApiPayload.push({ type: 'CREATE', payload: action.payload });
-      }
-    });
-
+    if (pendingActions.length === 0 || savingRef.current) return;
+    savingRef.current = true;
+    setIsSaving(true);
     try {
       showLoading();
-      await api.batchUpdateStays(batchApiPayload);
+      const batchApiPayload = buildMessTransferBatch(pendingActions, new Date().toISOString());
+      if (batchApiPayload.length > 0) await api.batchUpdateStays(batchApiPayload);
+      setPendingActions([]);
       toast.success('Simulasi berhasil direalisasikan ke database!');
-      loadData();
+      await loadData();
     } catch (err) {
-      toast.error('Gagal menyimpan perubahan ke database');
+      toast.error(err.message || 'Gagal menyimpan perubahan ke database');
     } finally {
+      savingRef.current = false;
+      setIsSaving(false);
       hideLoading();
     }
   };
@@ -512,7 +503,7 @@ export default function MessTransferPage() {
             <div className="p-4 border-t border-[var(--border)] bg-[var(--muted)]/30 shrink-0 mt-auto">
               <button
                 onClick={commitChanges}
-                disabled={pendingActions.length === 0}
+                disabled={pendingActions.length === 0 || isSaving}
                 className="w-full flex items-center justify-center px-4 py-2.5 bg-[var(--primary)] text-white font-medium rounded-[var(--radius-md)] hover:bg-[var(--primary)]/90 transition-all disabled:opacity-50 disabled:cursor-not-allowed shadow-md hover:shadow-lg active:scale-95"
               >
                 <CheckCircle2 className="w-5 h-5 mr-2" />
