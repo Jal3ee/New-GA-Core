@@ -1,4 +1,5 @@
 import { loadReimbursementRecords } from './reimbursementRecords.js';
+import { LOGIN_NIK_MATCH, LOGIN_ACCOUNT_ORDER, loginIdentifier } from './loginIdentity.js';
 import { registerReimbursementWorkflow } from './reimbursementWorkflow.js';
 import { registerReimbursementAttachments } from './reimbursementAttachments.js';
 import express from 'express';
@@ -274,14 +275,15 @@ app.post('/api/bhp/pdf-history', async (req, res) => {
 
 app.post('/api/auth/login', async (req, res) => {
   const { nik, password } = req.body;
-  if (!nik) {
+  const identifier = loginIdentifier(nik);
+  if (!identifier) {
     return res.status(400).json({ ok: false, error: 'NIK wajib diisi' });
   }
 
   try {
     const result = await query(
-      `SELECT id, nik, nama as name, email, password_hash, role, site, department FROM users WHERE (LOWER(nik) = LOWER($1) OR LOWER(email) = LOWER($1) OR (LOWER($1) = 'admin' AND nik = 'ADM001')) AND is_active = TRUE;`,
-      [nik]
+      `SELECT id, nik, nama as name, email, password_hash, role, site, department FROM users WHERE (${LOGIN_NIK_MATCH} OR LOWER(email) = LOWER($1)) AND is_active = TRUE ${LOGIN_ACCOUNT_ORDER};`,
+      [identifier]
     );
 
     if (result.rows.length === 0) {
@@ -324,7 +326,7 @@ app.post('/api/auth/token', async (req, res) => {
   if (!nik) return res.status(400).json({ ok: false, error: 'NIK wajib disertakan' });
   try {
     const result = await query(
-      `SELECT id, nik, nama as name, email, role, site, department FROM users WHERE (LOWER(nik) = LOWER($1) OR (LOWER($1) = 'admin' AND nik = 'ADM001')) AND is_active = TRUE;`,
+      `SELECT id, nik, nama as name, email, role, site, department FROM users WHERE ${LOGIN_NIK_MATCH} AND is_active = TRUE ${LOGIN_ACCOUNT_ORDER};`,
       [nik]
     );
     if (!result.rows.length) return res.status(404).json({ ok: false, error: 'Pengguna tidak ditemukan atau non-aktif' });
@@ -446,9 +448,11 @@ app.post('/api/action', async (req, res) => {
   try {
     // 1. AUTH / LOGIN (DENGAN CRYPTOGRAPHIC JWT SIGNATURE)
     if (action === 'LOGIN') {
+      const identifier = loginIdentifier(nik);
+      if (!identifier) return res.status(400).json({ ok: false, error: 'NIK wajib diisi' });
       const result = await query(
-        `SELECT id, nik, nama as name, email, password_hash, role, site, department, birthdate, is_active FROM users WHERE (LOWER(nik) = LOWER($1) OR LOWER(email) = LOWER($1) OR (LOWER($1) = 'admin' AND nik = 'ADM001')) AND is_active = TRUE;`,
-        [nik]
+        `SELECT id, nik, nama as name, email, password_hash, role, site, department, birthdate, is_active FROM users WHERE (${LOGIN_NIK_MATCH} OR LOWER(email) = LOWER($1)) AND is_active = TRUE ${LOGIN_ACCOUNT_ORDER};`,
+        [identifier]
       );
       if (result.rows.length === 0) {
         return res.status(401).json({ ok: false, error: 'NIK atau Password tidak sesuai' });
