@@ -13,6 +13,7 @@ import CustomSelect from '../../components/ui/CustomSelect';
 import Pagination from '../../components/ui/Pagination';
 import BhpForecastPanel from './BhpForecastPanel';
 import { todayMakassar } from '../../utils/bhpForecast';
+import { bhpCalendarDate, bhpReceiptPeriod } from '../../utils/bhpReceiptPeriod';
 import {
   INITIAL_BHP_ITEMS,
   BHP_CATALOG_VERSION,
@@ -162,7 +163,7 @@ export default function BhpMessPage() {
     if (!response.ok || !result.success || !result.data?.currentStocks) throw new Error('Saldo server belum dapat dimuat.');
     const mapped = result.data.items.map(item => ({ ...item.catalog_details, id:item.code, code:item.code, name:item.name, category:item.category, unit:item.unit, pack_qty:Number(item.pack_size)||1, pack_unit:item.unit, price_est:Number(item.price_est), default_abc:item.abc_class, coa:item.coa, remarks:item.remarks }));
     setItems(mapped); setStocks(result.data.currentStocks);
-    const history = rows => rows.map(row => ({ ...row, item_id:row.item_code, item_name:mapped.find(item=>item.code===row.item_code)?.name||row.item_code, qty:Number(row.qty), diff_qty:Number(row.difference) }));
+    const history = rows => rows.map(row => ({ ...row, date:bhpCalendarDate(row.date), item_id:row.item_code, item_name:mapped.find(item=>item.code===row.item_code)?.name||row.item_code, qty:Number(row.qty), diff_qty:Number(row.difference) }));
     setUsages(history(result.data.usageHistory)); setStockIns(history(result.data.stockInHistory));
     setTransfers(history(result.data.transferHistory)); setOpnames(history(result.data.opnameHistory));
     setPdfHistory(result.data.pdfHistory);
@@ -920,7 +921,7 @@ export default function BhpMessPage() {
             <table className="w-full text-left text-xs">
               <thead>
                 <tr className="border-b border-[var(--border)] bg-[var(--muted)]/50 text-[var(--muted-foreground)] font-semibold uppercase tracking-wider text-[11px]">
-                  <th className="py-3 px-4">Tanggal Tiba</th>
+                  <th className="py-3 px-4">Tanggal / Periode Penerimaan</th>
                   <th className="py-3 px-4">Site</th>
                   <th className="py-3 px-4">Barang</th>
                   <th className="py-3 px-4 text-center">Jumlah Diterima</th>
@@ -932,7 +933,7 @@ export default function BhpMessPage() {
               <tbody className="divide-y divide-[var(--border)] text-[var(--foreground)]">
                 {paginatedStockIns.map((s) => (
                   <tr key={s.id} className="hover:bg-[var(--muted)]/30 transition-colors">
-                    <td className="py-3 px-4 font-mono">{s.date}</td>
+                    <td className="py-3 px-4 font-mono">{bhpReceiptPeriod(s).label}{bhpReceiptPeriod(s).weekly && <span className="block mt-1 text-[10px] font-sans text-[var(--muted-foreground)]">Rekap mingguan • tanggal harian tidak tersedia</span>}</td>
                     <td className="py-3 px-4 font-semibold text-[#0F5C56]">{s.site}</td>
                     <td className="py-3 px-4 font-medium">{s.item_name || s.item_id}</td>
                     <td className="py-3 px-4 text-center font-bold font-mono text-emerald-600">+{s.qty}</td>
