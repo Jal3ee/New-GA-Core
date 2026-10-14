@@ -1,5 +1,18 @@
 const PG_API_URL = import.meta.env.VITE_PG_API_URL || '/api';
 
+async function prepareInvoiceAttachment(data) {
+  const input = { ...data };
+  if (typeof File !== 'undefined' && input.fileData instanceof File) {
+    const upload = await gasFetch('UPLOAD_FILE', { fileData: input.fileData, fileName: input.fileName || input.fileData.name, moduleName: 'Invoices' });
+    if (!upload.ok || !upload.fileUrl) throw new Error('Lampiran invoice gagal diunggah. Data belum disimpan.');
+    input.file_url = upload.fileUrl;
+    input.file_name = upload.fileName || input.fileData.name;
+    input.file_size_bytes = upload.fileSize ?? input.fileData.size;
+    delete input.fileData;
+  }
+  return input;
+}
+
 export async function gasFetch(action, payload = {}, options = {}) {
   const token = typeof sessionStorage !== 'undefined' ? (sessionStorage.getItem('garda_jwt_token') || localStorage.getItem('garda_jwt_token')) : null;
 
@@ -179,10 +192,10 @@ export const api = {
     return this.post({ action: 'GET_INVOICES' });
   },
   async createInvoice(data) {
-    return this.post({ action: 'CREATE_INVOICE', payload: { data } });
+    return this.post({ action: 'CREATE_INVOICE', payload: { data: await prepareInvoiceAttachment(data) } });
   },
   async updateInvoice(id, data) {
-    return this.post({ action: 'UPDATE_INVOICE', id, payload: { data } });
+    return this.post({ action: 'UPDATE_INVOICE', id, payload: { data: await prepareInvoiceAttachment(data) } });
   },
   async deleteInvoice(id) {
     return this.post({ action: 'DELETE_INVOICE', id });

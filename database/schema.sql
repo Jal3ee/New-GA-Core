@@ -217,6 +217,9 @@ CREATE TABLE IF NOT EXISTS invoices (
     status VARCHAR(50) DEFAULT 'Review GA',  -- 'Draft', 'Review GA', 'Approval Dept Head', 'Proses Finance', 'Paid', 'Rejected'
     due_date DATE,
     invoice_date DATE,
+    periode_start DATE,
+    periode_end DATE,
+    tgl_berkas DATE,
     file_url TEXT,                           -- Tautan lampiran (Google Drive / Cloudinary / Storage)
     file_size_bytes BIGINT DEFAULT 0,        -- Maks 5MB (5,242,880 bytes)
     file_name VARCHAR(255),

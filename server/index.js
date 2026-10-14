@@ -3,6 +3,7 @@ import { LOGIN_NIK_MATCH, LOGIN_ACCOUNT_ORDER, loginIdentifier } from './loginId
 import { registerReimbursementWorkflow } from './reimbursementWorkflow.js';
 import { registerReimbursementAttachments } from './reimbursementAttachments.js';
 import express from 'express';
+import { createInvoiceService, InvoiceInputError } from './invoiceService.js';
 import cors from 'cors';
 import dotenv from 'dotenv';
 import path from 'path';
@@ -20,6 +21,7 @@ dotenv.config({ path: path.resolve(__dirname, '../.env') });
 
 const app = express();
 const PORT = process.env.SERVER_PORT || 3001;
+const invoiceService = createInvoiceService(query);
 
 // Multer memory storage (5MB max)
 const upload = multer({
@@ -573,38 +575,19 @@ app.post('/api/action', async (req, res) => {
 
     // 3. INVOICES
     if (action === 'GET_INVOICES') {
-      const result = await query('SELECT * FROM invoices ORDER BY created_at DESC;');
-      return res.json({ ok: true, data: result.rows });
+      return res.json({ ok: true, data: await invoiceService.list() });
     }
     if (action === 'CREATE_INVOICE') {
-      const inv = payload?.data || data || req.body;
-      const result = await query(
-        `INSERT INTO invoices (invoice_number, vendor_name, category, period, site, amount, status, due_date, invoice_date, file_url, file_size_bytes, file_name, notes)
-         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)
-         ON CONFLICT (invoice_number) DO UPDATE
-         SET vendor_name = EXCLUDED.vendor_name, amount = EXCLUDED.amount, status = EXCLUDED.status, updated_at = CURRENT_TIMESTAMP
-         RETURNING *;`,
-        [inv.invoice_number || inv.invoiceNumber, inv.vendor_name || inv.vendorName, inv.category || 'General', inv.period, inv.site || 'ALL', Number(inv.amount) || 0, inv.status || 'Review GA', inv.due_date || inv.dueDate || null, inv.invoice_date || inv.invoiceDate || null, inv.file_url || inv.fileUrl || null, inv.file_size_bytes || inv.fileSizeBytes || 0, inv.file_name || inv.fileName || null, inv.notes || null]
-      );
-      await recordAuditLog(req, 'CREATE', 'Invoices', result.rows[0].invoice_number, { invoice_number: inv.invoice_number || inv.invoiceNumber, vendor: inv.vendor_name, amount: inv.amount });
-      return res.json({ ok: true, data: result.rows[0] });
+      const saved = await invoiceService.create(payload?.data || data || req.body);
+      await recordAuditLog(req, 'CREATE', 'Invoices', saved.invoice_number, { invoice_number: saved.invoice_number, vendor: saved.vendor_name, amount: saved.amount });
+      return res.json({ ok: true, data: saved });
     }
     if (action === 'UPDATE_INVOICE') {
-      const inv = payload?.data || data || req.body;
-      const targetId = id || inv.id;
-      const result = await query(
-        `UPDATE invoices SET
-           status = COALESCE($1, status),
-           file_url = COALESCE($2, file_url),
-           file_size_bytes = COALESCE($3, file_size_bytes),
-           file_name = COALESCE($4, file_name),
-           tracking_stages = COALESCE($5, tracking_stages),
-           updated_at = CURRENT_TIMESTAMP
-         WHERE id = $6 OR invoice_number = $7 RETURNING *;`,
-        [inv.status || inv.status_pembayaran || null, inv.file_url || inv.fileUrl || null, inv.file_size_bytes || null, inv.file_name || null, inv.tracking_stages ? JSON.stringify(inv.tracking_stages) : null, isNaN(Number(targetId)) ? -1 : Number(targetId), String(targetId)]
-      );
-      await recordAuditLog(req, 'UPDATE', 'Invoices', targetId, { status: inv.status });
-      return res.json({ ok: true, data: result.rows[0] || {} });
+      const input = payload?.data || data || req.body;
+      const targetId = id || input.id;
+      const saved = await invoiceService.update(targetId, input);
+      await recordAuditLog(req, 'UPDATE', 'Invoices', targetId, { status: saved.status });
+      return res.json({ ok: true, data: saved });
     }
     if (action === 'DELETE_INVOICE') {
       await query('DELETE FROM invoices WHERE id = $1 OR invoice_number = $2;', [isNaN(Number(id)) ? -1 : Number(id), String(id)]);
@@ -929,6 +912,7 @@ app.post('/api/action', async (req, res) => {
     // Default fallback: return ok
     return res.json({ ok: true, data: {} });
   } catch (err) {
+    if (err instanceof InvoiceInputError) return res.status(err.status).json({ ok: false, error: err.message });
     console.error(`[PG-Action-Error] ${action}:`, err.message);
     return res.status(500).json({ ok: false, error: err.message });
   }

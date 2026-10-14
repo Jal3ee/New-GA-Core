@@ -222,7 +222,7 @@ export default function InvoicePage() {
         toast.error(res.message || 'Gagal menyimpan');
       }
     } catch (err) {
-      toast.error('Terjadi kesalahan jaringan');
+      toast.error(err.message || 'Invoice belum berhasil disimpan.');
     } finally {
       toast.dismiss('save-toast');
       hideLoading();
