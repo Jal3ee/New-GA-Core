@@ -120,7 +120,7 @@ export function exportPeriodToExcel(periodBatch) {
  * @param {Object} options.filterInfo - Current filter parameters
  * @param {string} options.userName - User generating the report
  */
-export function exportPeriodSummaryTableToExcel({ periodBatches = [], filterInfo = {}, userName = 'General Affairs' }) {
+export function exportPeriodSummaryTableToExcel({ periodBatches = [], filterInfo = {}, userName = 'GA Administrator' }) {
   if (!periodBatches || periodBatches.length === 0) {
     throw new Error('Tidak ada data tabel reimbursement untuk diekspor ke Excel.');
   }
@@ -149,7 +149,7 @@ export function exportPeriodSummaryTableToExcel({ periodBatches = [], filterInfo
     ['PT. ANTANG GUNUNG MERATUS - DEPARTEMEN GENERAL AFFAIRS'],
     [''],
     ['Tanggal Cetak/Unduh', nowStr],
-    ['Diekspor Oleh', userName],
+    ['Diekspor Oleh', `${userName} (GA Administrator)`],
     ['Filter Data', filterDesc],
     ['Total Paket Periode', `${periodBatches.length} Periode`],
     [''],

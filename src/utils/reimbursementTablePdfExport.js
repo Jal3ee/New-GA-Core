@@ -40,7 +40,8 @@ const formatDateIndo = (dateStr) => {
 export function exportReimbursementTableToPdf({
   periodBatches = [],
   filterInfo = {},
-  userName = 'General Affairs'
+  userName = 'GA Administrator',
+  userRole = 'GA Administrator'
 }) {
   if (!periodBatches || periodBatches.length === 0) {
     alert('Tidak ada data tabel reimbursement yang dapat dicetak/diunduh.');
@@ -461,7 +462,7 @@ export function exportReimbursementTableToPdf({
   <div class="meta-kpi-container">
     <div class="meta-box">
       <div><strong>Tanggal Cetak:</strong> ${printDateStr}, ${printTimeStr}</div>
-      <div><strong>Dicetak Oleh:</strong> ${userName} (GA Ticketing & Reimbursement Team)</div>
+      <div><strong>Dicetak Oleh:</strong> ${userName} (${userRole})</div>
       <div><strong>Filter Dokumen:</strong> <span style="color: #0f766e; font-weight: 600;">${filterDesc}</span></div>
     </div>
     <div class="kpi-cards">
@@ -528,7 +529,7 @@ export function exportReimbursementTableToPdf({
     <tr>
       <td class="signature-col">
         <div class="signature-title">Dibuat Oleh,</div>
-        <div class="signature-role">Staff General Affairs (Ticketing)</div>
+        <div class="signature-role">${userRole}</div>
         <div class="signature-line"></div>
         <div class="signature-name">( ${userName} )</div>
         <div style="font-size: 8.5px; color: #94a3b8; margin-top: 1px;">Tgl: .......................................</div>

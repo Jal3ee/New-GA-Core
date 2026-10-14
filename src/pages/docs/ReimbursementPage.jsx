@@ -477,7 +477,8 @@ export default function ReimbursementPage() {
           cut: selectedPeriodCut,
           status: selectedStatusFinance
         },
-        userName: user?.nama || user?.name || user?.username || 'GA Admin'
+        userName: user?.nama || user?.name || user?.username || 'GA Administrator',
+        userRole: 'GA Administrator'
       });
       toast.success('Format cetak PDF tabel reimbursement berhasil dibuka!');
     } catch (err) {
@@ -499,7 +500,7 @@ export default function ReimbursementPage() {
           cut: selectedPeriodCut,
           status: selectedStatusFinance
         },
-        userName: user?.nama || user?.name || user?.username || 'GA Admin'
+        userName: user?.nama || user?.name || user?.username || 'GA Administrator'
       });
       toast.success('Rekapitulasi Excel tabel reimbursement berhasil diunduh!');
     } catch (err) {
