@@ -4,6 +4,8 @@ import { registerReimbursementWorkflow } from './reimbursementWorkflow.js';
 import { registerReimbursementAttachments } from './reimbursementAttachments.js';
 import express from 'express';
 import { createInvoiceService, InvoiceInputError } from './invoiceService.js';
+import { registerBhpForecast, readBhpLedger } from './bhpForecastService.js';
+import { calculateBhpStocks, todayMakassar } from '../src/utils/bhpForecast.js';
 import cors from 'cors';
 import dotenv from 'dotenv';
 import path from 'path';
@@ -43,6 +45,7 @@ app.use((req, res, next) => {
 
 registerReimbursementAttachments(app, authenticateToken);
 registerReimbursementWorkflow(app, { query, authenticateToken, requireRole, verifySessionToken });
+registerBhpForecast(app, { query, authenticateToken });
 
 app.use('/uploads', express.static(path.resolve(__dirname, '../public/uploads')));
 
@@ -112,6 +115,7 @@ app.get('/api/bhp/data', async (req, res) => {
     const forecastsRes = await query('SELECT * FROM bhp_forecasts ORDER BY created_at DESC LIMIT 100;');
     const evaluationsRes = await query('SELECT * FROM bhp_evaluations ORDER BY evaluated_at DESC LIMIT 100;');
     const pdfHistoryRes = await query('SELECT * FROM bhp_pdf_history ORDER BY download_date DESC LIMIT 50;');
+    const currentStocks = calculateBhpStocks(await readBhpLedger(query), todayMakassar());
 
     // Map initial stocks & site params per site
     const initialStockMap = { LBCT: {}, IDMG: {}, SPCT: {} };
@@ -136,6 +140,7 @@ app.get('/api/bhp/data', async (req, res) => {
       data: {
         items: itemsRes.rows,
         initialStock: initialStockMap,
+        currentStocks,
         siteParams: siteParamsMap,
         usageHistory: usageRes.rows,
         stockInHistory: stockInRes.rows,
@@ -152,62 +157,34 @@ app.get('/api/bhp/data', async (req, res) => {
   }
 });
 
-// Simpan Pemakaian Harian (Bisa batch array dari multi-item)
-app.post('/api/bhp/usage', async (req, res) => {
+// One statement makes a multi-item usage entry atomic.
+app.post('/api/bhp/usage', async (req,res) => {
   try {
-    const { entries, picName, site, date } = req.body;
-    if (!entries || !Array.isArray(entries)) {
-      return res.status(400).json({ success: false, error: 'Format entries harus berupa array' });
-    }
-
-    const inserted = [];
-    for (const item of entries) {
-      if (!item.itemCode || item.qty === undefined || Number(item.qty) <= 0) continue;
-      const result = await query(
-        `INSERT INTO bhp_usage (date, site, item_code, qty, pic_name, is_anomaly, notes)
-         VALUES ($1, $2, $3, $4, $5, $6, $7)
-         RETURNING *;`,
-        [
-          date || new Date().toISOString().split('T')[0],
-          site,
-          item.itemCode,
-          Number(item.qty),
-          picName || 'PIC Lapangan',
-          Boolean(item.isAnomaly),
-          item.notes || null
-        ]
-      );
-      inserted.push(result.rows[0]);
-    }
-
-    res.json({ success: true, count: inserted.length, data: inserted });
-  } catch (err) {
-    console.error('Error saving BHP usage:', err.message);
-    res.status(500).json({ success: false, error: err.message });
-  }
+    const { entries,picName,site,date }=req.body;
+    if(!['LBCT','IDMG','SPCT'].includes(site)||!Array.isArray(entries)||!entries.length||entries.length>200||entries.some(row=>!row.itemCode||!Number.isSafeInteger(Number(row.qty))||Number(row.qty)<=0))return res.status(400).json({success:false,error:'Barang/site/jumlah pemakaian tidak valid.'});
+    const rows=entries.map(row=>({item_code:row.itemCode,qty:Number(row.qty),is_anomaly:!!row.isAnomaly,notes:row.notes||null}));
+    const result=await query(`INSERT INTO bhp_usage(date,site,item_code,qty,pic_name,is_anomaly,notes) SELECT $1::date,$2,item_code,qty,$4,is_anomaly,notes FROM jsonb_to_recordset($3::jsonb) AS x(item_code text,qty integer,is_anomaly boolean,notes text) RETURNING *`,[date||todayMakassar(),site,JSON.stringify(rows),picName||'PIC Lapangan']);
+    return res.json({success:true,count:result.rows.length,data:result.rows});
+  } catch(error){return res.status(error.code==='23503'||error.code?.startsWith('22')?400:500).json({success:false,error:'Pemakaian belum tersimpan. Periksa tanggal dan kode barang.'});}
 });
 
-// Simpan Logistik / Penerimaan Barang Masuk
+// Atomic multi-item receipt: every row is saved, or no row is saved.
 app.post('/api/bhp/stock-in', async (req, res) => {
   try {
-    const { date, site, itemCode, qty, refPo, conditionStatus, receiverName, notes } = req.body;
-    const result = await query(
-      `INSERT INTO bhp_stock_in (date, site, item_code, qty, ref_po, condition_status, receiver_name, notes)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
-       RETURNING *;`,
-      [date, site, itemCode, Number(qty), refPo || null, conditionStatus || 'Lengkap', receiverName || 'GA/PIC', notes || null]
-    );
-    res.json({ success: true, data: result.rows[0] });
-  } catch (err) {
-    console.error('Error saving stock in:', err.message);
-    res.status(500).json({ success: false, error: err.message });
-  }
+    const { date, site, receiverName, refPo, conditionStatus, notes } = req.body;
+    const entries = req.body.entries || [req.body];
+    if (!['LBCT','IDMG','SPCT'].includes(site) || !date || !Array.isArray(entries) || !entries.length || entries.length > 200 || entries.some(row => !row.itemCode || !Number.isSafeInteger(Number(row.qty)) || Number(row.qty) <= 0)) return res.status(400).json({success:false,error:'Site, tanggal, barang atau jumlah penerimaan tidak valid.'});
+    const rows = entries.map(row => ({ item_code:row.itemCode,qty:Number(row.qty),ref_po:row.refPo||refPo||null,condition_status:row.conditionStatus||conditionStatus||'Lengkap',notes:row.notes||notes||null }));
+    const result = await query(`INSERT INTO bhp_stock_in (date,site,item_code,qty,ref_po,condition_status,receiver_name,notes) SELECT $1::date,$2,item_code,qty,ref_po,condition_status,$4,notes FROM jsonb_to_recordset($3::jsonb) AS x(item_code text,qty integer,ref_po text,condition_status text,notes text) RETURNING *`,[date,site,JSON.stringify(rows),receiverName||'GA/PIC']);
+    return res.json({success:true,data:result.rows,count:result.rows.length});
+  } catch(error){ return res.status(error.code==='23503'||error.code?.startsWith('22')?400:500).json({success:false,error:'Penerimaan belum tersimpan. Periksa tanggal dan kode barang.'}); }
 });
 
 // Simpan Transfer Antar Site
 app.post('/api/bhp/transfer', async (req, res) => {
   try {
     const { date, itemCode, qty, fromSite, toSite, reason, picName } = req.body;
+    if (!['LBCT','IDMG','SPCT'].includes(fromSite) || !['LBCT','IDMG','SPCT'].includes(toSite) || !Number.isSafeInteger(Number(qty)) || Number(qty) <= 0 || !itemCode || !date) return res.status(400).json({ success:false,error:'Site atau jumlah transfer tidak valid.' });
     if (fromSite === toSite) {
       return res.status(400).json({ success: false, error: 'Site asal dan site tujuan tidak boleh sama' });
     }
@@ -232,6 +209,7 @@ app.post('/api/bhp/transfer', async (req, res) => {
 app.post('/api/bhp/opname', async (req, res) => {
   try {
     const { date, site, itemCode, systemQty, physicalQty, reason, picName } = req.body;
+    if (!['LBCT','IDMG','SPCT'].includes(site) || !Number.isSafeInteger(Number(physicalQty)) || Number(physicalQty) < 0 || !Number.isSafeInteger(Number(systemQty)) || !itemCode || !date) return res.status(400).json({ success:false,error:'Data opname tidak valid.' });
     const diff = Number(physicalQty) - Number(systemQty);
     if (diff !== 0 && (!reason || !reason.trim())) {
       return res.status(400).json({ success: false, error: 'Alasan wajib diisi jika terdapat selisih fisik dan sistem' });

@@ -4,6 +4,11 @@
  */
 
 const PG_API_BASE = import.meta.env.VITE_PG_API_URL || '/api';
+async function checkedBhpResponse(res) {
+  const result = await res.json();
+  if (!res.ok || !result.success) throw new Error(result.error || 'Transaksi BHP belum tersimpan.');
+  return result;
+}
 
 /**
  * Cek status koneksi PostgreSQL 16 & active pooler mode
@@ -69,7 +74,7 @@ export async function savePgBhpUsage(payload) {
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(payload)
   });
-  return await res.json();
+  return checkedBhpResponse(res);
 }
 
 /**
@@ -81,7 +86,7 @@ export async function savePgBhpStockIn(payload) {
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(payload)
   });
-  return await res.json();
+  return checkedBhpResponse(res);
 }
 
 /**
@@ -93,7 +98,7 @@ export async function savePgBhpTransfer(payload) {
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(payload)
   });
-  return await res.json();
+  return checkedBhpResponse(res);
 }
 
 /**
@@ -105,7 +110,7 @@ export async function savePgBhpOpname(payload) {
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(payload)
   });
-  return await res.json();
+  return checkedBhpResponse(res);
 }
 
 /**
@@ -117,5 +122,5 @@ export async function savePgBhpPdfHistory(payload) {
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(payload)
   });
-  return await res.json();
+  return checkedBhpResponse(res);
 }

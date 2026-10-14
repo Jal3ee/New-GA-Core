@@ -20,7 +20,8 @@ export function generateBhpForecastPdfReport({
   siteScope = 'Konsolidasi (LBCT, IDMG, SPCT)',
   createdByName = 'GA Admin',
   approvedByName = 'GA GL',
-  summaryMetrics = {}
+  summaryMetrics = {},
+  planningContext = {}
 }) {
   const printWindow = window.open('', '_blank', 'width=1200,height=900');
   if (!printWindow) {
@@ -38,9 +39,11 @@ export function generateBhpForecastPdfReport({
   const printTimeStr = now.toLocaleTimeString('id-ID', { hour: '2-digit', minute: '2-digit' }) + ' WITA';
 
   const totalItems = forecastData.length;
-  const totalRecommendedPcs = forecastData.reduce((acc, curr) => acc + (curr.recommended_qty_pcs || 0), 0);
-  const totalRecommendedPacks = forecastData.reduce((acc, curr) => acc + (curr.recommended_packs || 0), 0);
-  const totalEstimatedCost = forecastData.reduce((acc, curr) => acc + ((curr.recommended_qty_pcs || 0) * (curr.price_est || 0)), 0);
+  const totalOrderItems = forecastData.filter(row => row.recommended_qty > 0).length;
+  const qualityLabels = { NO_HISTORY:'Belum ada histori', LIMITED:'Histori terbatas', READY:'Histori lengkap', MANUAL:'Baseline manual', RECONCILE:'Perlu rekonsiliasi' };
+  const escape = value => String(value ?? '').replaceAll('&','&amp;').replaceAll('<','&lt;').replaceAll('>','&gt;').replaceAll(String.fromCharCode(34),'&quot;');
+  const totalReviewItems = forecastData.filter(row => ['NO_HISTORY','LIMITED','RECONCILE'].includes(row.quality)).length;
+  const totalEstimatedCost = forecastData.reduce((acc, curr) => acc + (curr.total_cost || 0), 0);
 
   const htmlContent = `
 <!DOCTYPE html>
@@ -248,12 +251,12 @@ export function generateBhpForecastPdfReport({
   <!-- METADATA -->
   <div class="meta-grid">
     <div class="meta-item">
-      <div><strong>Siklus & Periode:</strong> ${periodCycle} (Horizon 28 Hari)</div>
+      <div><strong>Siklus & Periode:</strong> ${escape(periodCycle)}</div>
       <div><strong>Cakupan Lokasi:</strong> ${siteScope}</div>
     </div>
     <div class="meta-item">
-      <div><strong>Waktu Rekapitulasi:</strong> Akhir Periode Operasional</div>
-      <div><strong>Status Dokumen:</strong> Rekap Final untuk Pengajuan Logistik & PO</div>
+      <div><strong>Waktu Rekapitulasi:</strong> Cutoff ${escape(planningContext.as_of || periodCycle)}</div>
+      <div><strong>Status Dokumen:</strong> Proposal untuk review GA; histori terbatas perlu konfirmasi</div>
     </div>
     <div class="meta-item">
       <div><strong>Tanggal Cetak:</strong> ${printDateStr}</div>
@@ -268,15 +271,15 @@ export function generateBhpForecastPdfReport({
       <div class="lbl">Total SKU Terdaftar</div>
     </div>
     <div class="kpi-card">
-      <div class="val font-mono">${totalRecommendedPcs.toLocaleString('id-ID')} Pcs</div>
-      <div class="lbl">Total Rekomendasi (Pcs)</div>
+      <div class="val font-mono">${totalOrderItems} SKU / Site</div>
+      <div class="lbl">Perlu Order</div>
     </div>
     <div class="kpi-card">
-      <div class="val font-mono">${totalRecommendedPacks.toLocaleString('id-ID')} Pack/Dus</div>
-      <div class="lbl">Total Rekomendasi (Pack)</div>
+      <div class="val font-mono">${totalReviewItems} SKU / Site</div>
+      <div class="lbl">Perlu Review Data</div>
     </div>
     <div class="kpi-card">
-      <div class="val font-mono">${formatRupiah(totalEstimatedCost)}</div>
+      <div class="val font-mono">${forecastData.some(row => row.total_cost != null) ? formatRupiah(totalEstimatedCost) : 'Belum dapat dihitung'}</div>
       <div class="lbl">Estimasi Anggaran Pengadaan</div>
     </div>
   </div>
@@ -288,36 +291,35 @@ export function generateBhpForecastPdfReport({
         <th style="width: 25px;">No</th>
         <th style="width: 70px;">Kode Item</th>
         <th>Nama Barang Habis Pakai (BHP)</th>
-        <th style="width: 80px;">Kategori</th>
-        <th style="width: 70px;">Model</th>
-        <th style="width: 50px;">CR</th>
+        <th style="width: 80px;">Site</th>
+        <th style="width: 70px;">Kualitas Data</th>
+        <th style="width: 50px;">Rate / Coverage</th>
         <th style="width: 60px;">Base Forecast</th>
-        <th style="width: 60px;">Safety Stock (Z=1.65)</th>
+        <th style="width: 60px;">Safety Stock</th>
         <th style="width: 55px;">Sisa Stok</th>
-        <th style="width: 65px; background-color: #0d9488;">Final Order (Pcs)</th>
-        <th style="width: 65px; background-color: #0f766e;">Final Order (Pack)</th>
+        <th style="width: 65px; background-color: #0d9488;">Order (Unit Of Issue)</th>
+        <th style="width: 65px; background-color: #0f766e;">Inventory Position</th>
         <th style="width: 85px;">Estimasi Biaya</th>
       </tr>
     </thead>
     <tbody>
       ${forecastData.map((row, idx) => {
-        const isMandays = row.is_mandays || row.model_type === 'MANDAYS';
-        const modelBadge = isMandays ? '<span style="color:#0f766e; font-weight:bold;">Mandays</span>' : '<span style="color:#b45309; font-weight:bold;">Maintenance</span>';
-        const crDisplay = row.consumption_rate ? Number(row.consumption_rate).toFixed(4) : '-';
+        const modelBadge = escape(qualityLabels[row.quality] || 'Histori');
+        const crDisplay = row.daily_rate == null ? '-' : Number(row.daily_rate).toFixed(4);
         return `
           <tr>
             <td class="text-center font-mono">${idx + 1}</td>
             <td class="text-center font-mono font-bold">${row.code || row.item_id}</td>
-            <td><strong>${row.name}</strong></td>
-            <td>${row.category || '-'}</td>
+            <td><strong>${escape(row.name)}</strong></td>
+            <td>${escape(row.site || '-')}</td>
             <td class="text-center">${modelBadge}</td>
-            <td class="text-right font-mono">${crDisplay}</td>
-            <td class="text-right font-mono">${Math.round(row.base_forecast || 0)}</td>
-            <td class="text-right font-mono">+${Math.round(row.safety_stock || 0)}</td>
+            <td class="text-right font-mono">${crDisplay}<br>${row.horizon_days ?? "-"} hari</td>
+            <td class="text-right font-mono">${row.base_forecast == null ? '-' : Number(row.base_forecast).toFixed(2)}</td>
+            <td class="text-right font-mono">${row.safety_stock == null ? '-' : row.safety_stock}</td>
             <td class="text-right font-mono text-muted">${row.current_stock || 0}</td>
-            <td class="text-right font-mono font-bold" style="color: #0f766e; background: #f0fdf4;">${row.final_order || row.recommended_qty_pcs || 0} ${row.unit || 'pcs'}</td>
-            <td class="text-right font-mono font-bold" style="color: #0f766e; background: #ccfbf1;">${row.recommended_packs || 0} ${row.pack_unit || 'pack'}</td>
-            <td class="text-right font-mono tabular-nums font-semibold">${formatRupiah(row.total_cost || 0)}</td>
+            <td class="text-right font-mono font-bold" style="color: #0f766e; background: #f0fdf4;">${row.recommended_qty == null ? 'Perlu data' : row.recommended_qty + ' ' + escape(row.unit)}</td>
+            <td class="text-right font-mono font-bold" style="color: #0f766e; background: #ccfbf1;">${row.inventory_position ?? '-'} ${escape(row.unit)}</td>
+            <td class="text-right font-mono tabular-nums font-semibold">${row.total_cost == null ? '-' : formatRupiah(row.total_cost)}</td>
           </tr>
         `;
       }).join('')}
@@ -329,14 +331,14 @@ export function generateBhpForecastPdfReport({
     <div class="sig-box">
       <div class="sig-role">Dibuat Oleh:</div>
       <div class="sig-dept">General Affairs Administrator</div>
-      <div class="sig-name">${createdByName}</div>
+      <div class="sig-name">${escape(createdByName)}</div>
       <div class="sig-status">Disiapkan pada: ${printDateStr}</div>
     </div>
 
     <div class="sig-box">
       <div class="sig-role">Disetujui Oleh:</div>
       <div class="sig-dept">General Affairs Group Leader (GA GL)</div>
-      <div class="sig-name">${approvedByName}</div>
+      <div class="sig-name">${escape(approvedByName)}</div>
       <div class="sig-status">Disetujui untuk Lampiran Pemesanan PO Manual</div>
     </div>
   </div>
@@ -345,7 +347,7 @@ export function generateBhpForecastPdfReport({
   <div class="footer-note">
     <span>Sistem Manajemen BHP Mess GA Core — PT. Antang Gunung Meratus</span>
     <span>Dokumen ini sah sebagai lampiran pendukung pengajuan pemesanan & pembuatan PO di luar sistem</span>
-    <span>Hal. 1 / 1</span>
+    <span>Rekap per SKU / Site</span>
   </div>
 
   <script>

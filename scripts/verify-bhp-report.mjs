@@ -1,0 +1,5 @@
+import assert from 'node:assert/strict';import fs from 'node:fs/promises';
+let source=await fs.readFile('src/utils/bhpPdfExport.js','utf8');source=source.replace("import { LOGO_AGM_BASE64, LOGO_HCGA_BASE64 } from '../assets/logos/logosBase64';", "const LOGO_AGM_BASE64='',LOGO_HCGA_BASE64='';");let html='';globalThis.window={open:()=>({document:{open(){},write(value){html=value;},close(){}}})};
+const {generateBhpForecastPdfReport}=await import('data:text/javascript;base64,'+Buffer.from(source).toString('base64'));
+generateBhpForecastPdfReport({forecastData:[{code:'SKU',name:'Water & <Test>',site:'LBCT',unit:'box',quality:'NO_HISTORY',base_forecast:null,safety_stock:null,recommended_qty:null,total_cost:null}],periodCycle:'Cutoff 2026-10-14',planningContext:{as_of:'2026-10-14'}});
+assert(html.includes('Water &amp; &lt;Test&gt;'));assert(html.includes('Perlu data'));assert(html.includes('Belum dapat dihitung'));assert(!html.includes('Maintenance'));assert(!html.includes('Z=1.65'));console.log('PASS: report preserves unknown recommendations, unit-of-issue, data quality, date cutoff and escaped names.');
