@@ -2,6 +2,22 @@ export const sameMessId = (left, right) => left != null && right != null && Stri
 
 const isTemporaryStay = id => typeof id === 'string' && id.startsWith('temp_');
 
+export function messStaySnapshot(stay) {
+  const day = value => value ? String(value).slice(0, 10) : null;
+  return {
+    id: String(stay.id), building_id: String(stay.building_id),
+    room_no: stay.room_no ?? stay.room_number, bed_no: stay.bed_no ?? stay.bed_number ?? '',
+    guest_name: stay.guest_name ?? stay.employee_name ?? '', status: stay.status ?? '',
+    start_date: day(stay.start_date ?? stay.check_in), end_date: day(stay.end_date ?? stay.check_out),
+    updated_at: stay.updated_at ? new Date(stay.updated_at).toISOString() : null,
+  };
+}
+
+export function messDraftBaseline(actions, stays) {
+  const ids = new Set(actions.filter(a => a.stayId != null && !isTemporaryStay(a.stayId)).map(a => String(a.stayId)));
+  return stays.filter(s => ids.has(String(s.id))).map(messStaySnapshot);
+}
+
 // A simulated stay may move repeatedly before it is ever saved. Persist only
 // its final placement, while retaining the checkout of the original DB stay.
 export function buildMessTransferBatch(actions, checkoutDate) {

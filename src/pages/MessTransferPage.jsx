@@ -2,12 +2,14 @@ import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { useGlobalLoading } from '../context/LoadingContext';
 import { api } from '../lib/gasClient';
 import { toast } from 'sonner';
-import { ArrowRightLeft, UserPlus, LogOut, CheckCircle2, PlayCircle, Undo2, Users, Download, Building2, X } from 'lucide-react';
+import { ArrowRightLeft, UserPlus, LogOut, CheckCircle2, PlayCircle, Undo2, Download, Building2, X, Save, FolderOpen, Trash2, Plus } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 import CustomSelect from '../components/ui/CustomSelect';
 import { toPng } from 'html-to-image';
 import SimulationReportGraphic from '../components/mess/SimulationReportGraphic';
-import { buildMessTransferBatch, sameMessId, undoMessTransferAction } from '../utils/messTransfer';
+import { messDraftBaseline, sameMessId, undoMessTransferAction } from '../utils/messTransfer';
+import { messDraftApi } from '../lib/messDraftClient';
+import { todayMakassar } from '../utils/bhpForecast';
 
 export default function MessTransferPage() {
   const { showLoading, hideLoading } = useGlobalLoading();
@@ -19,6 +21,14 @@ export default function MessTransferPage() {
   const [pendingActions, setPendingActions] = useState([]);
   const [isSaving, setIsSaving] = useState(false);
   const savingRef = useRef(false);
+  const [draftInfo, setDraftInfo] = useState(null);
+  const [draftName, setDraftName] = useState('');
+  const [plannedDate, setPlannedDate] = useState(todayMakassar);
+  const [draftNotes, setDraftNotes] = useState('');
+  const [baselineStays, setBaselineStays] = useState([]);
+  const [drafts, setDrafts] = useState([]);
+  const [draftListOpen, setDraftListOpen] = useState(false);
+  const [draftListLoading, setDraftListLoading] = useState(false);
   
   const draftPanelRef = useRef(null);
   const reportGraphicRef = useRef(null);
@@ -41,9 +51,10 @@ export default function MessTransferPage() {
       ]);
       setBuildings(bRes.data || []);
       setStays(sRes.data || []);
+      setBaselineStays(sRes.data || []);
       setPendingActions([]);
     } catch (err) {
-      toast.error('Gagal memuat data mess');
+      toast.error(err.message || 'Gagal memuat data mess');
     } finally {
       hideLoading();
     }
@@ -67,14 +78,14 @@ export default function MessTransferPage() {
 
   // Compute Current State (Merging Database + Pending Actions)
   const currentState = useMemo(() => {
-    const today = new Date().toISOString().split('T')[0];
+    const today = todayMakassar();
     
     // 1. Get active stays from DB
     let currentStays = stays.filter(s => {
       if (!s.start_date) return false;
       const start = s.start_date.split('T')[0];
       const end = s.end_date ? s.end_date.split('T')[0] : '9999-12-31';
-      return today >= start && today <= end;
+      return today >= start && today < end;
     });
 
     // 2. Apply pending actions to simulate future state
@@ -237,7 +248,10 @@ export default function MessTransferPage() {
   };
 
   const undoAction = (actionId) => {
-    setPendingActions(prev => undoMessTransferAction(prev, actionId));
+    const remaining = undoMessTransferAction(pendingActions, actionId);
+    const retained = messDraftBaseline(remaining, baselineStays);
+    setPendingActions(remaining);
+    setBaselineStays([...retained, ...stays.filter(s => !retained.some(b => sameMessId(b.id, s.id)))]);
   };
 
   const closeModal = () => {
@@ -249,15 +263,95 @@ export default function MessTransferPage() {
     setLeaveEnd('');
   };
 
+  const resetDraft = () => {
+    setDraftInfo(null);
+    setDraftName('');
+    setDraftNotes('');
+    setPlannedDate(todayMakassar());
+    setPendingActions([]);
+    setBaselineStays(stays);
+    closeModal();
+  };
+
+  const draftInput = () => ({
+    name: draftName, site: selectedSite, planned_date: plannedDate, notes: draftNotes,
+    actions: pendingActions, baseline: messDraftBaseline(pendingActions, baselineStays),
+    ...(draftInfo ? { version: draftInfo.version } : {}),
+  });
+
+  const persistDraft = async () => {
+    if (!draftName.trim()) throw new Error('Isi nama draf terlebih dahulu.');
+    const saved = await messDraftApi.save(draftInfo?.id, draftInput());
+    setDraftInfo({ id: saved.id, version: saved.version });
+    setDraftName(saved.name);
+    return saved;
+  };
+
+  const saveDraft = async () => {
+    if (savingRef.current || !pendingActions.length) return;
+    savingRef.current = true;
+    setIsSaving(true);
+    try { await persistDraft(); toast.success('Draf tersimpan. Bisa dibuka kembali setelah approval.'); }
+    catch (error) { toast.error(error.message); }
+    finally { savingRef.current = false; setIsSaving(false); }
+  };
+
+  const showDraftList = async () => {
+    setDraftListOpen(true);
+    setDraftListLoading(true);
+    try { setDrafts(await messDraftApi.list()); }
+    catch (error) { toast.error(error.message); }
+    finally { setDraftListLoading(false); }
+  };
+
+  const openDraft = async id => {
+    if (savingRef.current) return;
+    if (pendingActions.length && !window.confirm('Buka draf lain? Perubahan yang belum disimpan akan diganti.')) return;
+    savingRef.current = true;
+    setIsSaving(true);
+    try {
+      const [saved, bRes, sRes] = await Promise.all([messDraftApi.get(id), api.getMessBuildings(), api.getMessStays()]);
+      setBuildings(bRes.data || []);
+      setStays(sRes.data || []);
+      setBaselineStays([...saved.baseline, ...(sRes.data || []).filter(s => !saved.baseline.some(b => sameMessId(b.id, s.id)))]);
+      setSelectedSite(saved.site);
+      setDraftInfo({ id: saved.id, version: saved.version });
+      setDraftName(saved.name);
+      setPlannedDate(saved.planned_date);
+      setDraftNotes(saved.notes);
+      setPendingActions(saved.actions);
+      setDraftListOpen(false);
+      closeModal();
+      toast.success('Draf dibuka. Edit simulasi atau realisasikan setelah approval.');
+    } catch (error) { toast.error(error.message); }
+    finally { savingRef.current = false; setIsSaving(false); }
+  };
+
+  const deleteDraft = async draft => {
+    if (savingRef.current || !window.confirm(`Hapus draf "${draft.name}"?`)) return;
+    savingRef.current = true;
+    setIsSaving(true);
+    try {
+      await messDraftApi.remove(draft.id, draft.version);
+      setDrafts(prev => prev.filter(d => d.id !== draft.id));
+      if (draftInfo?.id === draft.id) resetDraft();
+      toast.success('Draf dihapus.');
+    } catch (error) { toast.error(error.message); }
+    finally { savingRef.current = false; setIsSaving(false); }
+  };
+
   const commitChanges = async () => {
     if (pendingActions.length === 0 || savingRef.current) return;
+    if (!window.confirm('Realisasikan perubahan ke okupansi mess sekarang? Pastikan approval sudah diperoleh. Tanggal rencana tidak menjadwalkan realisasi otomatis.')) return;
     savingRef.current = true;
     setIsSaving(true);
     try {
       showLoading();
-      const batchApiPayload = buildMessTransferBatch(pendingActions, new Date().toISOString());
-      if (batchApiPayload.length > 0) await api.batchUpdateStays(batchApiPayload);
-      setPendingActions([]);
+      if (draftInfo) {
+        const saved = await persistDraft();
+        await messDraftApi.realize({ draft_id: saved.id, version: saved.version });
+      } else await messDraftApi.realize(draftInput());
+      resetDraft();
       toast.success('Simulasi berhasil direalisasikan ke database!');
       await loadData();
     } catch (err) {
@@ -292,7 +386,7 @@ export default function MessTransferPage() {
   };
 
   return (
-    <div className="h-[calc(100vh-120px)] flex flex-col animate-in fade-in duration-500">
+    <div inert={isSaving} className="h-[calc(100vh-120px)] flex flex-col animate-in fade-in duration-500">
       
       {/* Header */}
       <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 mb-6 shrink-0">
@@ -304,6 +398,12 @@ export default function MessTransferPage() {
           <p className="text-sm text-[var(--muted-foreground)] mt-1">
             Pilih site, lalu pilih bangunan untuk mengatur draft check-in / check-out.
           </p>
+          <div className="flex gap-2 mt-3">
+            <button onClick={showDraftList} className="flex items-center gap-2 px-3 py-1.5 text-sm border border-[var(--border)] rounded-md hover:bg-[var(--muted)]"><FolderOpen className="w-4 h-4" /> Draf Tersimpan</button>
+            <button onClick={() => {
+              if (!pendingActions.length || window.confirm('Mulai simulasi baru? Perubahan yang belum disimpan akan dibuang.')) resetDraft();
+            }} className="flex items-center gap-2 px-3 py-1.5 text-sm border border-[var(--border)] rounded-md hover:bg-[var(--muted)]"><Plus className="w-4 h-4" /> Simulasi Baru</button>
+          </div>
         </div>
         
         <div className="flex p-1 bg-[var(--muted)]/50 rounded-full border border-[var(--border)] relative z-10 w-fit">
@@ -313,10 +413,11 @@ export default function MessTransferPage() {
               onClick={() => {
                 if (pendingActions.length > 0) {
                   if (window.confirm('Berpindah site akan menghapus draft simulasi saat ini. Lanjutkan?')) {
-                    setPendingActions([]);
+                    resetDraft();
                     setSelectedSite(s);
                   }
                 } else {
+                  resetDraft();
                   setSelectedSite(s);
                 }
               }}
@@ -469,6 +570,19 @@ export default function MessTransferPage() {
             </div>
             
             <div className="flex-1 overflow-y-auto p-4 custom-scrollbar space-y-3">
+              <div className="space-y-2 pb-3 border-b border-[var(--border)]">
+                <p className="text-xs font-medium text-[var(--primary)]">{draftInfo ? 'Mengedit draf tersimpan' : 'Simulasi baru • belum tersimpan'}</p>
+                <label className="block text-xs font-medium">Nama draf
+                  <input value={draftName} onChange={e => setDraftName(e.target.value)} maxLength={120} placeholder="Contoh: Transfer minggu depan" className="mt-1 w-full px-2 py-1.5 text-sm bg-[var(--background)] border border-[var(--border)] rounded-md" />
+                </label>
+                <label className="block text-xs font-medium">Tanggal rencana
+                  <input type="date" value={plannedDate} onChange={e => setPlannedDate(e.target.value)} className="mt-1 w-full px-2 py-1.5 text-sm bg-[var(--background)] border border-[var(--border)] rounded-md" />
+                </label>
+                <label className="block text-xs font-medium">Catatan approval / rencana
+                  <textarea value={draftNotes} onChange={e => setDraftNotes(e.target.value)} maxLength={2000} rows={2} placeholder="Contoh: Menunggu approval GA Site" className="mt-1 w-full px-2 py-1.5 text-sm bg-[var(--background)] border border-[var(--border)] rounded-md resize-y" />
+                </label>
+                <p className="text-[11px] text-[var(--muted-foreground)]">Menyimpan draf tidak mengubah okupansi. Realisasi dilakukan saat tombol ditekan, setelah approval.</p>
+              </div>
               {pendingActions.length === 0 ? (
                 <div className="h-full flex flex-col items-center justify-center text-center p-4 opacity-50">
                   <PlayCircle className="w-12 h-12 mb-3 text-[var(--muted-foreground)]" />
@@ -501,6 +615,9 @@ export default function MessTransferPage() {
             </div>
             
             <div className="p-4 border-t border-[var(--border)] bg-[var(--muted)]/30 shrink-0 mt-auto">
+              <button onClick={saveDraft} disabled={!pendingActions.length || isSaving} className="w-full mb-2 flex items-center justify-center gap-2 px-4 py-2.5 border border-[var(--primary)] text-[var(--primary)] font-medium rounded-[var(--radius-md)] hover:bg-[var(--primary)]/10 disabled:opacity-50 disabled:cursor-not-allowed">
+                <Save className="w-4 h-4" /> {isSaving ? 'Memproses...' : draftInfo ? 'Simpan Perubahan Draf' : 'Simpan Draf'}
+              </button>
               <button
                 onClick={commitChanges}
                 disabled={pendingActions.length === 0 || isSaving}
@@ -513,6 +630,31 @@ export default function MessTransferPage() {
           </div>
         </div>
       </div>
+
+      {draftListOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/40 backdrop-blur-sm">
+          <div role="dialog" aria-modal="true" aria-labelledby="mess-drafts-title" className="bg-[var(--card)] border border-[var(--border)] rounded-[var(--radius-lg)] shadow-xl w-full max-w-2xl max-h-[80vh] flex flex-col">
+            <div className="p-5 border-b border-[var(--border)] flex justify-between items-start">
+              <div><h2 id="mess-drafts-title" className="text-lg font-bold">Draf Simulasi Tersimpan</h2><p className="text-sm text-[var(--muted-foreground)]">Buka draf untuk edit atau realisasi setelah approval.</p></div>
+              <button onClick={() => setDraftListOpen(false)} aria-label="Tutup daftar draf" className="p-1"><X className="w-5 h-5" /></button>
+            </div>
+            <div className="p-5 space-y-3 overflow-y-auto">
+              {draftListLoading ? <p className="text-sm">Memuat draf...</p> : drafts.length === 0 ? <p className="text-sm text-[var(--muted-foreground)]">Belum ada draf tersimpan. Buat perubahan kamar lalu pilih Simpan Draf.</p> : drafts.map(draft => (
+                <div key={draft.id} className="p-4 border border-[var(--border)] rounded-lg">
+                  <p className="font-semibold break-words">{draft.name}</p>
+                  <p className="text-xs text-[var(--muted-foreground)] mt-1">{draft.site} • Rencana {new Date(`${draft.planned_date}T00:00:00+08:00`).toLocaleDateString('id-ID', { timeZone:'Asia/Makassar', day:'numeric', month:'long', year:'numeric' })} • {draft.action_count} perubahan</p>
+                  {draft.notes && <p className="text-sm mt-2 whitespace-pre-wrap break-words">{draft.notes}</p>}
+                  <p className="text-xs text-[var(--muted-foreground)] mt-2">Diperbarui {new Date(draft.updated_at).toLocaleString('id-ID', { timeZone:'Asia/Makassar' })} • {draft.updated_by}</p>
+                  <div className="flex gap-3 mt-3">
+                    <button onClick={() => openDraft(draft.id)} className="flex items-center gap-2 text-sm px-3 py-1.5 bg-[var(--primary)] text-white rounded-md"><FolderOpen className="w-4 h-4" /> Buka / Edit</button>
+                    <button onClick={() => deleteDraft(draft)} className="flex items-center gap-2 text-sm px-3 py-1.5 border border-[var(--border)] text-[var(--destructive)] rounded-md"><Trash2 className="w-4 h-4" /> Hapus</button>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+        </div>
+      )}
       
       {/* Hidden Export Component */}
       <div className="fixed top-[-9999px] left-[-9999px] z-[-9999] pointer-events-none opacity-0">
@@ -521,6 +663,9 @@ export default function MessTransferPage() {
           actions={pendingActions} 
           site={selectedSite} 
           date={new Date()} 
+          draftName={draftName}
+          plannedDate={plannedDate}
+          notes={draftNotes}
         />
       </div>
 

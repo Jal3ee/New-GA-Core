@@ -1,7 +1,7 @@
 import React from 'react';
 import { ArrowRightLeft, UserPlus, LogOut, Calendar, MapPin, CheckCircle2 } from 'lucide-react';
 
-export default function SimulationReportGraphic({ actions, site, date, innerRef }) {
+export default function SimulationReportGraphic({ actions, site, date, innerRef, draftName, plannedDate, notes }) {
   const dateStr = date ? date.toLocaleDateString('id-ID', {
     weekday: 'long', year: 'numeric', month: 'long', day: 'numeric',
     hour: '2-digit', minute: '2-digit'
@@ -28,6 +28,7 @@ export default function SimulationReportGraphic({ actions, site, date, innerRef 
             GA Core Operations
           </div>
           <h1 className="text-4xl font-bold font-display mb-2">Transfer Report</h1>
+          {draftName && <p className="text-xl font-semibold mb-2 break-words">{draftName}</p>}
           <p className="text-[#B3D8D3] text-lg font-medium flex items-center">
             <MapPin className="w-5 h-5 mr-2" />
             Mess Site {site}
@@ -59,6 +60,11 @@ export default function SimulationReportGraphic({ actions, site, date, innerRef 
 
       {/* Body: Action Cards */}
       <div className="p-8 bg-[#F7F9F8] flex-1">
+        {(plannedDate || notes) && <div className="mb-5 rounded-xl bg-white border border-[#DDE4E2] p-4">
+          {plannedDate && <p className="text-sm font-semibold">Tanggal rencana: {new Date(`${plannedDate}T00:00:00+08:00`).toLocaleDateString('id-ID', { timeZone:'Asia/Makassar', day:'numeric', month:'long', year:'numeric' })}</p>}
+          {notes && <p className="mt-2 text-sm whitespace-pre-wrap break-words">{notes}</p>}
+          <p className="text-xs text-[#566461] mt-2">Draf simulasi • belum direalisasikan</p>
+        </div>}
         <div className="grid grid-cols-1 gap-4">
           {actions.length === 0 && (
             <div className="text-center py-12 text-[#71827D] font-medium">

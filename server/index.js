@@ -5,6 +5,7 @@ import { registerReimbursementAttachments } from './reimbursementAttachments.js'
 import express from 'express';
 import { createInvoiceService, InvoiceInputError } from './invoiceService.js';
 import { registerBhpForecast, readBhpLedger } from './bhpForecastService.js';
+import { registerMessDrafts } from './messDraftService.js';
 import { calculateBhpStocks, todayMakassar } from '../src/utils/bhpForecast.js';
 import cors from 'cors';
 import dotenv from 'dotenv';
@@ -46,6 +47,7 @@ app.use((req, res, next) => {
 registerReimbursementAttachments(app, authenticateToken);
 registerReimbursementWorkflow(app, { query, authenticateToken, requireRole, verifySessionToken });
 registerBhpForecast(app, { query, authenticateToken });
+registerMessDrafts(app, { query, pool, authenticateToken });
 
 app.use('/uploads', express.static(path.resolve(__dirname, '../public/uploads')));
 
@@ -689,8 +691,8 @@ app.post('/api/action', async (req, res) => {
     if (action === 'GET_MESS_STAYS') {
       const result = await query(`
         SELECT s.*, 
-               s.check_in as start_date, 
-               s.check_out as end_date, 
+               s.check_in::text as start_date,
+               s.check_out::text as end_date,
                s.room_number as room_no, 
                s.bed_number as bed_no, 
                s.employee_name as guest_name,
