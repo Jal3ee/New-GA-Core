@@ -14,6 +14,8 @@ import CustomSelect from '../../components/ui/CustomSelect';
 import Pagination from '../../components/ui/Pagination';
 import {
   INITIAL_BHP_ITEMS,
+  BHP_CATALOG_VERSION,
+  BHP_CATALOG_SOURCE,
   INITIAL_BHP_STOCKS,
   INITIAL_BHP_USAGES,
   INITIAL_BHP_STOCK_INS,
@@ -107,11 +109,11 @@ export default function BhpMessPage() {
   });
 
   // State Management with Version Check (Prevents showing old dummy data)
-  const STORAGE_VERSION_KEY = 'garda_bhp_sep2026_v2';
+  const STORAGE_VERSION_KEY = 'garda_bhp_catalog_version';
 
   const [items, setItems] = useState(() => {
     const isSynced = localStorage.getItem(STORAGE_VERSION_KEY);
-    if (!isSynced) {
+    if (isSynced !== BHP_CATALOG_VERSION) {
       localStorage.removeItem('garda_bhp_items');
       localStorage.removeItem('garda_bhp_stocks');
       localStorage.removeItem('garda_bhp_usages');
@@ -119,14 +121,14 @@ export default function BhpMessPage() {
       localStorage.removeItem('garda_bhp_transfers');
       localStorage.removeItem('garda_bhp_opnames');
       localStorage.removeItem('garda_bhp_pdf_history');
-      localStorage.setItem(STORAGE_VERSION_KEY, 'true');
+      localStorage.setItem(STORAGE_VERSION_KEY, BHP_CATALOG_VERSION);
       return INITIAL_BHP_ITEMS;
     }
     const saved = localStorage.getItem('garda_bhp_items');
     if (saved) {
       try {
         const parsed = JSON.parse(saved);
-        if (Array.isArray(parsed) && parsed.length >= 139) return parsed;
+        if (Array.isArray(parsed) && parsed.length === INITIAL_BHP_ITEMS.length && parsed.every(item => INITIAL_BHP_ITEMS.some(source => source.id === item.id))) return parsed;
       } catch (e) {}
     }
     return INITIAL_BHP_ITEMS;
@@ -178,8 +180,9 @@ export default function BhpMessPage() {
     fetch('/api/bhp/data')
       .then(res => res.json())
       .then(res => {
-        if (res.success && res.data?.items?.length >= 139) {
+        if (res.success && res.data?.items?.length === INITIAL_BHP_ITEMS.length && res.data.items.every(item => INITIAL_BHP_ITEMS.some(source => source.code === item.code))) {
           const mapped = res.data.items.map(it => ({
+            ...it.catalog_details,
             id: it.code,
             code: it.code,
             name: it.name,
@@ -195,20 +198,22 @@ export default function BhpMessPage() {
           }));
           setItems(mapped);
 
-          if (res.data.usageHistory && Array.isArray(res.data.usageHistory) && res.data.usageHistory.length > 0) {
-            setUsages(res.data.usageHistory);
+          if (Array.isArray(res.data.usageHistory)) {
+            setUsages(res.data.usageHistory.map(row => ({ ...row, item_id: row.item_code })));
           }
-          if (res.data.stockInHistory && Array.isArray(res.data.stockInHistory) && res.data.stockInHistory.length > 0) {
+          if (Array.isArray(res.data.stockInHistory)) {
             setStockIns(res.data.stockInHistory);
           }
-          if (res.data.transferHistory && Array.isArray(res.data.transferHistory) && res.data.transferHistory.length > 0) {
-            setTransfers(res.data.transferHistory);
+          if (Array.isArray(res.data.transferHistory)) {
+            setTransfers(res.data.transferHistory.map(row => ({ ...row, item_id: row.item_code })));
           }
-          if (res.data.opnameHistory && Array.isArray(res.data.opnameHistory) && res.data.opnameHistory.length > 0) {
-            setOpnames(res.data.opnameHistory);
+          if (Array.isArray(res.data.opnameHistory)) {
+            setOpnames(res.data.opnameHistory.map(row => ({ ...row, item_id: row.item_code })));
           }
+          if (Array.isArray(res.data.pdfHistory)) setPdfHistory(res.data.pdfHistory);
         }
       })
+      .catch(() => toast.error('Katalog server belum dapat dimuat. Menggunakan katalog PDF yang tersimpan.'));
   }, []);
 
   // Business Rule: Kategori Mandays vs Maintenance Area Statis
@@ -388,7 +393,9 @@ export default function BhpMessPage() {
       const matchSearch = !q || (
         it.code.toLowerCase().includes(q) ||
         it.name.toLowerCase().includes(q) ||
-        (it.coa && it.coa.toLowerCase().includes(q))
+        (it.coa && it.coa.toLowerCase().includes(q)) ||
+        (it.part_number && it.part_number.toLowerCase().includes(q)) ||
+        (it.mnemonic && it.mnemonic.toLowerCase().includes(q))
       );
       const matchCat = selectedCategory === 'ALL' || it.category === selectedCategory;
       const currentStock = getItemStock(it.id);
@@ -1035,9 +1042,10 @@ export default function BhpMessPage() {
               Operasional Mess • Inventaris BHP
             </span>
             <span className="text-xs text-[var(--muted-foreground)] font-mono">
-              139 SKU Terdaftar
+              {items.length} SKU Terdaftar
             </span>
           </div>
+          <p className="text-xs text-[var(--muted-foreground)]">Sumber: {BHP_CATALOG_SOURCE.filename} · {BHP_CATALOG_SOURCE.registration} · 17 September 2026</p>
           <h1 className="text-2xl font-bold font-display text-[var(--foreground)] tracking-tight flex items-center gap-2.5">
             <Package className="w-6 h-6 text-[#0F5C56]" />
             Barang Habis Pakai (BHP)
@@ -1181,11 +1189,11 @@ export default function BhpMessPage() {
               <table className="w-full text-left text-xs">
                 <thead>
                   <tr className="border-b border-[var(--border)] bg-[var(--muted)]/50 text-[var(--muted-foreground)] font-semibold uppercase tracking-wider text-[11px]">
-                    <th className="py-3 px-4 w-24">Kode</th>
-                    <th className="py-3 px-4">Nama Barang (FPA Update Sep 2026)</th>
+                    <th className="py-3 px-4 w-24">Stock Code</th>
+                    <th className="py-3 px-4">Item Name / Description</th>
                     <th className="py-3 px-4">Kategori</th>
                     <th className="py-3 px-4">Satuan / Pack</th>
-                    <th className="py-3 px-4 text-right">Harga FPA</th>
+                    <th className="py-3 px-4 text-right">Price IDR</th>
                     <th className="py-3 px-4 text-center">Stok {selectedSite === 'ALL' ? 'Total' : selectedSite}</th>
                     <th className="py-3 px-4 text-center">Status</th>
                     <th className="py-3 px-4 text-right">Aksi</th>
@@ -1203,10 +1211,13 @@ export default function BhpMessPage() {
                         className="hover:bg-[var(--muted)]/40 transition-colors cursor-pointer group"
                       >
                         <td className="py-3 px-4 font-mono font-bold text-[#0F5C56]">
-                          {item.code}
+                          {item.stock_code || 'Belum tersedia'}
                         </td>
                         <td className="py-3 px-4 font-medium max-w-sm">
-                          <p className="line-clamp-2">{item.name}</p>
+                          <div className="flex items-start gap-3">
+                            {item.image_url && <img src={item.image_url} alt={item.mnemonic || item.name} loading="lazy" className="w-12 h-12 object-contain shrink-0 rounded bg-white" />}
+                            <div><p className="line-clamp-2">{item.name}</p><p className="text-[10px] text-[var(--muted-foreground)] mt-1">{item.part_number || 'Part Number belum tersedia'} · {item.mnemonic}</p></div>
+                          </div>
                           {item.remarks && (
                             <span className="text-[10px] text-[var(--muted-foreground)] font-normal italic">
                               {item.remarks}
@@ -2087,7 +2098,7 @@ export default function BhpMessPage() {
               <div className="p-5 border-b border-[var(--border)] flex items-start justify-between bg-[var(--muted)]/20">
                 <div>
                   <span className="px-2.5 py-0.5 rounded-full text-[10px] font-bold font-mono bg-[#0F5C56]/10 text-[#0F5C56]">
-                    {selectedItemForDrawer.code}
+                    {selectedItemForDrawer.stock_code || 'Stock Code belum tersedia'}
                   </span>
                   <h3 className="text-base font-bold font-display text-[var(--foreground)] mt-1.5 leading-snug">
                     {selectedItemForDrawer.name}
@@ -2106,11 +2117,25 @@ export default function BhpMessPage() {
 
               {/* Drawer Content */}
               <div className="p-5 flex-1 overflow-y-auto custom-scrollbar space-y-6">
+                {selectedItemForDrawer.image_url && <img src={selectedItemForDrawer.image_url} alt={selectedItemForDrawer.mnemonic || selectedItemForDrawer.name} className="h-28 max-w-full object-contain mx-auto bg-white rounded" />}
+                <dl className="grid grid-cols-2 gap-3 text-xs">
+                  {[
+                    ['Part Number', selectedItemForDrawer.part_number || 'Belum tersedia'],
+                    ['Mnemonic', selectedItemForDrawer.mnemonic],
+                    ['Stock Class', selectedItemForDrawer.stock_class],
+                    ['Stock Type', selectedItemForDrawer.stock_type],
+                    ['Equipment ID', selectedItemForDrawer.equipment_id],
+                    ['Qty Instal', selectedItemForDrawer.qty_install],
+                    ['Repairable', selectedItemForDrawer.repairable],
+                    ['Price USD', selectedItemForDrawer.price_usd?.toLocaleString('en-US', { style: 'currency', currency: 'USD' })],
+                    ['PDF Reference', `Halaman ${selectedItemForDrawer.source_page}, No. ${selectedItemForDrawer.source_no}`]
+                  ].map(([label, value]) => <div key={label}><dt className="text-[var(--muted-foreground)] text-[10px]">{label}</dt><dd className="font-medium mt-1">{value ?? '-'}</dd></div>)}
+                </dl>
                 
                 {/* Rincian Finansial & Master */}
                 <div className="grid grid-cols-2 gap-3 p-3.5 bg-[var(--muted)]/40 rounded-xl border border-[var(--border)] text-xs">
                   <div>
-                    <span className="text-[10px] uppercase font-semibold text-[var(--muted-foreground)]">Harga Satuan (FPA)</span>
+                    <span className="text-[10px] uppercase font-semibold text-[var(--muted-foreground)]">Price IDR / Unit Of Issue</span>
                     <p className="font-mono font-bold text-sm text-[var(--foreground)] mt-0.5">
                       {formatRupiah(selectedItemForDrawer.price_est)}
                     </p>
@@ -2118,12 +2143,12 @@ export default function BhpMessPage() {
                   <div>
                     <span className="text-[10px] uppercase font-semibold text-[var(--muted-foreground)]">Satuan / Pack</span>
                     <p className="font-medium text-[var(--foreground)] mt-0.5 uppercase">
-                      {selectedItemForDrawer.unit} (Isi {selectedItemForDrawer.pack_qty})
+                        {selectedItemForDrawer.unit}
                     </p>
                   </div>
                   {selectedItemForDrawer.coa && (
                     <div className="col-span-2 pt-2 border-t border-[var(--border)]">
-                      <span className="text-[10px] uppercase font-semibold text-[var(--muted-foreground)]">Chart of Accounts (COA)</span>
+                      <span className="text-[10px] uppercase font-semibold text-[var(--muted-foreground)]">Expense Element</span>
                       <p className="font-mono text-xs text-[var(--foreground)] mt-0.5">
                         {selectedItemForDrawer.coa}
                       </p>
@@ -2282,7 +2307,7 @@ export default function BhpMessPage() {
                     value={usageForm.item_id}
                     onChange={(val) => setUsageForm({ ...usageForm, item_id: val })}
                     options={itemSelectOptions}
-                    placeholder="Ketik untuk mencari dari 139 barang..."
+                    placeholder={`Cari dari ${items.length} barang...`}
                     className="mt-1"
                     searchPlaceholder="Cari nama barang atau kode BHP..."
                   />
@@ -2433,7 +2458,7 @@ export default function BhpMessPage() {
                       <thead className="bg-[var(--muted)]/60 text-[var(--muted-foreground)] border-b border-[var(--border)] font-semibold text-[11px] uppercase">
                         <tr>
                           <th className="py-2.5 px-3 w-8 text-center">#</th>
-                          <th className="py-2.5 px-3 min-w-[230px]">Pilih Barang BHP (139 SKU)</th>
+                          <th className="py-2.5 px-3 min-w-[230px]">Pilih Barang BHP ({items.length} SKU)</th>
                           <th className="py-2.5 px-3 w-28">Qty Diterima</th>
                           <th className="py-2.5 px-3 w-24">Satuan</th>
                           <th className="py-2.5 px-3">Keterangan Baris</th>
@@ -2453,7 +2478,7 @@ export default function BhpMessPage() {
                                   value={row.item_id}
                                   onChange={(val) => handleUpdateStockInRow(idx, 'item_id', val)}
                                   options={itemSelectOptions}
-                                  placeholder="Ketik cari dari 139 item..."
+                                  placeholder={`Cari dari ${items.length} item...`}
                                   searchPlaceholder="Cari nama barang atau kode BHP..."
                                   buttonClassName="py-1.5"
                                 />
