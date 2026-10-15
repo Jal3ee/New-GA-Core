@@ -256,6 +256,7 @@ export function generateBhpForecastPdfReport({
     </div>
     <div class="meta-item">
       <div><strong>Waktu Rekapitulasi:</strong> Cutoff ${escape(planningContext.as_of || periodCycle)}</div>
+      ${planningContext.forecast_to ? `<div><strong>Periode Forecast:</strong> ${escape(planningContext.forecast_from)} s.d. ${escape(planningContext.forecast_to)} (termasuk tanggal akhir)</div>` : ''}
       <div><strong>Status Dokumen:</strong> Proposal untuk review GA; histori terbatas perlu konfirmasi</div>
     </div>
     <div class="meta-item">

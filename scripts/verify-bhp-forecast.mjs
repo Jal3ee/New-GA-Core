@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { calculateBhpForecast, calculateBhpStocks, DEFAULT_BHP_PLANNING, addDays, todayMakassar } from '../src/utils/bhpForecast.js';
+import { calculateBhpForecast, calculateBhpStocks, DEFAULT_BHP_PLANNING, addDays, todayMakassar, endOfNextMonth } from '../src/utils/bhpForecast.js';
 import { pool } from '../server/db.js';
 import { createSessionToken } from '../server/auth.js';
 
@@ -39,6 +39,22 @@ const both={...data,opnames:[...data.opnames,{site:'IDMG',item_code:item.code,da
 const intermittent={...data,usages:data.usages.map((entry,i)=>({...entry,qty:i%2?0:10}))};assert.equal(run(intermittent).rows[0].safety_method,'EMPIRICAL');
 assert.equal(calculateBhpStocks({...data,transfers:[{item_code:item.code,date:asOf,from_site:'LBCT',to_site:'IDMG',qty:2,created_at:asOf+'T23:30:00Z'}]},asOf).LBCT[item.code],1);
 console.log('PASS: daily aggregation invariance, bounded history, empty versus confirmed zero demand, short-history guard, excess/zero/low/negative stock, per-site order, empirical safety stock, MOQ, manual baseline and PO receipt netting.');
+assert.equal(endOfNextMonth('2026-10-15'),'2026-11-30');
+assert.equal(endOfNextMonth('2026-12-31'),'2027-01-31');
+assert.equal(endOfNextMonth('2028-01-31'),'2028-02-29');
+const fixedCutoff='2026-10-12', fixedTarget='2026-11-30';
+const fixedConfig=Object.fromEntries(['LBCT','IDMG','SPCT'].map(site=>[site,{...DEFAULT_BHP_PLANNING,history_complete_from:addDays(fixedCutoff,-89)}]));
+const fixedData={...empty(),usages:Array.from({length:90},(_,i)=>({site:'LBCT',item_code:item.code,date:addDays(fixedCutoff,-89+i),qty:1})),opnames:[{site:'LBCT',item_code:item.code,date:fixedCutoff,physical_qty:3}]};
+const targetRun=(input=fixedData, cfg=fixedConfig, target=fixedTarget, site='LBCT')=>calculateBhpForecast(input,cfg,fixedCutoff,site,{forecast_to:target});
+let targeted=targetRun();row=targeted.rows[0];assert.equal(targeted.forecast_from,'2026-10-13');assert.equal(targeted.forecast_to,fixedTarget);assert.equal(row.horizon_days,49);assert.equal(row.base_forecast,49);assert.equal(row.recommended_qty,46);assert.equal(row.coverage_to,fixedTarget);
+assert.equal(row.horizon_mode,'DATE');assert.equal(targeted.latest_usage_date,fixedCutoff);
+const fixedPO={LBCT:{...fixedConfig.LBCT,item_controls:{[item.code]:{incoming:[{qty:4,eta:fixedTarget},{qty:999,eta:'2026-12-01'}]}}}};
+row=targetRun(fixedData,fixedPO).rows[0];assert.equal(row.on_order,4);assert.equal(row.recommended_qty,42);
+row=targetRun(fixedData,fixedConfig,'2026-10-13').rows[0];assert.equal(row.horizon_days,1);assert(row.lead_time_beyond_horizon);
+row=targetRun(fixedData,fixedConfig,addDays(fixedCutoff,366)).rows[0];assert.equal(row.horizon_days,366);assert(row.horizon_exceeds_history);
+for(const invalid of [fixedCutoff,'2026-10-11','2026-02-29','bad-date',addDays(fixedCutoff,367)])assert.throws(()=>targetRun(fixedData,fixedConfig,invalid),/Tanggal akhir/);
+const varied={...fixedConfig,IDMG:{...fixedConfig.IDMG,review_days:90}};assert(targetRun(fixedData,varied,fixedTarget,'ALL').rows.every(r=>r.coverage_to===fixedTarget&&r.horizon_days===49));
+console.log('PASS: inclusive custom end dates, November 30 default, year/leap boundaries, no extra lead-time days, ETA at versus beyond target, short/long horizon warnings and date validation.');
 
 const client=await pool.connect();await client.query('BEGIN');const original=pool.query.bind(pool);let server;
 try {
@@ -49,6 +65,10 @@ try {
     await client.query(`CREATE TEMP SEQUENCE ${table}_test_ids`);
     await client.query(`ALTER TABLE ${table} ALTER COLUMN id SET DEFAULT nextval('pg_temp.${table}_test_ids')`);
   }
+  await client.query('CREATE TEMP TABLE bhp_forecast_settings (LIKE public.bhp_forecast_settings INCLUDING ALL) ON COMMIT DROP');
+  await client.query('CREATE TEMP TABLE bhp_forecast_runs (LIKE public.bhp_forecast_runs INCLUDING ALL) ON COMMIT DROP');
+  await client.query('CREATE TEMP SEQUENCE forecast_run_test_ids');
+  await client.query("ALTER TABLE bhp_forecast_runs ALTER COLUMN id SET DEFAULT nextval('pg_temp.forecast_run_test_ids')");
   await client.query('ALTER TABLE bhp_stock_in ADD FOREIGN KEY (item_code) REFERENCES bhp_items(code)');
   await client.query('ALTER TABLE bhp_usage ADD FOREIGN KEY (item_code) REFERENCES bhp_items(code)');
   await client.query("INSERT INTO bhp_items (code,name,unit,category,price_est) VALUES ('TEST-BHP','Test Water','box','K (Office Supplies)',100),('OTHER-BHP','Other','each','K (Office Supplies)',50)");
@@ -70,8 +90,15 @@ try {
   response=await request('/api/bhp/forecast?site=LBCT&as_of='+asOf);assert.equal(response.body.data.rows[0].quality,'MANUAL');assert.equal(response.body.data.rows[0].recommended_qty,71);
   const saved=await request('/api/bhp/forecast/snapshots','POST',{site:'LBCT',as_of:asOf});assert.equal(saved.status,200);
   const frozen=(await client.query('SELECT result FROM bhp_forecast_runs WHERE id=$1',[saved.body.data.id])).rows[0].result;assert.equal(frozen.rows[0].recommended_qty,71);
+  const requestedEnd=addDays(asOf,60);
+  response=await request('/api/bhp/forecast?site=LBCT&as_of='+asOf+'&forecast_to='+requestedEnd);assert.equal(response.status,200);assert.equal(response.body.data.rows[0].horizon_days,60);assert.equal(response.body.data.rows[0].recommended_qty,117);
+  assert.equal((await request('/api/bhp/forecast?site=LBCT&as_of='+asOf+'&forecast_to='+asOf)).status,400);
+  assert.equal((await request('/api/bhp/forecast/snapshots','POST',{site:'LBCT',as_of:asOf,forecast_to:'2026-02-29'})).status,400);
+  const datedSnapshot=await request('/api/bhp/forecast/snapshots','POST',{site:'LBCT',as_of:asOf,forecast_to:requestedEnd});assert.equal(datedSnapshot.status,200);
+  const datedFrozen=(await client.query('SELECT result FROM bhp_forecast_runs WHERE id=$1',[datedSnapshot.body.data.id])).rows[0].result;assert.equal(datedFrozen.forecast_to,requestedEnd);assert.equal(datedFrozen.rows[0].horizon_days,60);
   const configUpdate=await request('/api/bhp/forecast/settings/ALL','PUT',{review_days:7});assert.equal(configUpdate.status,200);
   assert.equal(configUpdate.body.data.LBCT.item_controls[item.code].baseline_daily,2);
+  response=await request('/api/bhp/forecast?site=LBCT&as_of='+asOf+'&forecast_to='+requestedEnd);assert.equal(response.body.data.rows[0].recommended_qty,117);
   assert.equal((await client.query('SELECT result FROM bhp_forecast_runs WHERE id=$1',[saved.body.data.id])).rows[0].result.rows[0].recommended_qty,71);
   const receiptPayload={site:'LBCT',date:asOf,receiverName:'Test',entries:[{itemCode:'TEST-BHP',qty:5},{itemCode:'OTHER-BHP',qty:6}]};
   assert.equal((await request('/api/bhp/stock-in','POST',receiptPayload)).status,200);

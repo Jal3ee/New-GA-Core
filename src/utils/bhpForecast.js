@@ -1,7 +1,11 @@
-export const BHP_FORECAST_VERSION = 'history-v1';
+export const BHP_FORECAST_VERSION = 'history-v2';
 export const BHP_SITES = ['LBCT', 'IDMG', 'SPCT'];
 export const todayMakassar = () => new Intl.DateTimeFormat('sv-SE', { timeZone: 'Asia/Makassar', year: 'numeric', month: '2-digit', day: '2-digit' }).format(new Date());
 export const addDays = (day, days) => new Date(Date.parse(day + 'T00:00:00Z') + days * 86400000).toISOString().slice(0, 10);
+export const endOfNextMonth = day => {
+  const [year,month]=day.split('-').map(Number);
+  return new Date(Date.UTC(year,month+1,0)).toISOString().slice(0,10);
+};
 export const dayCount = (start, end) => Math.round((Date.parse(end) - Date.parse(start)) / 86400000) + 1;
 export const DEFAULT_BHP_PLANNING = { history_days: 90, review_days: 30, lead_days: 7, service_level: 0.95, history_complete_from: '', item_controls: {} };
 const mean = values => values.reduce((sum, value) => sum + value, 0) / (values.length || 1);
@@ -28,7 +32,9 @@ export function calculateBhpStocks(data, asOf) {
   return stocks;
 }
 
-export function calculateBhpForecast(data, settings, asOf, siteFilter = 'ALL') {
+export function calculateBhpForecast(data, settings, asOf, siteFilter = 'ALL', options = {}) {
+  const forecastTo=options.forecast_to || null;
+  if(forecastTo && (!/^\d{4}-\d{2}-\d{2}$/.test(forecastTo)||!Number.isFinite(Date.parse(forecastTo))||new Date(forecastTo).toISOString().slice(0,10)!==forecastTo||forecastTo<=asOf||dayCount(asOf,forecastTo)-1>366)) throw new Error('Tanggal akhir forecast harus setelah cutoff, maksimal 366 hari.');
   const stocks = calculateBhpStocks(data, asOf);
   const usageByKey = new Map();
   for (const row of data.usages) if (row.date <= asOf) {
@@ -40,8 +46,8 @@ export function calculateBhpForecast(data, settings, asOf, siteFilter = 'ALL') {
   for (const site of siteFilter === 'ALL' ? BHP_SITES : [siteFilter]) {
     const config = { ...DEFAULT_BHP_PLANNING, ...settings[site] };
     const historyStart = addDays(asOf, 1 - config.history_days);
-    const horizon = config.review_days + config.lead_days;
-    const end = addDays(asOf, horizon);
+    const horizon = forecastTo ? dayCount(asOf,forecastTo)-1 : config.review_days + config.lead_days;
+    const end = forecastTo || addDays(asOf, horizon);
     for (const item of data.items) {
       const code = item.code;
       const unitPrice = item.price_est == null || item.price_est === '' ? null : Number(item.price_est);
@@ -81,7 +87,7 @@ export function calculateBhpForecast(data, settings, asOf, siteFilter = 'ALL') {
       const order = rawOrder === null ? null : rawOrder > 0 ? Math.ceil(Math.max(moq, rawOrder) / multiple) * multiple : 0;
       const quality = stock < 0 ? 'RECONCILE' : manual ? 'MANUAL' : !n ? 'NO_HISTORY' : !confirmed || n < 28 || nonzeroDays > 0 && nonzeroDays < 3 ? 'LIMITED' : 'READY';
       let projectedStock = stock - allocated, urgent = false;
-      if (daily !== null) for (let d = 1; d <= config.lead_days; d++) {
+      if (daily !== null) for (let d = 1; d <= Math.min(config.lead_days,horizon); d++) {
         projectedStock += incoming.filter(row => row.eta === addDays(asOf,d)).reduce((sum,row) => sum + Number(row.qty),0);
         projectedStock -= daily;
         if (projectedStock < 0) urgent = true;
@@ -90,6 +96,7 @@ export function calculateBhpForecast(data, settings, asOf, siteFilter = 'ALL') {
         history_from: from, history_to: asOf, observed_days: n, nonzero_days: nonzeroDays, total_used_hist: used, daily_series: series,
         daily_rate: daily === null ? null : round(daily), std_dev: round(sd(series)), base_forecast: forecast === null ? null : round(forecast), safety_stock: safety, safety_method: safetyMethod,
         current_stock: stock, on_order: onOrder, allocated, inventory_position: position, horizon_days: horizon, coverage_to: end,
+        forecast_from:addDays(asOf,1), horizon_mode:forecastTo?'DATE':'INTERVAL', lead_time_beyond_horizon:config.lead_days>horizon, horizon_exceeds_history:n>0&&horizon>n,
         recommended_qty: order,
         total_cost: order === null || unitPrice === null ? null : Math.round(order * unitPrice * 100) / 100,
         stock_cover_days: daily > 0 ? round(Math.max(0, stock - allocated) / daily) : null,
@@ -97,5 +104,6 @@ export function calculateBhpForecast(data, settings, asOf, siteFilter = 'ALL') {
         overdue_incoming: incoming.some(row => row.eta <= asOf), controls, config, version: BHP_FORECAST_VERSION });
     }
   }
-  return { as_of: asOf, site: siteFilter, settings, rows, stocks, version: BHP_FORECAST_VERSION };
+  const latestUsage=data.usages.filter(row=>row.date<=asOf&&(siteFilter==='ALL'||row.site===siteFilter)).map(row=>row.date).sort().at(-1)||null;
+  return { as_of: asOf, site: siteFilter, forecast_from:addDays(asOf,1), forecast_to:forecastTo, horizon_mode:forecastTo?'DATE':'INTERVAL', latest_usage_date:latestUsage, settings, rows, stocks, version: BHP_FORECAST_VERSION };
 }

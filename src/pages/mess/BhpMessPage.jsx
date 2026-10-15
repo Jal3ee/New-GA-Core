@@ -512,7 +512,7 @@ export default function BhpMessPage() {
 
     const siteLabel = selectedSite === 'ALL' ? 'Konsolidasi (LBCT, IDMG, SPCT)' : `Site: ${selectedSite}`;
     if (!forecastRun) return toast.error('Buka tab Forecast dan refresh data terlebih dahulu.');
-    const periodLabel = 'Cutoff ' + forecastRun.as_of + ' - Forecast Historikal';
+    const periodLabel = 'Cutoff ' + forecastRun.as_of + (forecastRun.forecast_to ? ' - Forecast ' + forecastRun.forecast_from + ' s.d. ' + forecastRun.forecast_to : ' - Forecast Historikal (Interval Order)');
 
     generateBhpForecastPdfReport({
       forecastData: allForecastRecommendations,

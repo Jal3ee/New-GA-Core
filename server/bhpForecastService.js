@@ -1,4 +1,4 @@
-import { BHP_SITES, DEFAULT_BHP_PLANNING, calculateBhpForecast, todayMakassar } from '../src/utils/bhpForecast.js';
+import { BHP_SITES, DEFAULT_BHP_PLANNING, calculateBhpForecast, todayMakassar, dayCount } from '../src/utils/bhpForecast.js';
 
 export async function readBhpLedger(query, asOf = todayMakassar()) {
   const result = await query(`SELECT json_build_object(
@@ -23,14 +23,16 @@ export function registerBhpForecast(app, { query, authenticateToken }) {
     const saved = (await query('SELECT site,settings FROM bhp_forecast_settings')).rows;
     return Object.fromEntries(BHP_SITES.map(site => [site, { ...DEFAULT_BHP_PLANNING, ...saved.find(row => row.site === site)?.settings }]));
   };
-  const run = async (site, asOf) => calculateBhpForecast(await readBhpLedger(query, asOf), await loadSettings(), asOf, site);
+  const validTarget = (target,asOf) => target===undefined||(validDay(target)&&target>asOf&&dayCount(asOf,target)-1<=366);
+  const run = async (site, asOf, forecastTo) => calculateBhpForecast(await readBhpLedger(query, asOf), await loadSettings(), asOf, site, {forecast_to:forecastTo});
   const fail = (res, error) => { console.error('[BHP Forecast]', error.message); return res.status(503).json({ ok: false, error: 'Forecast belum dapat dimuat. Silakan coba kembali.' }); };
 
   app.get('/api/bhp/forecast', authenticateToken, async (req, res) => {
     res.set('Cache-Control', 'no-store');
     const site = req.query.site || 'ALL', asOf = req.query.as_of || todayMakassar();
     if (!validateSite(site) || !validDay(asOf) || asOf > todayMakassar()) return res.status(400).json({ ok: false, error: 'Site atau tanggal cutoff tidak valid.' });
-    try { return res.json({ ok: true, data: await run(site, asOf) }); } catch (error) { return fail(res, error); }
+    if(!validTarget(req.query.forecast_to,asOf))return res.status(400).json({ok:false,error:'Tanggal akhir forecast harus setelah cutoff, maksimal 366 hari.'});
+    try { return res.json({ ok: true, data: await run(site, asOf,req.query.forecast_to) }); } catch (error) { return fail(res, error); }
   });
 
   app.put('/api/bhp/forecast/settings/:site', authenticateToken, async (req, res) => {
@@ -87,8 +89,9 @@ export function registerBhpForecast(app, { query, authenticateToken }) {
   app.post('/api/bhp/forecast/snapshots', authenticateToken, async (req,res) => {
     const site=req.body?.site||'ALL',asOf=req.body?.as_of||todayMakassar();
     if(!validateSite(site)||!validDay(asOf)||asOf>todayMakassar())return res.status(400).json({ok:false,error:'Periode tidak valid.'});
+    if(!validTarget(req.body.forecast_to,asOf))return res.status(400).json({ok:false,error:'Tanggal akhir forecast harus setelah cutoff, maksimal 366 hari.'});
     try {
-      const result=await run(site,asOf);
+      const result=await run(site,asOf,req.body.forecast_to);
       const saved=await query('INSERT INTO bhp_forecast_runs (as_of,site,version,result,created_by) VALUES ($1,$2,$3,$4,$5) RETURNING id,created_at',[asOf,site,result.version,JSON.stringify(result),req.user.nik]);
       return res.json({ok:true,data:saved.rows[0]});
     } catch(error){return fail(res,error);}
