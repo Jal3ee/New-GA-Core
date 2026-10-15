@@ -3,6 +3,7 @@ import { randomUUID } from 'node:crypto';
 import fs from 'node:fs/promises';
 import { readBhpLedger } from './bhpForecastService.js';
 import { addDays, calculateBhpStocks } from '../src/utils/bhpForecast.js';
+import { validBhpQuantity } from '../src/utils/bhpQuantity.js';
 
 export const BHP_HISTORY_IMPORT_SCHEMA = `
 ALTER TABLE bhp_stock_in ADD COLUMN IF NOT EXISTS period_start DATE;
@@ -21,7 +22,7 @@ CREATE TABLE IF NOT EXISTS bhp_history_import_rows (
 );`;
 
 const day = value => typeof value==='string' && /^\d{4}-\d{2}-\d{2}$/.test(value) && Number.isFinite(Date.parse(value)) && new Date(value).toISOString().slice(0,10)===value;
-const qty = value => Number.isSafeInteger(value) && value>=0;
+const qty = value => typeof value==='number' && validBhpQuantity(value,true);
 export function validateBhpHistoryManifest(input) {
   assert(input && ['LBCT','IDMG','SPCT'].includes(input.site),'Site tidak valid');
   assert(/^[a-f0-9]{64}$/.test(input.source_sha256),'Hash sumber tidak valid');
@@ -74,9 +75,16 @@ export async function applyBhpHistoryImport(pool, input, {backupDir='tmp/backups
     // on recurring imports. Inventory carries forward from the prior period.
     const previousDay=addDays(input.period_start,-1);
     const carriedStocks=calculateBhpStocks(await readBhpLedger((...args)=>client.query(...args),previousDay),previousDay)[input.site];
+    let initializeReceipts=false;
+    if(input.initialization_of_import_id) {
+      const original=(await client.query('SELECT *,period_start::text AS period_start FROM bhp_history_imports WHERE id=$1',[input.initialization_of_import_id])).rows[0];
+      assert(original&&original.site===input.site&&original.source_sha256===input.source_sha256&&original.source_sheet===input.source_sheet&&original.period_start===input.period_start&&original.result.opening_receipts_conversion,'Inisiasi tambahan harus mengacu pada batch inisiasi yang sudah disetujui');
+      initializeReceipts=true;
+    }
     for(const code of codes) {
       const opening=rows.filter(row=>row.item_code===code).reduce((sum,row)=>sum+row.opening_qty,0);
-      assert.equal(carriedStocks[code]||0,opening,`Saldo awal Excel berbeda dari saldo berjalan: ${code}. Rekonsiliasi diperlukan; stok awal tidak ditambahkan ulang.`);
+      if(initializeReceipts) assert.equal(carriedStocks[code]||0,0,`SKU tambahan sudah mempunyai saldo sebelum inisiasi: ${code}`);
+      else assert.equal(carriedStocks[code]||0,opening,`Saldo awal Excel berbeda dari saldo berjalan: ${code}. Rekonsiliasi diperlukan; stok awal tidak ditambahkan ulang.`);
     }
     const id=randomUUID();
     await fs.mkdir(backupDir,{recursive:true});
@@ -87,8 +95,16 @@ export async function applyBhpHistoryImport(pool, input, {backupDir='tmp/backups
     const replacedUsage=await client.query('DELETE FROM bhp_usage WHERE site=$1 AND item_code=ANY($2::text[]) AND date BETWEEN $3::date AND $4::date',[input.site,codes,input.period_start,input.period_end]);
     const replacedReceipts=await client.query('DELETE FROM bhp_stock_in WHERE site=$1 AND item_code=ANY($2::text[]) AND date BETWEEN $3::date AND $4::date',[input.site,codes,input.period_start,input.period_end]);
     let usages=0,receipts=0;
+    let initializationReceiptCount=0;
+    if(initializeReceipts) for(const code of codes) {
+      const opening=rows.filter(row=>row.item_code===code).reduce((sum,row)=>sum+row.opening_qty,0);
+      if(opening>0) {
+        await client.query("INSERT INTO bhp_stock_in(date,site,item_code,qty,condition_status,receiver_name,notes) VALUES($1,$2,$3,$4,'Inisiasi Awal','Tidak tercantum (Excel)',$5)",[input.period_start,input.site,code,opening,`Pelengkap inisiasi awal ${input.site} ${input.period_start}; sumber ${input.source_file}. Mengacu batch ${input.initialization_of_import_id}. Stok awal tidak ditambahkan lagi pada bulan berikutnya.`]);
+        initializationReceiptCount++;
+      }
+    }
     for(const row of rows) {
-      const source=`Excel ${input.source_file} | ${input.source_sheet} baris ${row.source_row} | Barang sumber: ${row.source_name} | SKU tujuan ${row.item_code}; jumlah kemasan 1:1 | SHA256 ${input.source_sha256}`;
+      const source=`Excel ${input.source_file} | ${input.source_sheet} baris ${row.source_row} | Barang sumber: ${row.source_name} | SKU tujuan ${row.item_code}; ${row.conversion_note||'jumlah kemasan 1:1'} | SHA256 ${input.source_sha256}`;
       for(const usage of row.usages) {
         await client.query('INSERT INTO bhp_usage(date,site,item_code,qty,pic_name,is_anomaly,notes) VALUES($1,$2,$3,$4,$5,FALSE,$6)',[usage.date,input.site,row.item_code,usage.qty,'Import Excel (PIC tidak tercantum)',source]);usages++;
       }
@@ -100,7 +116,7 @@ export async function applyBhpHistoryImport(pool, input, {backupDir='tmp/backups
     const ledger=await readBhpLedger((...args)=>client.query(...args),input.period_end);
     const stocks=calculateBhpStocks(ledger,input.period_end)[input.site];
     for(const code of codes) assert.equal(stocks[code]||0,rows.filter(row=>row.item_code===code).reduce((sum,row)=>sum+row.closing_qty,0),`Saldo akhir berbeda dari Excel: ${code}`);
-    const result={import_id:id,site:input.site,period_start:input.period_start,period_end:input.period_end,opening_policy:'carry_forward',items:codes.length,source_rows:rows.length,usage_records:usages,weekly_receipt_records:receipts,replaced_usage_records:replacedUsage.rowCount,replaced_receipt_records:replacedReceipts.rowCount,skipped_rows:input.rows.length-rows.length,closing_balances_verified:codes.length,backup_path:backupPath};
+    const result={import_id:id,site:input.site,period_start:input.period_start,period_end:input.period_end,opening_policy:initializeReceipts?'approved_initialization_extension':'carry_forward',initialization_receipt_records:initializationReceiptCount,items:codes.length,source_rows:rows.length,usage_records:usages,weekly_receipt_records:receipts,replaced_usage_records:replacedUsage.rowCount,replaced_receipt_records:replacedReceipts.rowCount,skipped_rows:input.rows.length-rows.length,closing_balances_verified:codes.length,backup_path:backupPath};
     await client.query('INSERT INTO bhp_history_imports(id,source_sha256,source_file,source_sheet,site,period_start,period_end,manifest,before_data,result) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)',[id,input.source_sha256,input.source_file,input.source_sheet,input.site,input.period_start,input.period_end,JSON.stringify({...input,rows}),JSON.stringify(before),JSON.stringify(result)]);
     await client.query('COMMIT');return result;
   } catch(error) {await client.query('ROLLBACK');throw error;}

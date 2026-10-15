@@ -6,6 +6,7 @@ import express from 'express';
 import { createInvoiceService, InvoiceInputError } from './invoiceService.js';
 import { registerBhpForecast, readBhpLedger } from './bhpForecastService.js';
 import { registerMessDrafts } from './messDraftService.js';
+import { validBhpQuantity } from '../src/utils/bhpQuantity.js';
 import { calculateBhpStocks, todayMakassar } from '../src/utils/bhpForecast.js';
 import cors from 'cors';
 import dotenv from 'dotenv';
@@ -163,9 +164,9 @@ app.get('/api/bhp/data', async (req, res) => {
 app.post('/api/bhp/usage', async (req,res) => {
   try {
     const { entries,picName,site,date }=req.body;
-    if(!['LBCT','IDMG','SPCT'].includes(site)||!Array.isArray(entries)||!entries.length||entries.length>200||entries.some(row=>!row.itemCode||!Number.isSafeInteger(Number(row.qty))||Number(row.qty)<=0))return res.status(400).json({success:false,error:'Barang/site/jumlah pemakaian tidak valid.'});
+    if(!['LBCT','IDMG','SPCT'].includes(site)||!Array.isArray(entries)||!entries.length||entries.length>200||entries.some(row=>!row.itemCode||!validBhpQuantity(row.qty)))return res.status(400).json({success:false,error:'Barang/site/jumlah pemakaian tidak valid. Gunakan maksimal 3 angka desimal.'});
     const rows=entries.map(row=>({item_code:row.itemCode,qty:Number(row.qty),is_anomaly:!!row.isAnomaly,notes:row.notes||null}));
-    const result=await query(`INSERT INTO bhp_usage(date,site,item_code,qty,pic_name,is_anomaly,notes) SELECT $1::date,$2,item_code,qty,$4,is_anomaly,notes FROM jsonb_to_recordset($3::jsonb) AS x(item_code text,qty integer,is_anomaly boolean,notes text) RETURNING *`,[date||todayMakassar(),site,JSON.stringify(rows),picName||'PIC Lapangan']);
+    const result=await query(`INSERT INTO bhp_usage(date,site,item_code,qty,pic_name,is_anomaly,notes) SELECT $1::date,$2,item_code,qty,$4,is_anomaly,notes FROM jsonb_to_recordset($3::jsonb) AS x(item_code text,qty numeric,is_anomaly boolean,notes text) RETURNING *`,[date||todayMakassar(),site,JSON.stringify(rows),picName||'PIC Lapangan']);
     return res.json({success:true,count:result.rows.length,data:result.rows});
   } catch(error){return res.status(error.code==='23503'||error.code?.startsWith('22')?400:500).json({success:false,error:'Pemakaian belum tersimpan. Periksa tanggal dan kode barang.'});}
 });
@@ -175,9 +176,9 @@ app.post('/api/bhp/stock-in', async (req, res) => {
   try {
     const { date, site, receiverName, refPo, conditionStatus, notes } = req.body;
     const entries = req.body.entries || [req.body];
-    if (!['LBCT','IDMG','SPCT'].includes(site) || !date || !Array.isArray(entries) || !entries.length || entries.length > 200 || entries.some(row => !row.itemCode || !Number.isSafeInteger(Number(row.qty)) || Number(row.qty) <= 0)) return res.status(400).json({success:false,error:'Site, tanggal, barang atau jumlah penerimaan tidak valid.'});
+    if (!['LBCT','IDMG','SPCT'].includes(site) || !date || !Array.isArray(entries) || !entries.length || entries.length > 200 || entries.some(row => !row.itemCode || !validBhpQuantity(row.qty))) return res.status(400).json({success:false,error:'Site, tanggal, barang atau jumlah penerimaan tidak valid. Gunakan maksimal 3 angka desimal.'});
     const rows = entries.map(row => ({ item_code:row.itemCode,qty:Number(row.qty),ref_po:row.refPo||refPo||null,condition_status:row.conditionStatus||conditionStatus||'Lengkap',notes:row.notes||notes||null }));
-    const result = await query(`INSERT INTO bhp_stock_in (date,site,item_code,qty,ref_po,condition_status,receiver_name,notes) SELECT $1::date,$2,item_code,qty,ref_po,condition_status,$4,notes FROM jsonb_to_recordset($3::jsonb) AS x(item_code text,qty integer,ref_po text,condition_status text,notes text) RETURNING *`,[date,site,JSON.stringify(rows),receiverName||'GA/PIC']);
+    const result = await query(`INSERT INTO bhp_stock_in (date,site,item_code,qty,ref_po,condition_status,receiver_name,notes) SELECT $1::date,$2,item_code,qty,ref_po,condition_status,$4,notes FROM jsonb_to_recordset($3::jsonb) AS x(item_code text,qty numeric,ref_po text,condition_status text,notes text) RETURNING *`,[date,site,JSON.stringify(rows),receiverName||'GA/PIC']);
     return res.json({success:true,data:result.rows,count:result.rows.length});
   } catch(error){ return res.status(error.code==='23503'||error.code?.startsWith('22')?400:500).json({success:false,error:'Penerimaan belum tersimpan. Periksa tanggal dan kode barang.'}); }
 });
@@ -186,7 +187,7 @@ app.post('/api/bhp/stock-in', async (req, res) => {
 app.post('/api/bhp/transfer', async (req, res) => {
   try {
     const { date, itemCode, qty, fromSite, toSite, reason, picName } = req.body;
-    if (!['LBCT','IDMG','SPCT'].includes(fromSite) || !['LBCT','IDMG','SPCT'].includes(toSite) || !Number.isSafeInteger(Number(qty)) || Number(qty) <= 0 || !itemCode || !date) return res.status(400).json({ success:false,error:'Site atau jumlah transfer tidak valid.' });
+    if (!['LBCT','IDMG','SPCT'].includes(fromSite) || !['LBCT','IDMG','SPCT'].includes(toSite) || !validBhpQuantity(qty) || !itemCode || !date) return res.status(400).json({ success:false,error:'Site atau jumlah transfer tidak valid.' });
     if (fromSite === toSite) {
       return res.status(400).json({ success: false, error: 'Site asal dan site tujuan tidak boleh sama' });
     }
@@ -211,7 +212,7 @@ app.post('/api/bhp/transfer', async (req, res) => {
 app.post('/api/bhp/opname', async (req, res) => {
   try {
     const { date, site, itemCode, systemQty, physicalQty, reason, picName } = req.body;
-    if (!['LBCT','IDMG','SPCT'].includes(site) || !Number.isSafeInteger(Number(physicalQty)) || Number(physicalQty) < 0 || !Number.isSafeInteger(Number(systemQty)) || !itemCode || !date) return res.status(400).json({ success:false,error:'Data opname tidak valid.' });
+    if (!['LBCT','IDMG','SPCT'].includes(site) || !validBhpQuantity(physicalQty,true) || !(validBhpQuantity(systemQty,true)||(Number(systemQty)<0&&validBhpQuantity(-Number(systemQty),true))) || !itemCode || !date) return res.status(400).json({ success:false,error:'Data opname tidak valid.' });
     const diff = Number(physicalQty) - Number(systemQty);
     if (diff !== 0 && (!reason || !reason.trim())) {
       return res.status(400).json({ success: false, error: 'Alasan wajib diisi jika terdapat selisih fisik dan sistem' });

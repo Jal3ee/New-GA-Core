@@ -23,7 +23,7 @@ export async function convertBhpOpeningToReceipts(pool, importId, {backupDir='tm
     for(const code of codes) {
       const matching=initial.filter(row=>row.item_code===code);
       assert.equal(matching.length,1,'Stok awal SKU ganda: '+code);
-      assert.equal(matching[0].qty,batch.manifest.rows.filter(row=>row.item_code===code).reduce((sum,row)=>sum+row.opening_qty,0),'Stok awal telah berubah: '+code);
+      assert.equal(Number(matching[0].qty),batch.manifest.rows.filter(row=>row.item_code===code).reduce((sum,row)=>sum+row.opening_qty,0),'Stok awal telah berubah: '+code);
     }
     const asOf=todayMakassar();
     assert(batch.period_start<=asOf,'Batch inisiasi berada di masa depan');
@@ -51,7 +51,7 @@ export async function convertBhpOpeningToReceipts(pool, importId, {backupDir='tm
       for(const code of codes)assert.equal(newStocks[code]||0,oldStocks[code]||0,`Saldo berubah pada ${day}, SKU ${code}`);
       checkedDays++;
     }
-    const conversion={converted_at:new Date().toISOString(),date:batch.period_start,removed_initial_records:initial.length,receipt_records:receipts.length,zero_balances_without_receipt:initial.filter(row=>row.qty===0).length,receipts,verified_skus:codes.length,verified_days:checkedDays,backup_path:backupPath,recurring_opening_policy:'carry_forward'};
+    const conversion={converted_at:new Date().toISOString(),date:batch.period_start,removed_initial_records:initial.length,receipt_records:receipts.length,zero_balances_without_receipt:initial.filter(row=>Number(row.qty)===0).length,receipts,verified_skus:codes.length,verified_days:checkedDays,backup_path:backupPath,recurring_opening_policy:'carry_forward'};
     await client.query("UPDATE bhp_history_imports SET result=jsonb_set(result,'{opening_receipts_conversion}',$2::jsonb) WHERE id=$1",[importId,JSON.stringify({...conversion,previous_initial_rows:initial})]);
     await client.query('COMMIT');
     return conversion;

@@ -44,6 +44,7 @@ export function calculateBhpForecast(data, settings, asOf, siteFilter = 'ALL') {
     const end = addDays(asOf, horizon);
     for (const item of data.items) {
       const code = item.code;
+      const unitPrice = item.price_est == null || item.price_est === '' ? null : Number(item.price_est);
       const controls = config.item_controls?.[code] || {};
       const allItemHistory = usageByKey.get(`${site}:${code}`) || [];
       const history = allItemHistory.filter(row => row.date >= historyStart);
@@ -85,12 +86,12 @@ export function calculateBhpForecast(data, settings, asOf, siteFilter = 'ALL') {
         projectedStock -= daily;
         if (projectedStock < 0) urgent = true;
       }
-      rows.push({ key: `${site}:${code}`, site, code, item_id: code, name: item.name, unit: item.unit, price_est: Number(item.price_est), model_type: manual ? 'MANUAL' : 'HISTORY', quality,
+      rows.push({ key: `${site}:${code}`, site, code, item_id: code, name: item.name, unit: item.unit, price_est: unitPrice, model_type: manual ? 'MANUAL' : 'HISTORY', quality,
         history_from: from, history_to: asOf, observed_days: n, nonzero_days: nonzeroDays, total_used_hist: used, daily_series: series,
         daily_rate: daily === null ? null : round(daily), std_dev: round(sd(series)), base_forecast: forecast === null ? null : round(forecast), safety_stock: safety, safety_method: safetyMethod,
         current_stock: stock, on_order: onOrder, allocated, inventory_position: position, horizon_days: horizon, coverage_to: end,
         recommended_qty: order,
-        total_cost: order === null ? null : Math.round(order * Number(item.price_est) * 100) / 100,
+        total_cost: order === null || unitPrice === null ? null : Math.round(order * unitPrice * 100) / 100,
         stock_cover_days: daily > 0 ? round(Math.max(0, stock - allocated) / daily) : null,
         urgent,
         overdue_incoming: incoming.some(row => row.eta <= asOf), controls, config, version: BHP_FORECAST_VERSION });

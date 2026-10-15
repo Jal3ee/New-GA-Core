@@ -6,11 +6,12 @@ Importer menggunakan manifest hasil pemeriksaan workbook dan memverifikasi SHA25
 node scripts/import-bhp-history.mjs <manifest.json> <source.xlsx> [--apply]
 ```
 
-Manifest mencantumkan site, rentang tanggal, nama sheet, baris sumber, nama barang asli, kode/satuan tujuan, stok awal, pemakaian harian, penerimaan mingguan, dan stok akhir. Semua jumlah harus bilangan bulat nonnegatif; total harian/mingguan dan persamaan saldo akhir harus cocok dengan sumber.
+Manifest mencantumkan site, rentang tanggal, nama sheet, baris sumber, nama barang asli, kode/satuan tujuan, stok awal, pemakaian harian, penerimaan mingguan, dan stok akhir. Semua jumlah harus nonnegatif dengan maksimal tiga angka desimal; total harian/mingguan dan persamaan saldo akhir harus cocok dengan sumber.
 
 ## Aturan pencatatan
 
 - Persetujuan pengguna menentukan periode dan pemetaan barang. Penggantian SKU terdekat mempertahankan jumlah kemasan 1:1; tidak mengubah jumlah menjadi ekuivalen volume/berat. Nama asli tetap tercatat pada notes dan audit.
+- Konversi satuan eksplisit disimpan dalam `conversion_note` beserta jumlah asli `source_quantities`. Untuk tisu toilet SC43951, pengguna mengonfirmasi **8 roll = 1 pack**: semua stok, pemakaian, dan penerimaan sumber dibagi 8 tanpa pembulatan ke pack utuh.
 - Beberapa barang sumber boleh dipetakan ke SKU yang sama. Stok awal dan stok akhir dijumlahkan per SKU; setiap pemakaian dan penerimaan masih menyimpan identitas baris sumber.
 - Untuk import rutin, stok awal Excel hanya menjadi kontrol rekonsiliasi: nilainya harus cocok dengan saldo sistem akhir hari sebelum periode dimulai. Importer tidak menulis stok awal baru dan tidak membuat penerimaan dari kolom stok awal. Selisih menghentikan import untuk pemeriksaan; tidak dibuat penyesuaian otomatis.
 - Pemakaian menggunakan tanggal actual dari header harian Excel. Sel kosong tidak dibuat menjadi transaksi pemakaian nol.
@@ -36,3 +37,15 @@ Khusus inisiasi batch `a901b226-d573-40c4-b9c9-77a9f45d912c`, pengguna meminta s
 Koreksi dijalankan melalui `node scripts/convert-bhp-opening-receipts.mjs <audited-import-id> --apply`. Batch harus ditemukan di audit import, jumlah dan tanggal stok awal harus masih sama dengan sumber. Sebelum perubahan, data dicadangkan; setelahnya, saldo harian 38 SKU dari 1 Agustus sampai tanggal koreksi diverifikasi tetap sama. Penanda pada `result.opening_receipts_conversion` menyimpan ID penerimaan, stok awal sebelumnya, serta tanggal koreksi dan mencegah eksekusi dua kali. Mekanisme ini tidak dipanggil oleh import rutin bulan berikutnya.
 
 Validasi: `node scripts/verify-bhp-history-import.mjs` dan `node scripts/verify-bhp-opening-receipts.mjs`. Pengujian menggunakan tabel temporer PostgreSQL dan rollback untuk menguji rekonsiliasi, penggabungan SKU, saldo bawaan dan import bulan berikutnya tanpa stok awal tambahan, rentang mingguan, koreksi dengan backup, isolasi site/periode lain, idempotensi, penolakan pemetaan ulang, rollback saat insert gagal, dan konversi penerimaan inisiasi satu kali.
+
+## Pelengkap kategori PR dan IR untuk Agustus dan September
+
+Sesuai konfirmasi pengguna, hanya dua plastik ditambahkan sebagai barang **PR**, dengan nama/keterangan sesuai Excel: `PR-IDMG-40X60` dan `PR-IDMG-100X120`. Kode tersebut adalah identitas internal, bukan StockCode PDF. Harga dibiarkan NULL karena tidak tersedia pada sumber; web menampilkan **Belum ada harga**, dan biaya forecast yang belum memiliki harga tidak dihitung sebagai nol.
+
+Barang yang sudah ada dipakai sebagai **IR**: tisu toilet SC43951 (pack isi 8 roll) dan toilet gel SC44046 (set, pemetaan terdekat yang disetujui). Barang lain di katalog mempertahankan kategorinya. Tidak menambahkan 35 barang lain yang masih ditunda pengguna.
+
+Pelengkap Agustus mengacu pada `initialization_of_import_id` dari batch inisiasi awal yang sudah dikonversi. Referensi, SHA256, sheet, site, dan tanggal harus cocok; saldo sebelum periode untuk SKU tambahan harus nol. Import membuat penerimaan inisiasi pada 1 Agustus untuk empat SKU tambahan. Pelengkap September tetap `carry_forward` dan tidak membuat penerimaan inisiasi. Jejak baris sumber mencegah pengulangan; baris yang sudah diimport sebelumnya tidak diinput ulang.
+
+Pelengkap Agustus berisi 24 catatan pemakaian, 1 penerimaan mingguan, dan 4 penerimaan inisiasi. September berisi 19 catatan pemakaian dan 2 penerimaan mingguan. Tisu: 303 roll menjadi 37.875 pack pada inisiasi, pemakaian Agustus 5.625 pack, saldo akhir Agustus 32.25 pack, pemakaian September 4.25 pack, dan saldo akhir September 28 pack.
+
+Kolom jumlah pada pemakaian, penerimaan, transfer, stok awal, serta sistem/fisik/selisih opname mendukung `NUMERIC(16,3)`. Kolom selisih opname tetap dihitung otomatis. Migrasi tersendiri: `node scripts/migrate-bhp-quantities.mjs --apply`, yang membuat backup dan menggunakan transaksi. API dan form mendukung maksimal tiga desimal dan menolak presisi lebih tinggi. Pengujian: `node scripts/verify-bhp-fractional-import.mjs` mencakup konversi tepat, inisiasi tambahan, carry-forward September, input API pecahan, selisih opname negatif, penolakan presisi berlebih, dan pencegahan duplikasi.

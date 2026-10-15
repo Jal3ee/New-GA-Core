@@ -31,9 +31,9 @@ try {
   assert.equal(result.removed_initial_records,2);assert.equal(result.receipt_records,1);assert.equal(result.zero_balances_without_receipt,1);
   assert(result.verified_days>=31);assert.equal(result.verified_skus,2);
   assert.equal((await client.query("SELECT count(*)::integer AS n FROM bhp_initial_stocks WHERE site='IDMG'")).rows[0].n,0);
-  assert.equal((await client.query("SELECT qty FROM bhp_initial_stocks WHERE site='LBCT'")).rows[0].qty,8);
+  assert.equal(Number((await client.query("SELECT qty FROM bhp_initial_stocks WHERE site='LBCT'")).rows[0].qty),8);
   const converted=(await client.query("SELECT *,date::text AS date FROM bhp_stock_in WHERE condition_status='Inisiasi Awal'")).rows;
-  assert.equal(converted.length,1);assert.equal(converted[0].date,'2026-08-01');assert.equal(converted[0].qty,4);
+  assert.equal(converted.length,1);assert.equal(converted[0].date,'2026-08-01');assert.equal(Number(converted[0].qty),4);
   assert.equal(converted[0].period_start,null);assert.equal(converted[0].period_end,null);
   assert.equal((await convertBhpOpeningToReceipts(isolatedPool,id)).already_converted,true);
   assert.equal((await client.query("SELECT count(*)::integer AS n FROM bhp_stock_in WHERE condition_status='Inisiasi Awal'")).rows[0].n,1);
@@ -41,6 +41,6 @@ try {
   const mismatchId=randomUUID();
   await client.query("INSERT INTO bhp_history_imports(id,source_sha256,source_file,source_sheet,site,period_start,period_end,manifest,before_data,result) VALUES($1,$2,'Test.xlsx','Agustus','LBCT','2026-08-01','2026-08-31',$3,'{}','{}')",[mismatchId,'b'.repeat(64),JSON.stringify({rows:[{item_code:'INIT-1',source_row:10,opening_qty:9}]})]);
   await assert.rejects(()=>convertBhpOpeningToReceipts(isolatedPool,mismatchId),/Stok awal telah berubah/);
-  assert.equal((await client.query("SELECT qty FROM bhp_initial_stocks WHERE site='LBCT'")).rows[0].qty,8);
+  assert.equal(Number((await client.query("SELECT qty FROM bhp_initial_stocks WHERE site='LBCT'")).rows[0].qty),8);
   console.log('PASS: one-time opening-to-receipt conversion on period start, zero handling, all daily balances preserved, other sites and later transactions preserved, audit backup, repeat protection and changed-source guard. PostgreSQL temporary tables only.');
 } finally {await client.query('ROLLBACK');client.release();await pool.end();}

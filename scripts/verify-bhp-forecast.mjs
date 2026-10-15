@@ -24,6 +24,7 @@ const future=run({...data,usages:[...data.usages,{site:'LBCT',item_code:item.cod
 const few=run({...data,usages:[{site:'LBCT',item_code:item.code,date:asOf,qty:100}]},{}).rows[0];assert.equal(few.quality,'LIMITED');assert.equal(few.recommended_qty,null);
 const manual={LBCT:{...settings.LBCT,item_controls:{[item.code]:{baseline_daily:2,buffer_days:2,moq:10,order_multiple:5,allocated:0}}}};
 row=run(empty(),manual).rows[0];assert.equal(row.quality,'MANUAL');assert.equal(row.recommended_qty,80);
+const unpriced=run({...empty(),items:[{...item,price_est:null}]},manual).rows[0];assert.equal(unpriced.recommended_qty,80);assert.equal(unpriced.price_est,null);assert.equal(unpriced.total_cost,null);
 const poCfg={LBCT:{...settings.LBCT,item_controls:{[item.code]:{incoming:[{qty:20,eta:addDays(asOf,3),reference:'PO-1'}]}}}};
 row=run(data,poCfg).rows[0];assert.equal(row.on_order,20);assert.equal(row.recommended_qty,14);
 const gapCfg={LBCT:{...settings.LBCT,item_controls:{[item.code]:{incoming:[{qty:20,eta:addDays(asOf,6)}]}}}};

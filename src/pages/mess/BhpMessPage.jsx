@@ -14,6 +14,7 @@ import Pagination from '../../components/ui/Pagination';
 import BhpForecastPanel from './BhpForecastPanel';
 import { todayMakassar } from '../../utils/bhpForecast';
 import { bhpCalendarDate, bhpReceiptPeriod } from '../../utils/bhpReceiptPeriod';
+import { validBhpQuantity } from '../../utils/bhpQuantity';
 import {
   INITIAL_BHP_ITEMS,
   BHP_CATALOG_VERSION,
@@ -161,7 +162,7 @@ export default function BhpMessPage() {
     const response = await fetch('/api/bhp/data', { cache: 'no-store' });
     const result = await response.json();
     if (!response.ok || !result.success || !result.data?.currentStocks) throw new Error('Saldo server belum dapat dimuat.');
-    const mapped = result.data.items.map(item => ({ ...item.catalog_details, id:item.code, code:item.code, name:item.name, category:item.category, unit:item.unit, pack_qty:Number(item.pack_size)||1, pack_unit:item.unit, price_est:Number(item.price_est), default_abc:item.abc_class, coa:item.coa, remarks:item.remarks }));
+    const mapped = result.data.items.map(item => ({ ...item.catalog_details, id:item.code, code:item.code, name:item.name, category:item.category, unit:item.unit, pack_qty:Number(item.pack_size)||1, pack_unit:item.unit, price_est:item.price_est == null ? null : Number(item.price_est), default_abc:item.abc_class, coa:item.coa, remarks:item.remarks }));
     setItems(mapped); setStocks(result.data.currentStocks);
     const history = rows => rows.map(row => ({ ...row, date:bhpCalendarDate(row.date), item_id:row.item_code, item_name:mapped.find(item=>item.code===row.item_code)?.name||row.item_code, qty:Number(row.qty), diff_qty:Number(row.difference) }));
     setUsages(history(result.data.usageHistory)); setStockIns(history(result.data.stockInHistory));
@@ -227,7 +228,7 @@ export default function BhpMessPage() {
       return {
         value: it.id,
         label: `${it.code} — ${it.name}`,
-        subtext: `${it.category} • Total Stok: ${stock} ${it.unit} • Harga: ${formatRupiah(it.price_est)}`,
+        subtext: `${it.category} • Total Stok: ${stock} ${it.unit} • Harga: ${it.price_est == null ? 'Belum ada harga' : formatRupiah(it.price_est)}`,
         category: it.category
       };
     });
@@ -406,7 +407,7 @@ export default function BhpMessPage() {
 
   const handleSaveUsage = async (e) => {
     e.preventDefault();
-    if (!Number.isSafeInteger(Number(usageForm.qty)) || Number(usageForm.qty) <= 0) return toast.warning('Jumlah pemakaian harus berupa unit bulat positif.');
+    if (!validBhpQuantity(usageForm.qty)) return toast.warning('Isi jumlah pemakaian positif, maksimal 3 angka desimal.');
     showLoading();
     try {
       await savePgBhpUsage({ entries:[{itemCode:usageForm.item_id,qty:Number(usageForm.qty),notes:usageForm.notes}], picName:user?.name||'PIC Lapangan',site:usageForm.site,date:usageForm.date });
@@ -450,7 +451,7 @@ export default function BhpMessPage() {
 
   const handleSaveStockIn = async (e) => {
     e.preventDefault();
-    if (!stockInForm.items.length || stockInForm.items.some(row=>!row.item_id||!Number.isSafeInteger(Number(row.qty))||Number(row.qty)<=0)) return toast.warning('Pilih barang dan isi jumlah unit bulat positif untuk setiap baris.');
+    if (!stockInForm.items.length || stockInForm.items.some(row=>!row.item_id||!validBhpQuantity(row.qty))) return toast.warning('Pilih barang dan isi jumlah positif, maksimal 3 angka desimal untuk setiap baris.');
     showLoading();
     try {
       await savePgBhpStockIn({ date:stockInForm.date,site:stockInForm.site,receiverName:user?.name||'PIC Gudang',entries:stockInForm.items.map(row=>({itemCode:row.item_id,qty:Number(row.qty),refPo:stockInForm.source||null,notes:row.notes||stockInForm.notes||null})) });
@@ -471,7 +472,7 @@ export default function BhpMessPage() {
   const handleSaveTransfer = async (e) => {
     e.preventDefault();
     const qty=Number(transferForm.qty);
-    if(transferForm.from_site===transferForm.to_site||!Number.isSafeInteger(qty)||qty<=0||qty>(stocks[transferForm.from_site]?.[transferForm.item_id]||0))return toast.error('Site atau jumlah transfer tidak valid; periksa stok asal.');
+    if(transferForm.from_site===transferForm.to_site||!validBhpQuantity(qty)||qty>(stocks[transferForm.from_site]?.[transferForm.item_id]||0))return toast.error('Site atau jumlah transfer tidak valid; periksa stok asal.');
     if(!transferForm.reason.trim())return toast.error('Alasan transfer wajib diisi.');
     showLoading();
     try {
@@ -491,7 +492,7 @@ export default function BhpMessPage() {
   const handleSaveOpname = async (e) => {
     e.preventDefault();
     const systemQty=stocks[opnameForm.site]?.[opnameForm.item_id]||0,physicalQty=Number(opnameForm.physical_qty);
-    if(opnameForm.physical_qty===''||!Number.isSafeInteger(physicalQty)||physicalQty<0)return toast.error('Isi jumlah fisik berupa unit bulat, termasuk nol.');
+    if(!validBhpQuantity(opnameForm.physical_qty,true))return toast.error('Isi jumlah fisik termasuk nol, maksimal 3 angka desimal.');
     if(physicalQty!==systemQty&&!opnameForm.reason.trim())return toast.error('Alasan selisih opname wajib diisi.');
     showLoading();
     try {
@@ -749,7 +750,7 @@ export default function BhpMessPage() {
                           {item.unit} {item.pack_qty > 1 ? `(Isi ${item.pack_qty})` : ''}
                         </td>
                         <td className="py-3 px-4 text-right font-mono tabular-nums font-semibold">
-                          {formatRupiah(item.price_est)}
+                          {item.price_est == null ? 'Belum ada harga' : formatRupiah(item.price_est)}
                         </td>
                         <td className="py-3 px-4 text-center font-bold">
                           <span className={`px-2 py-0.5 rounded-md font-mono ${
@@ -1061,7 +1062,8 @@ export default function BhpMessPage() {
                       <label className="font-semibold text-[var(--muted-foreground)]">Jumlah Transfer</label>
                       <input
                         type="number"
-                        min="1"
+                        min="0.001"
+                        step="0.001"
                         required
                         value={transferForm.qty}
                         onChange={(e) => setTransferForm({ ...transferForm, qty: e.target.value })}
@@ -1223,6 +1225,7 @@ export default function BhpMessPage() {
                     <input
                       type="number"
                       min="0"
+                      step="0.001"
                       required
                       value={opnameForm.physical_qty}
                       onChange={(e) => setOpnameForm({ ...opnameForm, physical_qty: e.target.value })}
@@ -1390,7 +1393,7 @@ export default function BhpMessPage() {
                   <div>
                     <span className="text-[10px] uppercase font-semibold text-[var(--muted-foreground)]">Price IDR / Unit Of Issue</span>
                     <p className="font-mono font-bold text-sm text-[var(--foreground)] mt-0.5">
-                      {formatRupiah(selectedItemForDrawer.price_est)}
+                      {selectedItemForDrawer.price_est == null ? 'Belum ada harga' : formatRupiah(selectedItemForDrawer.price_est)}
                     </p>
                   </div>
                   <div>
@@ -1570,7 +1573,8 @@ export default function BhpMessPage() {
                   <label className="font-semibold text-[var(--muted-foreground)]">Jumlah Pemakaian ({items.find(item => item.id === usageForm.item_id)?.unit?.toUpperCase() || 'Unit Of Issue'})</label>
                   <input
                     type="number"
-                    min="1"
+                    min="0.001"
+                    step="0.001"
                     required
                     value={usageForm.qty}
                     onChange={(e) => setUsageForm({ ...usageForm, qty: e.target.value })}
@@ -1739,7 +1743,8 @@ export default function BhpMessPage() {
                               <td className="py-2 px-3">
                                 <input
                                   type="number"
-                                  min="1"
+                                  min="0.001"
+                                  step="0.001"
                                   required
                                   value={row.qty}
                                   onChange={(e) => handleUpdateStockInRow(idx, 'qty', e.target.value)}

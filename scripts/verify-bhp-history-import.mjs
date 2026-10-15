@@ -34,21 +34,21 @@ try {
   const result=await applyBhpHistoryImport(isolatedPool,input,{backupDir:'tmp/backups/import-tests'});
   assert.equal(result.items,2);assert.equal(result.source_rows,3);assert.equal(result.replaced_usage_records,1);assert.equal(result.closing_balances_verified,2);
   assert.equal((await client.query("SELECT count(*)::integer AS n FROM bhp_initial_stocks")).rows[0].n,0);
-  assert.equal((await client.query("SELECT qty FROM bhp_usage WHERE site='IDMG' AND item_code='IMPORT-1' AND date='2026-08-05'")).rows[0].qty,3);
-  assert.equal((await client.query("SELECT qty FROM bhp_usage WHERE site='LBCT'")).rows[0].qty,2);
-  assert.equal((await client.query("SELECT qty FROM bhp_usage WHERE date='2026-09-01'")).rows[0].qty,1);
+  assert.equal(Number((await client.query("SELECT qty FROM bhp_usage WHERE site='IDMG' AND item_code='IMPORT-1' AND date='2026-08-05'")).rows[0].qty),3);
+  assert.equal(Number((await client.query("SELECT qty FROM bhp_usage WHERE site='LBCT'")).rows[0].qty),2);
+  assert.equal(Number((await client.query("SELECT qty FROM bhp_usage WHERE date='2026-09-01'")).rows[0].qty),1);
   const receipt=(await client.query("SELECT period_start::text,period_end::text,date::text,notes FROM bhp_stock_in WHERE period_start IS NOT NULL LIMIT 1")).rows[0];
   assert.equal(receipt.period_start,'2026-08-01');assert.equal(receipt.period_end,'2026-08-05');assert.match(receipt.notes,/tanggal harian tidak tersedia/);
   const before=(await client.query('SELECT count(*)::integer AS n FROM bhp_usage')).rows[0].n;
   assert.equal((await applyBhpHistoryImport(isolatedPool,input)).already_imported,true);
   assert.equal((await client.query('SELECT count(*)::integer AS n FROM bhp_usage')).rows[0].n,before);
-  const audit=(await client.query('SELECT before_data FROM bhp_history_imports')).rows[0];assert.equal(audit.before_data.bhp_usage.find(r=>r.qty===6).site,'IDMG');
+  const audit=(await client.query('SELECT before_data FROM bhp_history_imports')).rows[0];assert.equal(audit.before_data.bhp_usage.find(r=>Number(r.qty)===6).site,'IDMG');
   await assert.rejects(()=>applyBhpHistoryImport(isolatedPool,{...input,rows:[{...input.rows[0],item_code:'WRONG'}]}),/kode berbeda/);
   await client.query(`CREATE FUNCTION pg_temp.fail_import_receipt() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN IF NEW.item_code='IMPORT-3' THEN RAISE EXCEPTION 'Test receipt failure'; END IF; RETURN NEW; END $$`);
   await client.query('CREATE TRIGGER fail_import_receipt BEFORE INSERT ON bhp_stock_in FOR EACH ROW EXECUTE FUNCTION pg_temp.fail_import_receipt()');
   await client.query("INSERT INTO bhp_initial_stocks(site,item_code,qty,recorded_at) VALUES('IDMG','IMPORT-3',10,'2026-07-31T00:00:00+08:00')");
   await assert.rejects(()=>applyBhpHistoryImport(isolatedPool,{...input,source_sha256:'b'.repeat(64),rows:[{...input.rows[0],item_code:'IMPORT-3'}]},{backupDir:'tmp/backups/import-tests'}),/Test receipt failure/);
-  assert.equal((await client.query("SELECT qty FROM bhp_initial_stocks WHERE item_code='IMPORT-3'")).rows[0].qty,10);
+  assert.equal(Number((await client.query("SELECT qty FROM bhp_initial_stocks WHERE item_code='IMPORT-3'")).rows[0].qty),10);
   assert.equal((await client.query("SELECT count(*)::integer AS n FROM bhp_usage WHERE item_code='IMPORT-3'")).rows[0].n,0);
   assert.equal((await client.query('SELECT count(*)::integer AS n FROM bhp_history_imports')).rows[0].n,1);
   const nextMonth={...input,source_sha256:'d'.repeat(64),period_start:'2026-09-01',period_end:'2026-09-30',rows:[
