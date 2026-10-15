@@ -13,6 +13,8 @@ Semua SKU menggunakan histori pemakaian per site. Tidak ada klasifikasi STATIC a
 7. Incoming dengan Ref. PO unik memakai jumlah total PO: penerimaan dengan item/site/Ref. PO yang sama otomatis mengurangi sisa incoming. Tanpa Ref. PO, hapus incoming manual setelah diterima. ETA jatuh tempo yang belum diterima serta ETA di luar coverage tidak dipakai untuk mengurangi order. Satu baris per Ref. PO/SKU/site; jadwal pengiriman terpisah membutuhkan referensi yang jelas.
 8. Simpan Snapshot untuk membekukan hasil, konfigurasi, cutoff, tanggal akhir forecast dan actor. Rekap PDF dan judul riwayat PDF menampilkan periode yang sama. Versi perhitungan `history-v2` tidak mengubah snapshot versi lama. Rekap PDF menampilkan data kualitas, site, Unit Of Issue, inventory position dan angka belum diketahui secara jelas; tidak menjumlah BOX, PACK dan EACH sebagai total pcs.
 
+Rekap PDF hanya memuat baris dengan rekomendasi order lebih dari nol. Barang dengan order nol atau rekomendasi belum diketahui tidak dicetak. Ringkasan biaya, jumlah jenis barang, jumlah baris SKU/site, dan riwayat PDF dihitung dari baris yang dicetak. Jika tidak ada order, sistem menampilkan pemberitahuan dan tidak membuat PDF/riwayat kosong. Snapshot serta tabel analisis forecast tetap menyimpan seluruh hasil untuk review.
+
 ## Perhitungan
 
 Histori memakai tanggal cutoff inklusif dan maksimal history_days ke belakang. Transaksi pada tanggal/SKU/site yang sama dijumlah dahulu. Tanggal lama di luar jendela dan tanggal setelah cutoff tidak masuk demand forecast. Coverage historis dimulai dari tanggal pencatatan lengkap yang dikonfirmasi; jika belum dikonfirmasi, dari tanggal pertama pemakaian yang tersedia di dalam rentang yang bisa dihitung.

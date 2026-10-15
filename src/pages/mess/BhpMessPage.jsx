@@ -502,6 +502,8 @@ export default function BhpMessPage() {
   };
   // Execute PDF Export with Signature Validation
   const handleDownloadPdf = () => {
+    const orderRows=allForecastRecommendations.filter(row=>Number.isFinite(Number(row.recommended_qty))&&Number(row.recommended_qty)>0);
+    if(!orderRows.length)return toast.info('Tidak ada barang yang perlu diorder untuk periode ini.');
     if (!signerAdminName.trim() || !signerGlName.trim()) {
       return toast.error('Nama GA Admin dan Nama GA GL WAJIB diisi sebelum dokumen PDF dapat diunduh!');
     }
@@ -514,14 +516,15 @@ export default function BhpMessPage() {
     if (!forecastRun) return toast.error('Buka tab Forecast dan refresh data terlebih dahulu.');
     const periodLabel = 'Cutoff ' + forecastRun.as_of + (forecastRun.forecast_to ? ' - Forecast ' + forecastRun.forecast_from + ' s.d. ' + forecastRun.forecast_to : ' - Forecast Historikal (Interval Order)');
 
-    generateBhpForecastPdfReport({
-      forecastData: allForecastRecommendations,
+    const generated=generateBhpForecastPdfReport({
+      forecastData: orderRows,
       planningContext: forecastRun,
       periodCycle: periodLabel,
       siteScope: siteLabel,
       createdByName: signerAdminName.trim(),
       approvedByName: signerGlName.trim()
     });
+    if(!generated)return;
 
     const newLog = {
       id: `PDF-${Date.now()}`,
@@ -531,8 +534,8 @@ export default function BhpMessPage() {
       site: siteLabel,
       created_by_name: signerAdminName.trim(),
       approved_by_name: signerGlName.trim(),
-      item_count: allForecastRecommendations.length,
-      order_lines: allForecastRecommendations.filter(row => row.recommended_qty > 0).length
+      item_count: orderRows.length,
+      order_lines: orderRows.length
     };
     setPdfHistory(prev => [newLog, ...prev]);
 
@@ -542,7 +545,7 @@ export default function BhpMessPage() {
       siteCovered: newLog.site,
       createdBy: newLog.created_by_name,
       approvedBy: newLog.approved_by_name,
-      notes: 'Forecast historikal per site; cutoff ' + forecastRun.as_of
+      notes: 'Rekap khusus barang perlu order: ' + orderRows.length + ' baris SKU/site; cutoff ' + forecastRun.as_of
     }).catch(err => console.warn('[PG-Sync] PDF History:', err.message));
 
     toast.success('Dokumen PDF berhasil dibuka untuk dicetak dan dicatat dalam riwayat unduhan.');
@@ -1327,7 +1330,7 @@ export default function BhpMessPage() {
       {/* ==================================================================== */}
       {/* TAB 5: FORECAST & REKAP KEBUTUHAN (HISTORY & REPLENISHMENT)       */}
       {/* ==================================================================== */}
-      {activeTab === 'forecast' && <BhpForecastPanel site={selectedSite} onCalculated={setForecastRun} onExport={() => setIsPdfModalOpen(true)} />}
+      {activeTab === 'forecast' && <BhpForecastPanel site={selectedSite} onCalculated={setForecastRun} onExport={() => allForecastRecommendations.some(row=>row.recommended_qty>0) ? setIsPdfModalOpen(true) : toast.info('Tidak ada barang yang perlu diorder untuk periode ini.')} />}
 
       {/* ==================================================================== */}
       {/* RIGHT SLIDE-OVER DRAWER (Pola List -> Drawer per design.md)           */}

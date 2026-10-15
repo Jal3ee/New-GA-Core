@@ -23,10 +23,12 @@ export function generateBhpForecastPdfReport({
   summaryMetrics = {},
   planningContext = {}
 }) {
+  forecastData = forecastData.filter(row => Number.isFinite(Number(row.recommended_qty)) && Number(row.recommended_qty) > 0);
+  if (forecastData.length === 0) return false;
   const printWindow = window.open('', '_blank', 'width=1200,height=900');
   if (!printWindow) {
     alert('Pop-up terblokir oleh browser. Silakan izinkan pop-up untuk mengunduh/mencetak dokumen PDF.');
-    return;
+    return false;
   }
 
   const now = new Date();
@@ -38,7 +40,7 @@ export function generateBhpForecastPdfReport({
   });
   const printTimeStr = now.toLocaleTimeString('id-ID', { hour: '2-digit', minute: '2-digit' }) + ' WITA';
 
-  const totalItems = forecastData.length;
+  const totalItems = new Set(forecastData.map(row=>row.code||row.item_id)).size;
   const totalOrderItems = forecastData.filter(row => row.recommended_qty > 0).length;
   const qualityLabels = { NO_HISTORY:'Belum ada histori', LIMITED:'Histori terbatas', READY:'Histori lengkap', MANUAL:'Baseline manual', RECONCILE:'Perlu rekonsiliasi' };
   const escape = value => String(value ?? '').replaceAll('&','&amp;').replaceAll('<','&lt;').replaceAll('>','&gt;').replaceAll(String.fromCharCode(34),'&quot;');
@@ -269,7 +271,7 @@ export function generateBhpForecastPdfReport({
   <div class="kpi-row">
     <div class="kpi-card">
       <div class="val">${totalItems} Item</div>
-      <div class="lbl">Total SKU Terdaftar</div>
+      <div class="lbl">Jenis Barang Diorder</div>
     </div>
     <div class="kpi-card">
       <div class="val font-mono">${totalOrderItems} SKU / Site</div>
@@ -365,6 +367,7 @@ export function generateBhpForecastPdfReport({
   printWindow.document.open();
   printWindow.document.write(htmlContent);
   printWindow.document.close();
+  return true;
 }
 
 /**
