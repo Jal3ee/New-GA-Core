@@ -1,0 +1,14 @@
+{
+  "manifest_version": 3,
+  "name": "GA Core — Auto e-Req",
+  "version": "1.0.0",
+  "description": "Isi form e-Requisition dari rekomendasi BHP GA Core, lalu tinjau dan edit sebelum dicetak.",
+  "permissions": ["storage", "scripting"],
+  "host_permissions": ["https://e-requisition-test.vercel.app/*"],
+  "background": { "service_worker": "background.js", "type": "module" },
+  "action": { "default_title": "GA Core Auto e-Req", "default_popup": "settings.html" },
+  "content_scripts": [
+    { "matches": ["https://ga-core-seven.vercel.app/*", "http://localhost:5173/*", "http://localhost:5174/*"], "js": ["source.js"] },
+    { "matches": ["https://e-requisition-test.vercel.app/*"], "js": ["target.js"] }
+  ]
+}

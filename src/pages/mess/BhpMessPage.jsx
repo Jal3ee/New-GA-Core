@@ -12,6 +12,7 @@ import { api as gasClient } from '../../lib/gasClient';
 import CustomSelect from '../../components/ui/CustomSelect';
 import Pagination from '../../components/ui/Pagination';
 import BhpForecastPanel from './BhpForecastPanel';
+import BhpEreqModal from './BhpEreqModal';
 import { todayMakassar } from '../../utils/bhpForecast';
 import { bhpCalendarDate, bhpReceiptPeriod } from '../../utils/bhpReceiptPeriod';
 import { validBhpQuantity } from '../../utils/bhpQuantity';
@@ -81,6 +82,7 @@ export default function BhpMessPage() {
   const [isUsageModalOpen, setIsUsageModalOpen] = useState(false);
   const [isStockInModalOpen, setIsStockInModalOpen] = useState(false);
   const [isPdfModalOpen, setIsPdfModalOpen] = useState(false);
+  const [isEreqModalOpen, setIsEreqModalOpen] = useState(false);
 
   // Signer names for PDF Export (Default to active staff or saved choice)
   const [signerAdminName, setSignerAdminName] = useState(() => {
@@ -1330,7 +1332,8 @@ export default function BhpMessPage() {
       {/* ==================================================================== */}
       {/* TAB 5: FORECAST & REKAP KEBUTUHAN (HISTORY & REPLENISHMENT)       */}
       {/* ==================================================================== */}
-      {activeTab === 'forecast' && <BhpForecastPanel site={selectedSite} onCalculated={setForecastRun} onExport={() => allForecastRecommendations.some(row=>row.recommended_qty>0) ? setIsPdfModalOpen(true) : toast.info('Tidak ada barang yang perlu diorder untuk periode ini.')} />}
+      {activeTab === 'forecast' && <BhpForecastPanel site={selectedSite} onCalculated={setForecastRun} onEreq={() => allForecastRecommendations.some(row=>row.recommended_qty>0) ? setIsEreqModalOpen(true) : toast.info('Tidak ada barang yang perlu diorder untuk periode ini.')} onExport={() => allForecastRecommendations.some(row=>row.recommended_qty>0) ? setIsPdfModalOpen(true) : toast.info('Tidak ada barang yang perlu diorder untuk periode ini.')} />}
+      {isEreqModalOpen && <BhpEreqModal forecast={forecastRun} catalog={items} selectedSite={selectedSite} onClose={()=>setIsEreqModalOpen(false)} />}
 
       {/* ==================================================================== */}
       {/* RIGHT SLIDE-OVER DRAWER (Pola List -> Drawer per design.md)           */}

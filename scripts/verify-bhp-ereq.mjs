@@ -1,0 +1,16 @@
+import assert from 'node:assert/strict';
+import {buildBhpEreqDraft,validateBhpEreqDraft,ereqUnitUsd} from '../src/utils/bhpEreq.js';
+const catalog=[{code:'1',category:'K (Office Supplies)',stock_class:'P',part_number:'IPN-1',mnemonic:'ABC'},{code:'2',category:'IR',part_number:'IPN-2'},{code:'3',category:'PR'}];
+const row={site:'IDMG',name:'Barang',unit:'pack',recommended_qty:2,price_est:165000};
+const forecast={site:'ALL',as_of:'2026-10-12',forecast_to:'2026-11-30',rows:[{...row,code:'1'},{...row,code:'2'},{...row,code:'3',price_est:null},{...row,code:'1',site:'SPCT'},{...row,code:'2',recommended_qty:0},{...row,code:'3',recommended_qty:null}]};
+const before=JSON.stringify({catalog,forecast});
+const draft=buildBhpEreqDraft(forecast,catalog,'IDMG');
+assert.deepEqual(draft.rows.map(r=>r.type),['IR','IR','PR']);assert.equal(draft.rows.length,3);assert.equal(draft.rows[0].stock_class,'P');assert.equal(draft.rows[2].price_idr,null);
+assert.equal(ereqUnitUsd(165000),10);assert.equal(ereqUnitUsd(4700),0.28);assert.equal(ereqUnitUsd(null),null);
+assert.throws(()=>validateBhpEreqDraft(draft),/harga/i);
+draft.rows[2].price_idr=33000;assert.equal(validateBhpEreqDraft(draft),draft);
+for(const patch of [{qty:0},{qty:1.5},{qty:NaN},{price_idr:-1},{price_idr:Infinity},{price_idr:1},{part_number:''}])assert.throws(()=>validateBhpEreqDraft({...draft,rows:[{...draft.rows[0],...patch}]}));
+assert.throws(()=>validateBhpEreqDraft({...draft,exchange_rate:16000}));assert.throws(()=>validateBhpEreqDraft({...draft,rows:[draft.rows[0],draft.rows[0]]}));
+assert.throws(()=>buildBhpEreqDraft(forecast,catalog,'ALL'));assert.throws(()=>buildBhpEreqDraft({...forecast,site:'SPCT'},catalog,'IDMG'));assert.throws(()=>buildBhpEreqDraft({...forecast,rows:[]},catalog,'IDMG'));
+assert.equal(JSON.stringify({catalog,forecast}),before);
+console.log('PASS: K/IR/PR mapping, per-site positive orders, required prices, integer quantities, conversion, part number validation, duplicates, and source data preservation.');
