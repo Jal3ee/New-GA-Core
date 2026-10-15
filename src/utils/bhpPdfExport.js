@@ -44,6 +44,7 @@ export function generateBhpForecastPdfReport({
   const totalOrderItems = forecastData.filter(row => row.recommended_qty > 0).length;
   const qualityLabels = { NO_HISTORY:'Belum ada histori', LIMITED:'Histori terbatas', READY:'Histori lengkap', MANUAL:'Baseline manual', RECONCILE:'Perlu rekonsiliasi' };
   const escape = value => String(value ?? '').replaceAll('&','&amp;').replaceAll('<','&lt;').replaceAll('>','&gt;').replaceAll(String.fromCharCode(34),'&quot;');
+  const quantity=value=>value==null?'-':new Intl.NumberFormat('id-ID',{maximumFractionDigits:4}).format(Number(value));
   const totalReviewItems = forecastData.filter(row => ['NO_HISTORY','LIMITED','RECONCILE'].includes(row.quality)).length;
   const totalEstimatedCost = forecastData.reduce((acc, curr) => acc + (curr.total_cost || 0), 0);
 
@@ -156,7 +157,7 @@ export function generateBhpForecastPdfReport({
     }
     table.data-table th, table.data-table td {
       border: 1px solid #cbd5e1;
-      padding: 4px 6px;
+      padding: 3px 5px;
       vertical-align: middle;
     }
     table.data-table th {
@@ -170,6 +171,8 @@ export function generateBhpForecastPdfReport({
     table.data-table tr:nth-child(even) {
       background-color: #f8fafc;
     }
+    table.data-table tr { break-inside: avoid; }
+    .row-detail { display: block; margin-top: 2px; line-height: 1.2; font-size: 8px; color: #64748b; }
     .text-center { text-align: center; }
     .text-right { text-align: right; }
     .text-left { text-align: left; }
@@ -210,7 +213,7 @@ export function generateBhpForecastPdfReport({
     .sig-dept {
       font-size: 9px;
       color: #64748b;
-      margin-bottom: 45px;
+      margin-bottom: 36px;
     }
     .sig-name {
       font-size: 11px;
@@ -258,6 +261,7 @@ export function generateBhpForecastPdfReport({
     </div>
     <div class="meta-item">
       <div><strong>Waktu Rekapitulasi:</strong> Cutoff ${escape(planningContext.as_of || periodCycle)}</div>
+      ${planningContext.report_period_start ? `<div><strong>Pemakaian W1:</strong> mulai ${escape(planningContext.report_period_start)}</div>` : ''}
       ${planningContext.forecast_to ? `<div><strong>Periode Forecast:</strong> ${escape(planningContext.forecast_from)} s.d. ${escape(planningContext.forecast_to)} (termasuk tanggal akhir)</div>` : ''}
       <div><strong>Status Dokumen:</strong> Proposal untuk review GA; histori terbatas perlu konfirmasi</div>
     </div>
@@ -294,14 +298,14 @@ export function generateBhpForecastPdfReport({
         <th style="width: 25px;">No</th>
         <th style="width: 70px;">Kode Item</th>
         <th>Nama Barang Habis Pakai (BHP)</th>
-        <th style="width: 80px;">Site</th>
-        <th style="width: 70px;">Kualitas Data</th>
+        <th style="width: 50px;">Site</th>
         <th style="width: 50px;">Rate / Coverage</th>
-        <th style="width: 60px;">Base Forecast</th>
-        <th style="width: 60px;">Safety Stock</th>
-        <th style="width: 55px;">Sisa Stok</th>
+        <th style="width: 65px;">Stok Awal Bulan</th>
+        <th style="width: 65px;">Stok Masuk Actual Bulan Ini</th>
+        <th style="width: 90px;">Total Pemakaian W1 - Akhir Forecast</th>
+        <th style="width: 60px;">Sisa Stok Saat Cutoff</th>
+        <th style="width: 70px;">Proyeksi Sisa / Kekurangan</th>
         <th style="width: 65px; background-color: #0d9488;">Order (Unit Of Issue)</th>
-        <th style="width: 65px; background-color: #0f766e;">Inventory Position</th>
         <th style="width: 85px;">Estimasi Biaya</th>
       </tr>
     </thead>
@@ -313,21 +317,28 @@ export function generateBhpForecastPdfReport({
           <tr>
             <td class="text-center font-mono">${idx + 1}</td>
             <td class="text-center font-mono font-bold">${row.code || row.item_id}</td>
-            <td><strong>${escape(row.name)}</strong></td>
+            <td><strong>${escape(row.name)}</strong><span class="row-detail">${escape(row.unit)} - ${modelBadge}</span></td>
             <td>${escape(row.site || '-')}</td>
-            <td class="text-center">${modelBadge}</td>
             <td class="text-right font-mono">${crDisplay}<br>${row.horizon_days ?? "-"} hari</td>
-            <td class="text-right font-mono">${row.base_forecast == null ? '-' : Number(row.base_forecast).toFixed(2)}</td>
-            <td class="text-right font-mono">${row.safety_stock == null ? '-' : row.safety_stock}</td>
-            <td class="text-right font-mono text-muted">${row.current_stock || 0}</td>
+            <td class="text-right font-mono">${quantity(row.opening_stock_month)}${row.stock_adjustments_month ? `<span class="row-detail">Penyesuaian: ${Number(row.stock_adjustments_month)>0?'+':''}${quantity(row.stock_adjustments_month)}</span>` : ''}</td>
+            <td class="text-right font-mono">${quantity(row.received_month)}</td>
+            <td class="text-right font-mono font-bold">${quantity(row.total_usage_to_forecast)}<span class="row-detail">Actual: ${quantity(row.actual_usage_month)}<br>Forecast: ${quantity(row.base_forecast)}</span></td>
+            <td class="text-right font-mono text-muted">${quantity(row.current_stock)}</td>
+            <td class="text-right font-mono font-bold" style="color:${row.projected_stock_end<0?'#b91c1c':'#0f766e'};">${quantity(row.projected_stock_end)}</td>
             <td class="text-right font-mono font-bold" style="color: #0f766e; background: #f0fdf4;">${row.recommended_qty == null ? 'Perlu data' : row.recommended_qty + ' ' + escape(row.unit)}</td>
-            <td class="text-right font-mono font-bold" style="color: #0f766e; background: #ccfbf1;">${row.inventory_position ?? '-'} ${escape(row.unit)}</td>
             <td class="text-right font-mono tabular-nums font-semibold">${row.total_cost == null ? '-' : formatRupiah(row.total_cost)}</td>
           </tr>
         `;
       }).join('')}
     </tbody>
   </table>
+
+  <div style="font-size:8.5px;color:#475569;line-height:1.5;margin-bottom:12px;">
+    Total pemakaian W1 - akhir forecast = pemakaian actual sejak awal bulan cutoff + perkiraan pemakaian setelah cutoff sampai akhir forecast.
+    Stok masuk hanya penerimaan yang sudah tercatat sampai cutoff, tidak termasuk PO atau barang belum diterima.
+    Proyeksi sisa = stok awal bulan + stok masuk actual + penyesuaian - total pemakaian. Angka negatif berarti kekurangan sebelum penerimaan berikutnya.
+    Penyesuaian mencakup transfer, opname, atau koreksi saldo. Jumlah order mengikuti rekomendasi sistem dan kelipatan pembelian.
+  </div>
 
   <!-- SIGNATURES -->
   <div class="signature-container">

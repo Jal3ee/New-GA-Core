@@ -5,11 +5,12 @@ source=source.replace("import { LOGO_AGM_BASE64, LOGO_HCGA_BASE64 } from '../ass
 let html='',opened=0;
 globalThis.window={open:()=>{opened++;return {document:{open(){},write(value){html=value;},close(){}}};}};
 const {generateBhpForecastPdfReport}=await import('data:text/javascript;base64,'+Buffer.from(source).toString('base64'));
-const ordered={code:'ORDER',name:'Water & <Test>',site:'IDMG',unit:'pack',quality:'LIMITED',horizon_days:49,base_forecast:49,safety_stock:2,recommended_qty:46,total_cost:100};
+const ordered={code:'ORDER',name:'Water & <Test>',site:'IDMG',unit:'pack',quality:'LIMITED',horizon_days:49,base_forecast:49,safety_stock:2,recommended_qty:46,total_cost:100,opening_stock_month:10,received_month:5,actual_usage_month:12,current_stock:3,total_usage_to_forecast:61,projected_stock_end:-46,stock_adjustments_month:0};
 const input={forecastData:[ordered,{...ordered,code:'OTHER-SITE',site:'LBCT',name:'Other site',recommended_qty:2,total_cost:null},{code:'ZERO',name:'Zero order excluded',recommended_qty:0,total_cost:999999},{code:'UNKNOWN',name:'Unknown order excluded',recommended_qty:null},{code:'NEGATIVE',name:'Negative order excluded',recommended_qty:-1}],periodCycle:'Forecast sampai 2026-11-30',planningContext:{as_of:'2026-10-12',forecast_from:'2026-10-13',forecast_to:'2026-11-30'}};
 assert.equal(generateBhpForecastPdfReport(input),true);
 assert(html.includes('Water &amp; &lt;Test&gt;'));assert(html.includes('Other site'));assert(!html.includes('Zero order excluded'));assert(!html.includes('Unknown order excluded'));assert(!html.includes('Negative order excluded'));
 assert(html.includes('2 SKU / Site'));assert(html.includes('Jenis Barang Diorder'));assert(html.includes('2026-10-13 s.d. 2026-11-30'));assert(html.includes('49 hari'));assert(!html.includes('999.999'));assert(!html.includes('Maintenance'));assert(!html.includes('Z=1.65'));
+assert(!html.includes('Inventory Position'));assert(!html.includes('Safety Stock'));assert(html.includes('Stok Masuk Actual Bulan Ini'));assert(html.includes('Total Pemakaian W1 - Akhir Forecast'));assert(html.includes('Proyeksi Sisa / Kekurangan'));assert(html.includes('Actual: 12'));assert(html.includes('Forecast: 49'));assert(html.includes('>61<'));assert(html.includes('>-46<'));
 assert.equal(input.forecastData.length,5);assert.equal(input.forecastData[2].recommended_qty,0);
 const beforeOpened=opened;
 assert.equal(generateBhpForecastPdfReport({forecastData:[{recommended_qty:0},{recommended_qty:null}]}),false);assert.equal(opened,beforeOpened);

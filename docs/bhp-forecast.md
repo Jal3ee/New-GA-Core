@@ -11,9 +11,17 @@ Semua SKU menggunakan histori pemakaian per site. Tidak ada klasifikasi STATIC a
 5. Tombol detail di baris barang membuka perhitungan dan pengaturan barang/site: minimum order, kelipatan order, alokasi tambahan di luar forecast, baseline manual dengan alasan, buffer manual, incoming dan ETA.
 6. Jika belum ada histori, baseline manual opsional memungkinkan estimasi awal yang disetujui pengguna. Kosongkan baseline untuk kembali ke histori. Angka baseline tidak berasal dari sistem dan tidak dianggap forecast statistik teruji.
 7. Incoming dengan Ref. PO unik memakai jumlah total PO: penerimaan dengan item/site/Ref. PO yang sama otomatis mengurangi sisa incoming. Tanpa Ref. PO, hapus incoming manual setelah diterima. ETA jatuh tempo yang belum diterima serta ETA di luar coverage tidak dipakai untuk mengurangi order. Satu baris per Ref. PO/SKU/site; jadwal pengiriman terpisah membutuhkan referensi yang jelas.
-8. Simpan Snapshot untuk membekukan hasil, konfigurasi, cutoff, tanggal akhir forecast dan actor. Rekap PDF dan judul riwayat PDF menampilkan periode yang sama. Versi perhitungan `history-v2` tidak mengubah snapshot versi lama. Rekap PDF menampilkan data kualitas, site, Unit Of Issue, inventory position dan angka belum diketahui secara jelas; tidak menjumlah BOX, PACK dan EACH sebagai total pcs.
+8. Simpan Snapshot untuk membekukan hasil, konfigurasi, cutoff, tanggal akhir forecast dan actor. Rekap PDF dan judul riwayat PDF menampilkan periode yang sama. Versi perhitungan `history-v2` tidak mengubah snapshot versi lama. Rekap PDF menampilkan kualitas data, site, Unit Of Issue, pemakaian dan saldo secara jelas; tidak menjumlah BOX, PACK dan EACH sebagai total pcs.
 
 Rekap PDF hanya memuat baris dengan rekomendasi order lebih dari nol. Barang dengan order nol atau rekomendasi belum diketahui tidak dicetak. Ringkasan biaya, jumlah jenis barang, jumlah baris SKU/site, dan riwayat PDF dihitung dari baris yang dicetak. Jika tidak ada order, sistem menampilkan pemberitahuan dan tidak membuat PDF/riwayat kosong. Snapshot serta tabel analisis forecast tetap menyimpan seluruh hasil untuk review.
+
+## Saldo dan pemakaian dalam rekap PDF
+
+Rekap tidak menampilkan safety stock dan inventory position; kedua komponen tetap dipakai oleh model rekomendasi order. W1 dimulai pada tanggal 1 bulan cutoff. Total pemakaian W1 sampai akhir forecast adalah pemakaian actual sejak awal bulan sampai cutoff ditambah base forecast setelah cutoff sampai tanggal akhir pilihan. Histori actual bulanan dibaca penuh walaupun history_days lebih pendek.
+
+Stok masuk bulan ini hanya menjumlah penerimaan pada SKU/site yang sama sejak awal bulan sampai cutoff. Barang Belum Datang, PO/incoming manual, penerimaan setelah cutoff, dan penerimaan site lain tidak dihitung. Saldo awal bulan berasal dari ledger sebelum bulan tersebut; initial stock yang baru dicatat dalam bulan berjalan tampil sebagai penyesuaian.
+
+PDF memperlihatkan stok awal bulan, stok masuk actual bulan ini, total pemakaian beserta subtotal actual dan forecast, sisa stok saat cutoff, serta proyeksi sisa/kekurangan. Proyeksi sisa = stok saat cutoff - base forecast = stok awal bulan + penerimaan actual + penyesuaian - total pemakaian. Penerimaan actual tidak ditambahkan lagi ke saldo cutoff. Penyesuaian mencakup transfer, opname dan koreksi saldo; angka negatif berarti kekurangan sebelum penerimaan berikutnya. Saldo proyeksi ini tidak mengasumsikan order baru atau PO sudah diterima.
 
 ## Perhitungan
 
@@ -40,7 +48,7 @@ Tabel tambahan dibuat secara aditif saat fitur dipakai: bhp_forecast_settings me
 Penerimaan multi-item dan pemakaian batch memakai satu INSERT sehingga semua baris berhasil atau tidak ada baris tersimpan. UI menunggu server berhasil, lalu membaca ulang saldo canonical. Kegagalan refresh setelah save tidak diperlakukan sebagai kegagalan penyimpanan.
 
 - `node scripts/verify-bhp-forecast.mjs`: invariansi pemecahan transaksi, stok rendah/nol/berlebih/negatif, cutoff, histori singkat/kosong/zero yang dikonfirmasi, per-site, safety stock empiris, MOQ, baseline, penerimaan PO, snapshot, konfigurasi dan penerimaan atomik. Pengujian database menggunakan tabel sementara dan rollback.
-- `node scripts/verify-bhp-report.mjs`: laporan tetap menunjukkan rekomendasi tidak diketahui dan nama yang aman dalam HTML cetak.
+- `node scripts/verify-bhp-report.mjs`: laporan hanya mencetak order positif, subtotal pemakaian dan saldo yang benar, menyembunyikan safety stock/inventory position, serta mengamankan nama dalam HTML cetak.
 - `npm run build`: build frontend.
 
 API `GET /api/bhp/forecast?site=IDMG&as_of=2026-10-12&forecast_to=2026-11-30` menggunakan tanggal akhir pilihan. `POST /api/bhp/forecast/snapshots` menerima `forecast_to` yang sama. Tanggal harus valid, setelah cutoff, dan maksimal 366 hari; tanggal yang sama dengan cutoff, tanggal tidak valid, serta rentang terlalu panjang ditolak HTTP 400. Tanpa `forecast_to`, API tetap memakai mode interval untuk kompatibilitas integrasi lama.

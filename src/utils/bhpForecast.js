@@ -36,6 +36,14 @@ export function calculateBhpForecast(data, settings, asOf, siteFilter = 'ALL', o
   const forecastTo=options.forecast_to || null;
   if(forecastTo && (!/^\d{4}-\d{2}-\d{2}$/.test(forecastTo)||!Number.isFinite(Date.parse(forecastTo))||new Date(forecastTo).toISOString().slice(0,10)!==forecastTo||forecastTo<=asOf||dayCount(asOf,forecastTo)-1>366)) throw new Error('Tanggal akhir forecast harus setelah cutoff, maksimal 366 hari.');
   const stocks = calculateBhpStocks(data, asOf);
+  const reportMonthStart=asOf.slice(0,7)+'-01';
+  const beforeMonth=addDays(reportMonthStart,-1);
+  const monthOpening=calculateBhpStocks({...data,initialStocks:(data.initialStocks||[]).filter(row=>!row.recorded_at||Date.parse(row.recorded_at)<Date.parse(reportMonthStart+'T00:00:00+08:00'))},beforeMonth);
+  const monthReceipts=new Map();
+  for(const row of data.stockIns||[]) if(row.date>=reportMonthStart&&row.date<=asOf&&row.condition_status!=='Belum Datang') {
+    const key=`${row.site}:${row.item_code}`;
+    monthReceipts.set(key,(monthReceipts.get(key)||0)+Number(row.qty));
+  }
   const usageByKey = new Map();
   for (const row of data.usages) if (row.date <= asOf) {
     const key = `${row.site}:${row.item_code}`;
@@ -82,6 +90,10 @@ export function calculateBhpForecast(data, settings, asOf, siteFilter = 'ALL', o
       const allocated = Number(controls.allocated || 0);
       const position = stock + onOrder - allocated;
       const forecast = daily === null ? null : daily * horizon;
+      const actualMonth=allItemHistory.filter(row=>row.date>=reportMonthStart).reduce((sum,row)=>sum+Number(row.qty),0);
+      const receivedMonth=monthReceipts.get(`${site}:${code}`)||0;
+      const openingMonth=monthOpening[site][code]||0;
+      const adjustments=stock-openingMonth-receivedMonth+actualMonth;
       const rawOrder = forecast === null || stock < 0 || !manual && n < 7 ? null : Math.max(0, forecast + safety - position);
       const multiple = Number(controls.order_multiple || 1), moq = Number(controls.moq || 1);
       const order = rawOrder === null ? null : rawOrder > 0 ? Math.ceil(Math.max(moq, rawOrder) / multiple) * multiple : 0;
@@ -97,6 +109,8 @@ export function calculateBhpForecast(data, settings, asOf, siteFilter = 'ALL', o
         daily_rate: daily === null ? null : round(daily), std_dev: round(sd(series)), base_forecast: forecast === null ? null : round(forecast), safety_stock: safety, safety_method: safetyMethod,
         current_stock: stock, on_order: onOrder, allocated, inventory_position: position, horizon_days: horizon, coverage_to: end,
         forecast_from:addDays(asOf,1), horizon_mode:forecastTo?'DATE':'INTERVAL', lead_time_beyond_horizon:config.lead_days>horizon, horizon_exceeds_history:n>0&&horizon>n,
+        report_period_start:reportMonthStart,opening_stock_month:round(openingMonth),received_month:round(receivedMonth),actual_usage_month:round(actualMonth),stock_adjustments_month:round(adjustments),
+        total_usage_to_forecast:forecast===null?null:round(actualMonth+forecast),projected_stock_end:forecast===null?null:round(stock-forecast),
         recommended_qty: order,
         total_cost: order === null || unitPrice === null ? null : Math.round(order * unitPrice * 100) / 100,
         stock_cover_days: daily > 0 ? round(Math.max(0, stock - allocated) / daily) : null,
@@ -105,5 +119,5 @@ export function calculateBhpForecast(data, settings, asOf, siteFilter = 'ALL', o
     }
   }
   const latestUsage=data.usages.filter(row=>row.date<=asOf&&(siteFilter==='ALL'||row.site===siteFilter)).map(row=>row.date).sort().at(-1)||null;
-  return { as_of: asOf, site: siteFilter, forecast_from:addDays(asOf,1), forecast_to:forecastTo, horizon_mode:forecastTo?'DATE':'INTERVAL', latest_usage_date:latestUsage, settings, rows, stocks, version: BHP_FORECAST_VERSION };
+  return { as_of: asOf, site: siteFilter, report_period_start:reportMonthStart,forecast_from:addDays(asOf,1), forecast_to:forecastTo, horizon_mode:forecastTo?'DATE':'INTERVAL', latest_usage_date:latestUsage, settings, rows, stocks, version: BHP_FORECAST_VERSION };
 }
