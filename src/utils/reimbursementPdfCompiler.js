@@ -1,5 +1,6 @@
 import { PDFDocument, rgb, StandardFonts, degrees } from 'pdf-lib';
 import { formatEmployeeName } from './reimbursementWorkflow.js';
+import { reimbursementDocuments, reimbursementAttachmentHash, attachmentExcludedPages } from './reimbursementEdits.js';
 
 const TYPES = [
   ['includeBoardingPass', 'url_boarding_pass', 'Boarding Pass', 'AP'],
@@ -89,14 +90,15 @@ export async function compileReimbursementPdf({ selectedRecords = [], options = 
     lines.forEach((line, i) => page.drawText(line, { x, y: y - i * (size + 4), font, size, color }));
     return y - lines.length * (size + 4);
   };
-  const total = records.length * types.length;
+  const total = records.reduce((sum,record)=>sum+reimbursementDocuments(record,options).length,0);
+  if(!total)throw new Error('Pilih minimal satu jenis lampiran yang sesuai dengan jenis reimbursement.');
   let current = 0;
   const loaded = [];
   const cache = new Map();
   // Resolve every submitted attachment first. Never export a misleading link-only report.
   for (const record of records) {
     const docs = [];
-    for (const [option, field, label, column] of types) {
+    for (const {option,field,label} of reimbursementDocuments(record,options)) {
       onProgress?.(++current, total, `Memuat ${record.nama}: ${label}...`);
       const urls = splitAttachmentUrls(record[field]);
       if (String(record[field] || '').trim() && !urls.length) throw new Error(`${record.nama} - ${label}: tautan tidak valid.`);
@@ -105,6 +107,7 @@ export async function compileReimbursementPdf({ selectedRecords = [], options = 
         try {
           if (!cache.has(url)) {
             const bytes = await loadAttachment(url);
+            const hash=await reimbursementAttachmentHash(bytes);
             let asset;
             if (String.fromCharCode(...bytes.slice(0, 5)) === '%PDF-') {
               const source = await PDFDocument.load(bytes);
@@ -119,21 +122,25 @@ export async function compileReimbursementPdf({ selectedRecords = [], options = 
                 const page = normalized.addPage(rotated ? [box.height, box.width] : [box.width, box.height]);
                 page.drawPage(embedded, { x: angle === 180 || angle === 270 ? page.getWidth() : 0, y: angle === 90 || angle === 180 ? page.getHeight() : 0, rotate: degrees(-angle) });
               }
-              asset = { pages: await pdf.embedPdf(await normalized.save(), normalized.getPageIndices()) };
+              asset = { pages: await pdf.embedPdf(await normalized.save(), normalized.getPageIndices()), hash, count:source.getPageCount() };
             } else {
               const png = bytes[0] === 137 && bytes[1] === 80;
               const jpg = bytes[0] === 255 && bytes[1] === 216;
               const image = jpg ? await pdf.embedJpg(bytes) : await pdf.embedPng(png ? bytes : await normalizeImage(bytes));
-              asset = { image };
+              asset = { image, hash, count:1 };
             }
             cache.set(url, asset);
           }
-          assets.push(cache.get(url));
+          const asset=cache.get(url);
+          const excluded=attachmentExcludedPages(record,field,extractDriveFileId(url),asset.hash,asset.count);
+          if(asset.pages)assets.push({...asset,pages:asset.pages.filter((_,index)=>!excluded.includes(index+1))});
+          else if(!excluded.includes(1))assets.push(asset);
         } catch (error) {
           throw new Error(`${record.nama} - ${label}: ${error.message}`);
         }
       }
-      docs.push({ option, label, column, assets });
+      const intentionallyEmpty=urls.length>0 && assets.every(asset=>asset.pages ? asset.pages.length===0 : false);
+      if(!intentionallyEmpty)docs.push({ option, label, assets });
     }
     loaded.push({ record, docs });
   }
@@ -141,12 +148,13 @@ export async function compileReimbursementPdf({ selectedRecords = [], options = 
   // Multiple submissions for one employee belong to one continuous attachment section.
   const employeeMap = new Map();
   for (const entry of loaded) {
-    const key = String(entry.record.nik || entry.record.nama).trim().toLowerCase();
+    const key = String(entry.record.nik || entry.record.nama).trim().toLowerCase()+'|'+(entry.record.reimbursement_edit?.mode || 'actual');
     const existing = employeeMap.get(key);
     if (!existing) employeeMap.set(key, entry);
-    else entry.docs.forEach((doc, index) => existing.docs[index].assets.push(...doc.assets));
+    else entry.docs.forEach(doc => {const target=existing.docs.find(existingDoc=>existingDoc.option===doc.option);if(target)target.assets.push(...doc.assets);else existing.docs.push(doc);});
   }
   const employees = [...employeeMap.values()];
+  employees.forEach(employee=>employee.docs.sort((a,b)=>TYPES.findIndex(type=>type[0]===a.option)-TYPES.findIndex(type=>type[0]===b.option)));
 
   if (options.includeCover !== false) {
     let page, y;
@@ -209,6 +217,7 @@ export async function compileReimbursementPdf({ selectedRecords = [], options = 
     }
   }
   const count = pdf.getPageCount();
+  if(!count)throw new Error('Tidak ada halaman lampiran yang tersisa. Pulihkan halaman atau sertakan cover sebelum membuat PDF.');
   pdf.getPages().forEach((page, index) => {
     page.drawLine({ start: { x: 36, y: 35 }, end: { x: 559, y: 35 }, thickness: 0.5, color: MUTED });
     text(page, 'PT. AGM | Rekap lampiran reimbursement', 36, 22, 400, 8, regular, MUTED);
@@ -224,13 +233,14 @@ export function formatRupiah(num) {
 }
 
 // Print and download use the exact same PDF, including all source PDF pages.
-export async function openReimbursementPrintWindow({ selectedRecords = [], periodLabel = '', options = {} }) {
+export async function openReimbursementPrintWindow({ selectedRecords = [], periodLabel = '', options = {}, resolveRecords }) {
   const popup = window.open('', '_blank');
   if (!popup) { alert('Izinkan pop-up untuk membuka format cetak.'); return; }
   popup.document.title = 'Rekap berkas reimbursement';
   popup.document.body.textContent = 'Memuat lampiran reimbursement...';
   try {
-    const blob = await compileReimbursementPdf({ selectedRecords, options: { ...options, periodLabel }, onProgress: (_current, _total, message) => { if (!popup.closed) popup.document.body.textContent = message; } });
+    const latestRecords=resolveRecords ? await resolveRecords() : selectedRecords;
+    const blob = await compileReimbursementPdf({ selectedRecords:latestRecords, options: { ...options, periodLabel }, onProgress: (_current, _total, message) => { if (!popup.closed) popup.document.body.textContent = message; } });
     if (popup.closed) return;
     const url = URL.createObjectURL(blob);
     popup.location.replace(url);

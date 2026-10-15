@@ -53,6 +53,8 @@ async function request(path, { method = 'GET', data, publicRequest = false, sign
 }
 
 export const reimbursementClient = {
+  getDocumentEdits: () => request('reimbursements/document-edits'),
+  saveDocumentEdit: data => request('reimbursements/document-edits', { method:'PUT',data }),
   getPeriodStatuses: () => request('reimbursements/period-status'),
   importPeriodStatuses: periods => request('reimbursements/period-status/import', { method: 'POST', data: { periods } }),
   savePeriodStatus: (key, data) => request(`reimbursements/period-status/${encodeURIComponent(key)}`, { method: 'PUT', data }),

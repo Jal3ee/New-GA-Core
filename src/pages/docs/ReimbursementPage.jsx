@@ -34,6 +34,8 @@ import {
   Loader2
 } from 'lucide-react';
 import { reimbursementClient } from '../../lib/reimbursementClient';
+import ReimbursementAttachmentEditor from './ReimbursementAttachmentEditor';
+import { reimbursementRecordKey, reimbursementDocuments } from '../../utils/reimbursementEdits';
 import { useAuth } from '../../context/AuthContext';
 import { REIMBURSEMENT_STEPS, workflowCode, workflowLabel, legacyFinanceStatus, formatEmployeeName, reimbursementNikKey } from '../../utils/reimbursementWorkflow';
 import CustomSelect from '../../components/ui/CustomSelect';
@@ -65,17 +67,30 @@ const formatRupiahInput = (value) => {
   return digits.replace(/\B(?=(\d{3})+(?!\d))/g, '.');
 };
 
+function RecordAttachments({record,onManage}) {
+  return <div className="flex flex-wrap gap-1.5 items-center text-[10px]">{record.reimbursement_edit?.mode==='lumpsum'&&<strong className="rounded bg-amber-50 text-amber-800 px-2 py-1">Lumpsum</strong>}{reimbursementDocuments(record).map(({field,label})=>record[field]?<a key={field} href={record[field]} target="_blank" rel="noreferrer" className="rounded border border-teal-200 bg-teal-50 text-teal-900 px-2 py-1 hover:underline">{label}</a>:<span key={field} className="text-slate-400 px-1">{label}: belum ada</span>)}<button type="button" onClick={()=>onManage(record)} className="rounded border border-[var(--border)] px-2 py-1 font-semibold text-[var(--primary)]">Kelola Lampiran</button></div>;
+}
+
 export default function ReimbursementPage() {
   const { user } = useAuth();
   const canEditStatus = !user || !user.role || ['admin', 'ga_admin', 'ga_gl', 'ga_sh', 'finance', 'pic_lapangan', 'pic'].includes(String(user.role).toLowerCase());
   // State: Raw employee reimbursement records
-  const [records, setRecords] = useState(() => {
+  const [sourceRecords, setRecords] = useState(() => {
     try {
       const saved = localStorage.getItem('garda_reimbursements_data');
       if (saved) return JSON.parse(saved);
     } catch {}
     return initialReimbursementData;
   });
+  const [documentEdits,setDocumentEdits]=useState({});
+  const [editingAttachment,setEditingAttachment]=useState(null);
+  const canEditDocuments=['admin','ga_admin','ga_gl','ga_sh','finance'].includes(String(user?.role || '').toLowerCase());
+  const records=useMemo(()=>sourceRecords.map(record=>({...record,reimbursement_edit:documentEdits[reimbursementRecordKey(record)] || {mode:'actual',excluded:{},revision:0}})),[sourceRecords,documentEdits]);
+  useEffect(()=>{let active=true;reimbursementClient.getDocumentEdits().then(result=>{if(active)setDocumentEdits(result.data);}).catch(error=>toast.error(error.message));return()=>{active=false;};},[]);
+  const hydrateDocumentEdits=async selected=>{
+    const result=await reimbursementClient.getDocumentEdits();setDocumentEdits(result.data);
+    return selected.map(record=>({...record,reimbursement_edit:result.data[reimbursementRecordKey(record)] || {mode:'actual',excluded:{},revision:0}}));
+  };
 
   // Period-level Finance Overrides (stored per period key)
   const [periodFinanceMeta, setPeriodFinanceMeta] = useState(() => {
@@ -532,7 +547,7 @@ export default function ReimbursementPage() {
       setCompileProgress({ current: 1, total: compileScopeRecords.length + 1, text: 'Menyiapkan berkas...' });
 
       const blob = await compileReimbursementPdf({
-        selectedRecords: compileScopeRecords,
+        selectedRecords: await hydrateDocumentEdits(compileScopeRecords),
         options: {
           ...compileOptions,
           periodLabel: compileScopeTitle
@@ -1144,7 +1159,7 @@ export default function ReimbursementPage() {
                   <th className="py-3 px-3.5 whitespace-nowrap min-w-[160px]">Nama Karyawan & NIK</th>
                   <th className="py-3 px-3.5 whitespace-nowrap min-w-[180px]">Departemen & Site</th>
                   <th className="py-3 px-3 whitespace-nowrap min-w-[140px]">Tgl Perjalanan</th>
-                  <th className="py-3 px-3 text-center whitespace-nowrap min-w-[260px]">4 Lampiran Dokumen (AP, X, Y, AO)</th>
+                  <th className="py-3 px-3 text-center whitespace-nowrap min-w-[260px]">Lampiran Dokumen</th>
                   <th className="py-3 px-3 text-center whitespace-nowrap min-w-[110px]">Status Proses</th>
                 </tr>
               </thead>
@@ -1165,70 +1180,10 @@ export default function ReimbursementPage() {
                       <div className="text-[10px] text-[var(--muted-foreground)]">Site <strong className="text-[var(--foreground)]">{r.site}</strong></div>
                     </td>
                     <td className="py-3 px-3 font-mono text-[11px] whitespace-nowrap">
-                      <div>{r.tgl_berangkat} s/d {r.tgl_pulang}</div>
+                      <div>{r.reimbursement_edit?.mode==='lumpsum'?'Lumpsum':`${r.tgl_berangkat || '-'} s/d ${r.tgl_pulang || '-'}`}</div>
                     </td>
                     <td className="py-3 px-3 text-center whitespace-nowrap">
-                      <div className="flex items-center justify-center gap-1">
-                        {/* 1. Boarding Pass (Col AP) */}
-                        {r.url_boarding_pass ? (
-                          <a
-                            href={r.url_boarding_pass}
-                            target="_blank"
-                            rel="noreferrer"
-                            className="px-2 py-0.5 rounded text-[10px] font-semibold bg-indigo-50 text-indigo-800 border border-indigo-200 hover:bg-indigo-100 transition-colors shadow-2xs"
-                            title="[1] Boarding Pass Penerbangan Cuti"
-                          >
-                            BP
-                          </a>
-                        ) : (
-                          <span className="text-[10px] text-slate-300">-</span>
-                        )}
-
-                        {/* 2. Bukti Cuti (Col X) */}
-                        {r.url_bukti_cuti ? (
-                          <a
-                            href={r.url_bukti_cuti}
-                            target="_blank"
-                            rel="noreferrer"
-                            className="px-2 py-0.5 rounded text-[10px] font-semibold bg-teal-50 text-teal-800 border border-teal-200 hover:bg-teal-100 transition-colors shadow-2xs"
-                            title="[2] Bukti Cuti Approval Sunfish"
-                          >
-                            Cuti
-                          </a>
-                        ) : (
-                          <span className="text-[10px] text-slate-300">-</span>
-                        )}
-
-                        {/* 3. Nota Berangkat (Col Y) */}
-                        {r.url_nota_berangkat ? (
-                          <a
-                            href={r.url_nota_berangkat}
-                            target="_blank"
-                            rel="noreferrer"
-                            className="px-2 py-0.5 rounded text-[10px] font-semibold bg-sky-50 text-sky-800 border border-sky-200 hover:bg-sky-100 transition-colors shadow-2xs"
-                            title="[3] Nota Keberangkatan"
-                          >
-                            Pergi
-                          </a>
-                        ) : (
-                          <span className="text-[10px] text-slate-300">-</span>
-                        )}
-
-                        {/* 4. Nota Pulang (Col AO) */}
-                        {r.url_nota_pulang ? (
-                          <a
-                            href={r.url_nota_pulang}
-                            target="_blank"
-                            rel="noreferrer"
-                            className="px-2 py-0.5 rounded text-[10px] font-semibold bg-purple-50 text-purple-800 border border-purple-200 hover:bg-purple-100 transition-colors shadow-2xs"
-                            title="[4] Nota Kepulangan"
-                          >
-                            Pulang
-                          </a>
-                        ) : (
-                          <span className="text-[10px] text-slate-300">-</span>
-                        )}
-                      </div>
+                      <RecordAttachments record={r} onManage={setEditingAttachment}/>
                     </td>
                     <td className="py-3 px-3 text-center whitespace-nowrap">
                       <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-semibold border ${r.status_finance === 'Dicairkan' ? 'bg-emerald-50 text-emerald-800 border-emerald-200' : r.status_finance === 'Diajukan' ? 'bg-amber-50 text-amber-800 border-amber-200' : 'bg-slate-100 text-slate-700 border-slate-200'}`}>
@@ -1284,7 +1239,7 @@ export default function ReimbursementPage() {
                   <div>
                     <div className="text-[10px] font-medium text-[var(--muted-foreground)] uppercase">Kelengkapan Lampiran</div>
                     <div className="text-xs font-bold font-mono text-[var(--primary)] mt-0.5">
-                      {activeDrawerPeriod.items.filter(it => it.url_boarding_pass && it.url_bukti_cuti && it.url_nota_berangkat).length} / {activeDrawerPeriod.items.length} Lengkap (AP, X, Y)
+                      {activeDrawerPeriod.items.filter(it => it.url_boarding_pass && it.url_bukti_cuti && it.url_nota_berangkat).length} / {activeDrawerPeriod.items.length} Lengkap
                     </div>
                   </div>
                   <div>
@@ -1394,7 +1349,8 @@ export default function ReimbursementPage() {
                 </div>
 
                 <div className="space-y-3">
-                  {activeDrawerPeriod.items.map((emp, empIdx) => {
+                  {activeDrawerPeriod.items.map((sourceEmp, empIdx) => {
+                    const emp={...sourceEmp,reimbursement_edit:documentEdits[reimbursementRecordKey(sourceEmp)] || {mode:"actual",excluded:{},revision:0}};
                     const isChecked = drawerSelectedIds.includes(emp.id);
 
                     return (
@@ -1426,7 +1382,7 @@ export default function ReimbursementPage() {
                                 {emp.departemen} • Site <strong className="text-[var(--primary)]">{emp.site}</strong>
                               </div>
                               <div className="text-[10px] text-[var(--muted-foreground)] font-mono mt-1">
-                                Perjalanan: {emp.tgl_berangkat || '-'} s/d {emp.tgl_pulang || '-'}
+                                {emp.reimbursement_edit?.mode==='lumpsum'?'Lumpsum':`Perjalanan: ${emp.tgl_berangkat || '-'} s/d ${emp.tgl_pulang || '-'}`}
                               </div>
                             </div>
                           </div>
@@ -1438,72 +1394,7 @@ export default function ReimbursementPage() {
                           </div>
                         </div>
 
-                        {/* Document Attachment Links (Urutan Pasti: 1. Boarding pass AP, 2. Bukti Cuti X, 3. Scan nota berangkat Y, 4. Bukti nota pulang AO) */}
-                        <div className="mt-3 pt-2.5 border-t border-[var(--border)] flex flex-wrap gap-1.5 items-center">
-                          <span className="text-[10px] font-semibold text-[var(--muted-foreground)] mr-1">
-                            Lampiran:
-                          </span>
-
-                          {/* 1. Col AP: Boarding Pass */}
-                          {emp.url_boarding_pass ? (
-                            <a
-                              href={emp.url_boarding_pass}
-                              target="_blank"
-                              rel="noreferrer"
-                              className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-[10px] font-semibold bg-indigo-50 text-indigo-800 border border-indigo-200 hover:underline"
-                            >
-                              <span>[1] BP</span>
-                              <ExternalLink className="w-2.5 h-2.5" />
-                            </a>
-                          ) : (
-                            <span className="text-[10px] text-slate-400 border border-slate-200 px-1.5 py-0.5 rounded">[1] No BP</span>
-                          )}
-
-                          {/* 2. Col X: Bukti Cuti */}
-                          {emp.url_bukti_cuti ? (
-                            <a
-                              href={emp.url_bukti_cuti}
-                              target="_blank"
-                              rel="noreferrer"
-                              className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-[10px] font-semibold bg-teal-50 text-teal-800 border border-teal-200 hover:underline"
-                            >
-                              <span>[2] Cuti</span>
-                              <ExternalLink className="w-2.5 h-2.5" />
-                            </a>
-                          ) : (
-                            <span className="text-[10px] text-slate-400 border border-slate-200 px-1.5 py-0.5 rounded">[2] No Cuti</span>
-                          )}
-
-                          {/* 3. Col Y: Nota Keberangkatan */}
-                          {emp.url_nota_berangkat ? (
-                            <a
-                              href={emp.url_nota_berangkat}
-                              target="_blank"
-                              rel="noreferrer"
-                              className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-[10px] font-semibold bg-sky-50 text-sky-800 border border-sky-200 hover:underline"
-                            >
-                              <span>[3] Pergi</span>
-                              <ExternalLink className="w-2.5 h-2.5" />
-                            </a>
-                          ) : (
-                            <span className="text-[10px] text-slate-400 border border-slate-200 px-1.5 py-0.5 rounded">[3] No Nota Pergi</span>
-                          )}
-
-                          {/* 4. Col AO: Nota Kepulangan */}
-                          {emp.url_nota_pulang ? (
-                            <a
-                              href={emp.url_nota_pulang}
-                              target="_blank"
-                              rel="noreferrer"
-                              className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-[10px] font-semibold bg-purple-50 text-purple-800 border border-purple-200 hover:underline"
-                            >
-                              <span>[4] Pulang</span>
-                              <ExternalLink className="w-2.5 h-2.5" />
-                            </a>
-                          ) : (
-                            <span className="text-[10px] text-slate-400 border border-slate-200 px-1.5 py-0.5 rounded">[4] No Nota Pulang</span>
-                          )}
-                        </div>
+                        <div className="mt-3 pt-2.5 border-t border-[var(--border)]"><RecordAttachments record={emp} onManage={setEditingAttachment}/></div>
                       </div>
                     );
                   })}
@@ -1526,6 +1417,8 @@ export default function ReimbursementPage() {
           </div>
         </div>
       )}
+
+      {editingAttachment && <ReimbursementAttachmentEditor record={editingAttachment} canEdit={canEditDocuments} onClose={()=>setEditingAttachment(null)} onSaved={saved=>{setDocumentEdits(previous=>({...previous,[saved.record_key]:saved}));toast.success("Pengaturan lampiran tersimpan.");}}/>}
 
       {/* -------------------------------------------------------------
           6. MODAL: UPDATE FINANCE LEVEL PAKET PERIODE
@@ -1744,7 +1637,7 @@ export default function ReimbursementPage() {
                       onChange={(e) => setCompileOptions(p => ({ ...p, includeNotaBerangkat: e.target.checked }))}
                       className="rounded border-[var(--border)] text-[var(--primary)] focus:ring-[var(--primary)]"
                     />
-                    <span>[3] Lampiran <strong>Nota Keberangkatan Transport</strong></span>
+                    <span>[3] Lampiran <strong>Nota Keberangkatan / Lampiran Lumpsum</strong></span>
                   </label>
 
                   <label className="flex items-center gap-2.5 text-xs cursor-pointer">
@@ -1786,7 +1679,8 @@ export default function ReimbursementPage() {
                   openReimbursementPrintWindow({
                     selectedRecords: compileScopeRecords,
                     periodLabel: compileScopeTitle,
-                    options: compileOptions
+                    options: compileOptions,
+                    resolveRecords:()=>hydrateDocumentEdits(compileScopeRecords)
                   });
                 }}
                 className="px-3.5 py-2 text-xs font-semibold rounded-lg border border-sky-300 bg-sky-50 text-sky-800 hover:bg-sky-100 inline-flex items-center gap-1.5 shadow-2xs"

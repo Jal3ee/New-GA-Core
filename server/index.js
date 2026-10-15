@@ -2,6 +2,7 @@ import { loadReimbursementRecords } from './reimbursementRecords.js';
 import { LOGIN_NIK_MATCH, LOGIN_ACCOUNT_ORDER, loginIdentifier } from './loginIdentity.js';
 import { registerReimbursementWorkflow } from './reimbursementWorkflow.js';
 import { registerReimbursementAttachments } from './reimbursementAttachments.js';
+import { registerReimbursementEdits } from './reimbursementEdits.js';
 import express from 'express';
 import { createInvoiceService, InvoiceInputError } from './invoiceService.js';
 import { registerBhpForecast, readBhpLedger } from './bhpForecastService.js';
@@ -46,6 +47,7 @@ app.use((req, res, next) => {
 });
 
 registerReimbursementAttachments(app, authenticateToken);
+registerReimbursementEdits(app, { query, authenticateToken, requireRole });
 registerReimbursementWorkflow(app, { query, authenticateToken, requireRole, verifySessionToken });
 registerBhpForecast(app, { query, authenticateToken });
 registerMessDrafts(app, { query, pool, authenticateToken });
