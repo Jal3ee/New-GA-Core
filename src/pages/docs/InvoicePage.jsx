@@ -189,10 +189,8 @@ export default function InvoicePage() {
     if (!formData.tgl_berkas) {
       return toast.warning('Tanggal diserahkan wajib diisi');
     }
-    if (!formData.fileData) {
-      return toast.warning('Berkas lampiran invoice wajib diunggah (maks. 5MB)');
-    }
-    if (formData.fileData.size > MAX_FILE_SIZE_BYTES) {
+    // Lampiran bersifat opsional (tidak wajib)
+    if (formData.fileData && formData.fileData.size > MAX_FILE_SIZE_BYTES) {
       return toast.error('Ukuran berkas lampiran melebihi batas maksimal 5MB');
     }
 
@@ -206,16 +204,20 @@ export default function InvoicePage() {
         periode_end: formData.periode_end,
         tgl_berkas: formData.tgl_berkas,
         status_pembayaran: 'Open',
-        tracking_admin_ga: formData.tgl_berkas,
-        fileData: formData.fileData,
-        fileName: formData.fileName
+        tracking_admin_ga: formData.tgl_berkas
       };
 
-      toast.loading('Menyimpan Data & Mengunggah Lampiran...', { id: 'save-toast' });
+      if (formData.fileData) {
+        payload.fileData = formData.fileData;
+        payload.fileName = formData.fileName;
+      }
+
+      const hasAttachment = Boolean(formData.fileData);
+      toast.loading(hasAttachment ? 'Menyimpan Data & Mengunggah Lampiran...' : 'Menyimpan Data Invoice...', { id: 'save-toast' });
       const res = await gasClient.createInvoice(payload);
       toast.dismiss('save-toast');
       if (res.ok) {
-        toast.success('Invoice & lampiran berhasil ditambahkan');
+        toast.success(hasAttachment ? 'Invoice & lampiran berhasil ditambahkan' : 'Invoice berhasil ditambahkan');
         closeModal();
         fetchInvoices();
       } else {
@@ -642,7 +644,9 @@ export default function InvoicePage() {
                   </div>
                   <div>
                     <div className="flex justify-between items-center mb-1">
-                      <label className="block text-xs font-bold text-[var(--foreground)]">Lampiran Invoice *</label>
+                      <label className="block text-xs font-bold text-[var(--foreground)]">
+                        Lampiran Invoice <span className="font-normal text-[var(--muted-foreground)]">(Opsional)</span>
+                      </label>
                       <span className="text-[10px] font-semibold px-2 py-0.5 rounded bg-[var(--muted)] text-[var(--muted-foreground)]">
                         Batas Maks. 5MB
                       </span>
@@ -658,15 +662,28 @@ export default function InvoicePage() {
                             <span className="text-[11px] text-emerald-600 font-semibold mt-0.5">
                               {formData.fileSize ? `${formData.fileSize} MB • Siap diunggah` : 'Siap diunggah'}
                             </span>
-                            <span className="text-[10px] text-[var(--muted-foreground)] mt-1 underline">
-                              Klik untuk ganti file lampiran
-                            </span>
+                            <div className="flex items-center gap-3 mt-1.5">
+                              <span className="text-[10px] text-[var(--muted-foreground)] underline">
+                                Ganti file
+                              </span>
+                              <button
+                                type="button"
+                                onClick={(e) => {
+                                  e.preventDefault();
+                                  e.stopPropagation();
+                                  setFormData(prev => ({ ...prev, fileData: null, fileName: '', fileSize: '' }));
+                                }}
+                                className="text-[10px] text-ruby-600 hover:text-ruby-700 font-bold hover:underline"
+                              >
+                                Hapus file
+                              </button>
+                            </div>
                           </>
                         ) : (
                           <>
                             <UploadCloud className="w-8 h-8 text-[var(--muted-foreground)] mb-1.5" />
                             <span className="text-xs font-semibold text-[var(--foreground)]">
-                              Klik untuk pilih berkas lampiran invoice
+                              Klik untuk pilih berkas lampiran invoice (opsional)
                             </span>
                             <span className="text-[10px] text-[var(--muted-foreground)] mt-0.5">
                               Format: PDF, JPG, PNG (Maksimal 5MB)
