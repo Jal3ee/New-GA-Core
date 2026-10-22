@@ -52,13 +52,23 @@ export function registerReimbursementAttachments(app, authenticate) {
         : `https://drive.usercontent.google.com/download?id=${id}&export=download&confirm=t&resourcekey=${resourceKey}`;
       const headers = token ? { Authorization: `Bearer ${token}` } : {};
       if (resourceKey && token) headers['X-Goog-Drive-Resource-Keys'] = `${id}/${resourceKey}`;
-      const response = await fetch(url, { headers, signal: AbortSignal.timeout(30000) });
-      const type = (response.headers.get('content-type') || '').split(';')[0];
+      let response = await fetch(url, { headers, signal: AbortSignal.timeout(30000) });
+      let type = (response.headers.get('content-type') || '').split(';')[0];
       if (token && !response.ok) {
         const upstream = await response.json().catch(() => ({}));
         const reasons = upstream.error?.errors?.map(error => error.reason) || [];
         if (reasons.includes('accessNotConfigured') || upstream.error?.details?.some(detail => detail.reason === 'SERVICE_DISABLED')) {
           return res.status(503).json({ error: 'Google Drive API belum aktif pada proyek service account. Aktifkan Google Drive API di Google Cloud Console, lalu coba ekspor kembali.' });
+        }
+        // Fallback: If service account gets 404 (file in personal Drive not shared with SA) or 403, try public direct download
+        if (response.status === 404 || response.status === 403) {
+          const publicUrl = `https://drive.usercontent.google.com/download?id=${id}&export=download&confirm=t&resourcekey=${resourceKey}`;
+          const fallbackRes = await fetch(publicUrl, { signal: AbortSignal.timeout(30000) });
+          const fallbackType = (fallbackRes.headers.get('content-type') || '').split(';')[0];
+          if (fallbackRes.ok && ['application/pdf', 'image/jpeg', 'image/png', 'image/webp', 'image/gif', 'application/octet-stream'].includes(fallbackType)) {
+            response = fallbackRes;
+            type = fallbackType;
+          }
         }
       }
       if (!response.ok || !['application/pdf', 'image/jpeg', 'image/png', 'image/webp', 'image/gif', 'application/octet-stream'].includes(type)) {
@@ -73,13 +83,27 @@ export function registerReimbursementAttachments(app, authenticate) {
         chunks.push(chunk);
       }
       const bytes = Buffer.concat(chunks);
-      const valid = bytes.subarray(0, 5).toString() === '%PDF-' ||
-        bytes.subarray(0, 3).equals(Buffer.from([255, 216, 255])) ||
-        bytes.subarray(0, 8).equals(Buffer.from([137, 80, 78, 71, 13, 10, 26, 10])) ||
-        bytes.subarray(0, 3).toString() === 'GIF' ||
-        (bytes.subarray(0, 4).toString() === 'RIFF' && bytes.subarray(8, 12).toString() === 'WEBP');
-      if (!valid) throw new Error('Respons Drive bukan PDF atau gambar yang valid.');
-      res.set({ 'Content-Type': type, 'Cache-Control': 'private, no-store', 'X-Content-Type-Options': 'nosniff' });
+      const isPdf = bytes.subarray(0, 5).toString() === '%PDF-';
+      const isJpg = bytes.length >= 2 && bytes[0] === 0xff && bytes[1] === 0xd8;
+      const isPng = bytes.length >= 8 && bytes.subarray(0, 8).equals(Buffer.from([137, 80, 78, 71, 13, 10, 26, 10]));
+      const isGif = bytes.length >= 3 && bytes.subarray(0, 3).toString() === 'GIF';
+      const isWebp = bytes.length >= 12 && bytes.subarray(0, 4).toString() === 'RIFF' && bytes.subarray(8, 12).toString() === 'WEBP';
+      const isFtyp = bytes.length >= 12 && bytes.subarray(4, 8).toString() === 'ftyp';
+
+      if (!isPdf && !isJpg && !isPng && !isGif && !isWebp && !isFtyp) {
+        throw new Error('Respons Drive bukan PDF atau gambar yang valid.');
+      }
+
+      let detectedType = type;
+      if (!detectedType || detectedType === 'application/octet-stream') {
+        if (isPdf) detectedType = 'application/pdf';
+        else if (isJpg) detectedType = 'image/jpeg';
+        else if (isPng) detectedType = 'image/png';
+        else if (isWebp) detectedType = 'image/webp';
+        else if (isGif) detectedType = 'image/gif';
+      }
+
+      res.set({ 'Content-Type': detectedType, 'Cache-Control': 'private, no-store', 'X-Content-Type-Options': 'nosniff' });
       return res.send(bytes);
     } catch (error) {
       return res.status(502).json({ error: error.message });

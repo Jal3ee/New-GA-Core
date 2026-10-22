@@ -42,19 +42,171 @@ export async function fetchReimbursementAttachment(url) {
   return new Uint8Array(await response.arrayBuffer());
 }
 
-// Convert formats unsupported by pdf-lib through the browser's image decoder.
-async function normalizeImage(bytes) {
-  if (typeof createImageBitmap === 'undefined') throw new Error('Format gambar ini membutuhkan browser untuk dikonversi.');
-  const bitmap = await createImageBitmap(new Blob([bytes]));
+// Convert formats unsupported by pdf-lib through the browser's image decoder or Node canvas.
+export function detectImageFormat(bytes) {
+  if (!bytes || bytes.length < 4) return { type: 'unknown', mime: 'application/octet-stream' };
+  if (bytes[0] === 0x25 && bytes[1] === 0x50 && bytes[2] === 0x44 && bytes[3] === 0x46) {
+    return { type: 'pdf', mime: 'application/pdf' };
+  }
+  if (bytes[0] === 0xff && bytes[1] === 0xd8) {
+    let isProgressive = false;
+    let pos = 2;
+    const len = bytes.length;
+    const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
+    while (pos < len - 1) {
+      if (bytes[pos] === 0xff) {
+        const marker = bytes[pos + 1];
+        if (marker === 0xc2) { // SOF2 Progressive DCT
+          isProgressive = true;
+          break;
+        }
+        if (marker === 0xc0 || marker === 0xc1) break;
+        if (marker === 0xda || marker === 0xd9) break;
+        if (marker >= 0xd0 && marker <= 0xd7) { pos += 2; continue; }
+        if (pos + 3 < len) {
+          const segLen = view.getUint16(pos + 2);
+          pos += 2 + segLen;
+          continue;
+        }
+      }
+      pos++;
+    }
+    return { type: 'jpeg', mime: 'image/jpeg', isProgressive };
+  }
+  if (bytes[0] === 0x89 && bytes[1] === 0x50 && bytes[2] === 0x4e && bytes[3] === 0x47) {
+    return { type: 'png', mime: 'image/png' };
+  }
+  if (bytes[0] === 0x52 && bytes[1] === 0x49 && bytes[2] === 0x46 && bytes[3] === 0x46 &&
+      bytes.length >= 12 && bytes[8] === 0x57 && bytes[9] === 0x45 && bytes[10] === 0x42 && bytes[11] === 0x50) {
+    return { type: 'webp', mime: 'image/webp' };
+  }
+  if (bytes[0] === 0x47 && bytes[1] === 0x49 && bytes[2] === 0x46) {
+    return { type: 'gif', mime: 'image/gif' };
+  }
+  if (bytes[0] === 0x42 && bytes[1] === 0x4d) {
+    return { type: 'bmp', mime: 'image/bmp' };
+  }
+  return { type: 'image', mime: 'image/jpeg' };
+}
+
+async function normalizeImage(bytes, mime = 'image/jpeg') {
+  if (typeof window === 'undefined' && typeof createImageBitmap === 'undefined') {
+    try {
+      const pkg = '@napi-rs/' + 'canvas';
+      const { createCanvas, loadImage } = await import(/* @vite-ignore */ pkg);
+      const img = await loadImage(Buffer.from(bytes));
+      const maxDim = 2400;
+      const scale = Math.min(1, maxDim / Math.max(img.width, img.height));
+      const w = Math.max(1, Math.round(img.width * scale));
+      const h = Math.max(1, Math.round(img.height * scale));
+      const canvas = createCanvas(w, h);
+      const ctx = canvas.getContext('2d');
+      ctx.drawImage(img, 0, 0, w, h);
+      return { bytes: new Uint8Array(canvas.toBuffer('image/png')), isPng: true, isJpg: false };
+    } catch (e) {
+      throw new Error('Konversi gambar di server/Node gagal: ' + e.message);
+    }
+  }
+
+  const blob = new Blob([bytes], mime ? { type: mime } : undefined);
+  let drawSource = null;
+  let width = 0;
+  let height = 0;
+  let cleanup = () => {};
+
+  if (typeof createImageBitmap !== 'undefined') {
+    try {
+      const bmp = await createImageBitmap(blob, { imageOrientation: 'from-image' });
+      drawSource = bmp;
+      width = bmp.width;
+      height = bmp.height;
+      cleanup = () => bmp.close();
+    } catch {
+      try {
+        const bmp = await createImageBitmap(blob);
+        drawSource = bmp;
+        width = bmp.width;
+        height = bmp.height;
+        cleanup = () => bmp.close();
+      } catch {
+        // Fall through to Image element
+      }
+    }
+  }
+
+  if (!drawSource && typeof Image !== 'undefined') {
+    await new Promise((resolve, reject) => {
+      const img = new Image();
+      const objectUrl = URL.createObjectURL(blob);
+      let settled = false;
+      const timer = setTimeout(() => {
+        if (!settled) {
+          settled = true;
+          URL.revokeObjectURL(objectUrl);
+          reject(new Error('Waktu tunggu pembacaan foto habis.'));
+        }
+      }, 15000);
+
+      img.onload = () => {
+        if (settled) return;
+        settled = true;
+        clearTimeout(timer);
+        drawSource = img;
+        width = img.naturalWidth || img.width;
+        height = img.naturalHeight || img.height;
+        cleanup = () => URL.revokeObjectURL(objectUrl);
+        resolve();
+      };
+
+      img.onerror = () => {
+        if (settled) return;
+        settled = true;
+        clearTimeout(timer);
+        URL.revokeObjectURL(objectUrl);
+        reject(new Error('Format foto/gambar tidak didukung decoder peramban.'));
+      };
+
+      img.src = objectUrl;
+    });
+  }
+
+  if (!drawSource || !width || !height) {
+    throw new Error('Decoder browser tidak dapat memproses berkas foto ini.');
+  }
+
   try {
+    const maxDim = 2400;
+    const scale = Math.min(1, maxDim / Math.max(width, height));
+    const targetW = Math.max(1, Math.round(width * scale));
+    const targetH = Math.max(1, Math.round(height * scale));
+
     const canvas = document.createElement('canvas');
-    canvas.width = bitmap.width;
-    canvas.height = bitmap.height;
-    canvas.getContext('2d').drawImage(bitmap, 0, 0);
-    const blob = await new Promise(resolve => canvas.toBlob(resolve, 'image/png'));
-    if (!blob) throw new Error('Konversi gambar gagal.');
-    return new Uint8Array(await blob.arrayBuffer());
-  } finally { bitmap.close(); }
+    canvas.width = targetW;
+    canvas.height = targetH;
+    const ctx = canvas.getContext('2d');
+    if (!ctx) throw new Error('Kanvas grafis tidak tersedia pada peramban.');
+
+    ctx.fillStyle = '#ffffff';
+    ctx.fillRect(0, 0, targetW, targetH);
+    ctx.drawImage(drawSource, 0, 0, targetW, targetH);
+
+    let outBlob = await new Promise(resolve => canvas.toBlob(resolve, 'image/jpeg', 0.90));
+    let isJpg = true;
+
+    if (!outBlob) {
+      outBlob = await new Promise(resolve => canvas.toBlob(resolve, 'image/png'));
+      isJpg = false;
+    }
+
+    if (!outBlob) throw new Error('Gagal mengonversi gambar ke kanvas.');
+    return {
+      bytes: new Uint8Array(await outBlob.arrayBuffer()),
+      isJpg,
+      isPng: !isJpg
+    };
+  } finally {
+    cleanup();
+  }
 }
 
 export function reimbursementPeriodKey(record) {
@@ -106,8 +258,11 @@ export async function compileReimbursementPdf({ selectedRecords = [], options = 
       for (const url of urls) {
         try {
           if (!cache.has(url)) {
-            const bytes = await loadAttachment(url);
-            const hash=await reimbursementAttachmentHash(bytes);
+            const rawBytes = await loadAttachment(url);
+            const bytes = rawBytes.byteOffset === 0 && rawBytes.byteLength === rawBytes.buffer.byteLength
+              ? rawBytes
+              : new Uint8Array(rawBytes.buffer.slice(rawBytes.byteOffset, rawBytes.byteOffset + rawBytes.byteLength));
+            const hash = await reimbursementAttachmentHash(bytes);
             let asset;
             if (String.fromCharCode(...bytes.slice(0, 5)) === '%PDF-') {
               const source = await PDFDocument.load(bytes);
@@ -122,25 +277,67 @@ export async function compileReimbursementPdf({ selectedRecords = [], options = 
                 const page = normalized.addPage(rotated ? [box.height, box.width] : [box.width, box.height]);
                 page.drawPage(embedded, { x: angle === 180 || angle === 270 ? page.getWidth() : 0, y: angle === 90 || angle === 180 ? page.getHeight() : 0, rotate: degrees(-angle) });
               }
-              asset = { pages: await pdf.embedPdf(await normalized.save(), normalized.getPageIndices()), hash, count:source.getPageCount() };
+              asset = { pages: await pdf.embedPdf(await normalized.save(), normalized.getPageIndices()), hash, count: source.getPageCount() };
             } else {
-              const png = bytes[0] === 137 && bytes[1] === 80;
-              const jpg = bytes[0] === 255 && bytes[1] === 216;
-              const image = jpg ? await pdf.embedJpg(bytes) : await pdf.embedPng(png ? bytes : await normalizeImage(bytes));
-              asset = { image, hash, count:1 };
+              const formatInfo = detectImageFormat(bytes);
+              let image = null;
+
+              // Step 1: Direct embed if standard baseline JPEG (not progressive) or PNG
+              if (formatInfo.type === 'jpeg' && !formatInfo.isProgressive) {
+                try {
+                  image = await pdf.embedJpg(bytes);
+                } catch {
+                  image = null;
+                }
+              } else if (formatInfo.type === 'png') {
+                try {
+                  image = await pdf.embedPng(bytes);
+                } catch {
+                  image = null;
+                }
+              }
+
+              // Step 2: Normalize through canvas if direct embed not viable (progressive JPEG, WebP, photo, etc.)
+              if (!image) {
+                const normalized = await normalizeImage(bytes, formatInfo.mime);
+                if (normalized.isJpg) {
+                  image = await pdf.embedJpg(normalized.bytes);
+                } else {
+                  image = await pdf.embedPng(normalized.bytes);
+                }
+              }
+
+              asset = { image, hash, count: 1 };
             }
             cache.set(url, asset);
           }
-          const asset=cache.get(url);
-          const excluded=attachmentExcludedPages(record,field,extractDriveFileId(url),asset.hash,asset.count);
-          if(asset.pages)assets.push({...asset,pages:asset.pages.filter((_,index)=>!excluded.includes(index+1))});
-          else if(!excluded.includes(1))assets.push(asset);
+          const asset = cache.get(url);
+          if (asset.isPlaceholder) {
+            assets.push(asset);
+          } else {
+            const excluded = attachmentExcludedPages(record, field, extractDriveFileId(url), asset.hash, asset.count);
+            if (asset.pages) assets.push({ ...asset, pages: asset.pages.filter((_, index) => !excluded.includes(index + 1)) });
+            else if (!excluded.includes(1)) assets.push(asset);
+          }
         } catch (error) {
-          throw new Error(`${record.nama} - ${label}: ${error.message}`);
+          if (options.tolerateErrors) {
+            console.warn(`Lampiran tidak dapat dimuat (${record.nama} - ${label}):`, error);
+            const placeholder = {
+              isPlaceholder: true,
+              error: error.message || 'Gagal memuat lampiran',
+              url,
+              label,
+              count: 1
+            };
+            cache.set(url, placeholder);
+            assets.push(placeholder);
+          } else {
+            throw new Error(`${record.nama} - ${label}: ${error.message}`);
+          }
         }
       }
-      const intentionallyEmpty=urls.length>0 && assets.every(asset=>asset.pages ? asset.pages.length===0 : false);
-      if(!intentionallyEmpty)docs.push({ option, label, assets });
+      const intentionallyEmpty = urls.length > 0 && assets.every(asset => asset.pages ? asset.pages.length === 0 : false);
+      if (!intentionallyEmpty) docs.push({ option, label, assets });
     }
     loaded.push({ record, docs });
   }
@@ -190,7 +387,7 @@ export async function compileReimbursementPdf({ selectedRecords = [], options = 
 
   for (const { record, docs } of employees) {
     for (const { option, label, assets } of docs) {
-      const units = assets.flatMap(asset => asset.pages ? asset.pages.map(unit => ({ unit, isPdf: true })) : [{ unit: asset.image, isPdf: false }]);
+      const units = assets.flatMap(asset => asset.pages ? asset.pages.map(unit => ({ unit, isPdf: true })) : [{ unit: asset.image, isPdf: false, isPlaceholder: asset.isPlaceholder, error: asset.error, url: asset.url }]);
       // Missing submissions remain explicit in their correct position.
       for (const [index, item] of (units.length ? units : [null]).entries()) {
         const page = pdf.addPage(A4);
@@ -203,13 +400,22 @@ export async function compileReimbursementPdf({ selectedRecords = [], options = 
         y = text(page, `${order}. ${label}${units.length > 1 ? ` | Halaman lampiran ${index + 1}/${units.length}` : ''}`, 36, y - 12, 523, 12, bold) - 10;
         page.drawLine({ start: { x: 36, y }, end: { x: 559, y }, thickness: 1, color: TEAL });
         if (item) {
-          const { unit, isPdf } = item;
-          const maxHeight = y - 60;
-          const scale = Math.min(523 / unit.width, maxHeight / unit.height);
-          const width = unit.width * scale, height = unit.height * scale;
-          const bounds = { x: 36 + (523 - width) / 2, y: 46 + (maxHeight - height) / 2, width, height };
-          if (isPdf) page.drawPage(unit, bounds);
-          else page.drawImage(unit, bounds);
+          if (item.isPlaceholder) {
+            page.drawRectangle({ x: 36, y: y - 140, width: 523, height: 120, color: rgb(0.99, 0.95, 0.95), borderColor: rgb(0.85, 0.25, 0.25), borderWidth: 1 });
+            text(page, 'PERHATIAN: LAMPIRAN TIDAK DAPAT DITAMPILKAN SECARA OTOMATIS', 52, y - 24, 491, 10, bold, rgb(0.8, 0.2, 0.2));
+            text(page, `Keterangan: ${safe(item.error)}`, 52, y - 44, 491, 9, regular, INK);
+            text(page, 'Tautan berkas Google Drive asli:', 52, y - 68, 491, 8, bold, MUTED);
+            text(page, safe(item.url), 52, y - 82, 491, 8, regular, rgb(0.1, 0.35, 0.75));
+            text(page, 'Pastikan berkas telah dibagikan (akses siapa saja dengan tautan) atau unggah kembali format gambar standar (JPG/PNG).', 52, y - 104, 491, 8, regular, MUTED);
+          } else {
+            const { unit, isPdf } = item;
+            const maxHeight = y - 60;
+            const scale = Math.min(523 / unit.width, maxHeight / unit.height);
+            const width = unit.width * scale, height = unit.height * scale;
+            const bounds = { x: 36 + (523 - width) / 2, y: 46 + (maxHeight - height) / 2, width, height };
+            if (isPdf) page.drawPage(unit, bounds);
+            else page.drawImage(unit, bounds);
+          }
         } else {
           text(page, 'Lampiran ' + label.toLowerCase() + ' belum tersedia pada pengajuan ini.', 52, y - 48, 491, 12, regular, MUTED);
         }
@@ -240,7 +446,7 @@ export async function openReimbursementPrintWindow({ selectedRecords = [], perio
   popup.document.body.textContent = 'Memuat lampiran reimbursement...';
   try {
     const latestRecords=resolveRecords ? await resolveRecords() : selectedRecords;
-    const blob = await compileReimbursementPdf({ selectedRecords:latestRecords, options: { ...options, periodLabel }, onProgress: (_current, _total, message) => { if (!popup.closed) popup.document.body.textContent = message; } });
+    const blob = await compileReimbursementPdf({ selectedRecords:latestRecords, options: { tolerateErrors: true, ...options, periodLabel }, onProgress: (_current, _total, message) => { if (!popup.closed) popup.document.body.textContent = message; } });
     if (popup.closed) return;
     const url = URL.createObjectURL(blob);
     popup.location.replace(url);

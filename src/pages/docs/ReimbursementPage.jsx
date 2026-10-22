@@ -550,7 +550,8 @@ export default function ReimbursementPage() {
         selectedRecords: await hydrateDocumentEdits(compileScopeRecords),
         options: {
           ...compileOptions,
-          periodLabel: compileScopeTitle
+          periodLabel: compileScopeTitle,
+          tolerateErrors: true
         },
         onProgress: (current, total, text) => {
           setCompileProgress({ current, total, text });
