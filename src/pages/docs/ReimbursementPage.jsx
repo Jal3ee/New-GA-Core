@@ -681,7 +681,7 @@ export default function ReimbursementPage() {
           </p>
         </div>
 
-        <div className="flex items-center gap-2 shrink-0">
+        <div className="flex flex-wrap items-center gap-2">
           <a href="/cek-reimbursement" target="_blank" rel="noopener noreferrer" className="inline-flex items-center gap-1.5 px-3 py-2 text-sm rounded-lg border border-[var(--border)] text-[var(--foreground)]"><ExternalLink className="w-4 h-4" /> Halaman Publik</a>
           {/* Toggle Dashboard Button */}
           <button
@@ -852,9 +852,9 @@ export default function ReimbursementPage() {
           3. FILTER TOOLBAR
       ------------------------------------------------------------- */}
       <div className="bg-[var(--card)] border border-[var(--border)] rounded-xl p-4 flex flex-wrap items-center justify-between gap-3 shadow-xs">
-        <div className="flex flex-wrap items-center gap-3">
+        <div className="flex flex-wrap items-center gap-3 w-full sm:w-auto">
           {/* Month Filter */}
-          <div className="w-48">
+          <div className="w-full sm:w-48">
             <CustomSelect
               icon={Calendar}
               value={selectedMonth}
@@ -865,7 +865,7 @@ export default function ReimbursementPage() {
           </div>
 
           {/* Period Cut Filter */}
-          <div className="w-52">
+          <div className="w-full sm:w-52">
             <CustomSelect
               icon={Layers}
               value={selectedPeriodCut}
@@ -876,7 +876,7 @@ export default function ReimbursementPage() {
           </div>
 
           {/* Status Proses Filter */}
-          <div className="w-52">
+          <div className="w-full sm:w-52">
             <CustomSelect
               icon={CheckCircle2}
               value={selectedStatusFinance}
@@ -924,7 +924,7 @@ export default function ReimbursementPage() {
               </span>
             </div>
 
-            <div className="flex items-center gap-2">
+            <div className="flex flex-wrap items-center gap-2">
               {/* Tombol Cetak / Unduh PDF Reworked Table */}
               <button
                 onClick={() => handleDownloadTablePdf()}
@@ -1210,7 +1210,7 @@ export default function ReimbursementPage() {
             className="absolute inset-0 bg-black/40 backdrop-blur-2xs transition-opacity"
           />
 
-          <div className="fixed inset-y-0 right-0 max-w-full flex pl-10">
+          <div className="fixed inset-y-0 right-0 max-w-full flex pl-0 sm:pl-10">
             <div className="w-screen max-w-2xl bg-[var(--card)] border-l border-[var(--border)] shadow-2xl flex flex-col animate-in slide-in-from-right duration-300">
               {/* Drawer Header */}
               <div className="p-5 border-b border-[var(--border)] bg-[var(--muted)]/20">
@@ -1327,7 +1327,7 @@ export default function ReimbursementPage() {
 
               {/* Drawer Body: Employee Table */}
               <div className="flex-1 overflow-y-auto p-5 space-y-4">
-                <div className="flex items-center justify-between text-xs text-[var(--muted-foreground)] border-b border-[var(--border)] pb-2">
+                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 text-xs text-[var(--muted-foreground)] border-b border-[var(--border)] pb-2">
                   <div className="flex items-center gap-2">
                     <button
                       onClick={handleToggleDrawerSelectAll}
@@ -1425,9 +1425,9 @@ export default function ReimbursementPage() {
           6. MODAL: UPDATE FINANCE LEVEL PAKET PERIODE
       ------------------------------------------------------------- */}
       {isPeriodEditModalOpen && targetPeriodForEdit && (
-        <div className="fixed inset-0 z-50 bg-black/50 flex items-center justify-center p-4">
-          <div className="bg-[var(--card)] border border-[var(--border)] rounded-2xl w-full max-w-md overflow-hidden shadow-2xl animate-in zoom-in-95">
-            <div className="p-5 border-b border-[var(--border)] flex items-center justify-between">
+        <div className="fixed inset-0 z-50 bg-black/50 flex items-center justify-center p-3 sm:p-4">
+          <div className="bg-[var(--card)] border border-[var(--border)] rounded-2xl w-full max-w-md max-h-[92vh] flex flex-col overflow-hidden shadow-2xl animate-in zoom-in-95">
+            <div className="p-4 sm:p-5 border-b border-[var(--border)] flex items-center justify-between">
               <div>
                 <h3 className="text-base font-bold text-[var(--foreground)]">
                   Ubah Status & Nilai Periode
@@ -1444,7 +1444,7 @@ export default function ReimbursementPage() {
               </button>
             </div>
 
-            <div className="p-5 space-y-3.5">
+            <div className="p-4 sm:p-5 space-y-3.5 overflow-y-auto flex-1">
               <div>
                 <div className="flex items-center justify-between mb-1.5">
                   <label htmlFor="reimbursement-total" className="block text-xs font-semibold text-[var(--foreground)]">
@@ -1575,9 +1575,9 @@ export default function ReimbursementPage() {
           7. MODAL: COMPILE PDF UNTUK 1 PAKET PERIODE
       ------------------------------------------------------------- */}
       {isCompileModalOpen && (
-        <div className="fixed inset-0 z-50 bg-black/50 flex items-center justify-center p-4">
-          <div className="bg-[var(--card)] border border-[var(--border)] rounded-2xl w-full max-w-lg overflow-hidden shadow-2xl animate-in zoom-in-95">
-            <div className="p-5 border-b border-[var(--border)] flex items-center justify-between">
+        <div className="fixed inset-0 z-50 bg-black/50 flex items-center justify-center p-3 sm:p-4">
+          <div className="bg-[var(--card)] border border-[var(--border)] rounded-2xl w-full max-w-lg max-h-[92vh] flex flex-col overflow-hidden shadow-2xl animate-in zoom-in-95">
+            <div className="p-4 sm:p-5 border-b border-[var(--border)] flex items-center justify-between">
               <div>
                 <h3 className="text-base font-bold text-[var(--foreground)]">
                   Compile & Download PDF {compileScopeTitle}
@@ -1594,7 +1594,7 @@ export default function ReimbursementPage() {
               </button>
             </div>
 
-            <div className="p-5 space-y-4">
+            <div className="p-4 sm:p-5 space-y-4 overflow-y-auto flex-1">
               <div className="space-y-2.5">
                 <label className="text-xs font-bold text-[var(--foreground)] uppercase tracking-wider">
                   Cakupan Halaman yang Disertakan:
@@ -1674,7 +1674,7 @@ export default function ReimbursementPage() {
               </div>
             </div>
 
-            <div className="p-4 border-t border-[var(--border)] bg-[var(--muted)]/10 flex items-center justify-between gap-2">
+            <div className="p-4 border-t border-[var(--border)] bg-[var(--muted)]/10 flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-2.5">
               <button
                 onClick={() => {
                   openReimbursementPrintWindow({

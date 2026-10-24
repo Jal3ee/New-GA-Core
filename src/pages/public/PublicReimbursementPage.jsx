@@ -95,27 +95,80 @@ export default function PublicReimbursementPage() {
             </div>
           )}
           {result?.employee && <>
-            <section className="rp-employee" aria-label="Identitas karyawan"><div><span className="rp-eyebrow">RIWAYAT KARYAWAN</span><h2>{result.employee.nama}</h2><p>NIK {result.employee.nik}<span aria-hidden="true"> · </span>{result.employee.departemen}<span aria-hidden="true"> · </span>Site {result.employee.site}</p></div><span className="rp-period-count">{result.periods.length} periode</span></section>
-            <div className="rp-history-heading"><div><h2>Riwayat reimbursement</h2><p>Periode terdahulu hingga terbaru.</p></div>{result.periods.length > 1 && <button className="rp-jump" onClick={() => latest.current?.scrollIntoView({ behavior: 'smooth', block: 'center' })}>Ke periode terbaru <ArrowDown size={15} /></button>}</div>
+            <section className="rp-employee" aria-label="Identitas karyawan">
+              <div className="rp-employee-info">
+                <span className="rp-eyebrow">RIWAYAT KARYAWAN</span>
+                <h2>{result.employee.nama}</h2>
+                <div className="rp-employee-chips">
+                  <span className="rp-chip">NIK: <strong>{result.employee.nik}</strong></span>
+                  <span className="rp-chip">Dept: <strong>{result.employee.departemen || '-'}</strong></span>
+                  <span className="rp-chip">Site: <strong>{result.employee.site || '-'}</strong></span>
+                </div>
+              </div>
+              <span className="rp-period-count">{result.periods.length} Periode</span>
+            </section>
+
+            <div className="rp-history-heading">
+              <div>
+                <h2>Riwayat Reimbursement</h2>
+                <p>Periode pengajuan dari terdahulu hingga terbaru.</p>
+              </div>
+              {result.periods.length > 1 && (
+                <button className="rp-jump" onClick={() => latest.current?.scrollIntoView({ behavior: 'smooth', block: 'center' })}>
+                  <span>Ke periode terbaru</span> <ArrowDown size={14} />
+                </button>
+              )}
+            </div>
+
             <div className="rp-history">
               {result.periods.map((period, index) => {
                 const current = REIMBURSEMENT_STEPS.findIndex(step => step.code === period.workflow_status);
                 const stage = REIMBURSEMENT_STEPS[current] || REIMBURSEMENT_STEPS[0];
                 const newest = index === result.periods.length - 1;
-                return <article className={`rp-period ${newest ? 'rp-period-latest' : ''}`} key={period.key} ref={newest ? latest : undefined}>
-                  <div className="rp-period-top"><div><div className="rp-period-title"><h3>{period.label}</h3>{newest && <span className="rp-latest-tag">Terbaru</span>}</div>{period.updated_at && <p className="rp-updated">Diperbarui {new Date(period.updated_at).toLocaleDateString('id-ID', { day: 'numeric', month: 'long', year: 'numeric', timeZone: 'Asia/Makassar' })}</p>}</div><span className={`rp-status ${period.workflow_status === 'paid' ? 'rp-status-paid' : ''}`}>{period.workflow_status === 'paid' ? <Check size={14} /> : <Circle size={10} fill="currentColor" />}{stage.label}</span></div>
-                  <p className="rp-stage-description">{stage.description}</p>
-                  <ol className="rp-flow" aria-label={`Alur proses ${period.label}`}>
-                    {REIMBURSEMENT_STEPS.map((step, stepIndex) => {
-                      const done = stepIndex < current || period.workflow_status === 'paid';
-                      const active = stepIndex === current && !done;
-                      return <li className={`${done ? 'rp-step-done' : active ? 'rp-step-active' : ''}`} key={step.code} aria-current={active ? 'step' : undefined}>
-                        <div className="rp-step-symbol"><span>{done ? <Check size={14} /> : stepIndex + 1}</span>{stepIndex < REIMBURSEMENT_STEPS.length - 1 && <ChevronRight size={14} aria-hidden="true" />}</div>
-                        <span className="rp-step-label">{step.short}</span>{active && <span className="rp-current-tag">Saat ini</span>}
-                      </li>;
-                    })}
-                  </ol>
-                </article>;
+                return (
+                  <article className={`rp-period ${newest ? 'rp-period-latest' : ''}`} key={period.key} ref={newest ? latest : undefined}>
+                    <div className="rp-period-top">
+                      <div className="rp-period-title-wrap">
+                        <div className="rp-period-title">
+                          <h3>{period.label}</h3>
+                          {newest && <span className="rp-latest-tag">Terbaru</span>}
+                        </div>
+                        {period.updated_at && (
+                          <p className="rp-updated">
+                            Diperbarui {new Date(period.updated_at).toLocaleDateString('id-ID', { day: 'numeric', month: 'long', year: 'numeric', timeZone: 'Asia/Makassar' })}
+                          </p>
+                        )}
+                      </div>
+                      <span className={`rp-status ${period.workflow_status === 'paid' ? 'rp-status-paid' : ''}`}>
+                        {period.workflow_status === 'paid' ? <Check size={14} /> : <Circle size={10} fill="currentColor" />}
+                        {stage.label}
+                      </span>
+                    </div>
+
+                    <div className="rp-stage-box">
+                      <p className="rp-stage-description">{stage.description}</p>
+                    </div>
+
+                    <ol className="rp-flow" aria-label={`Alur proses ${period.label}`}>
+                      {REIMBURSEMENT_STEPS.map((step, stepIndex) => {
+                        const done = stepIndex < current || period.workflow_status === 'paid';
+                        const active = stepIndex === current && !done;
+                        return (
+                          <li className={`rp-flow-step ${done ? 'rp-step-done' : active ? 'rp-step-active' : ''}`} key={step.code} aria-current={active ? 'step' : undefined}>
+                            <div className="rp-step-symbol">
+                              <span>{done ? <Check size={14} /> : stepIndex + 1}</span>
+                              {stepIndex < REIMBURSEMENT_STEPS.length - 1 && <ChevronRight size={14} aria-hidden="true" className="rp-chevron-icon" />}
+                            </div>
+                            <div className="rp-step-text">
+                              <span className="rp-step-label">{step.short}</span>
+                              {active && <span className="rp-current-tag">Tahap Saat Ini</span>}
+                            </div>
+                          </li>
+                        );
+                      })}
+                    </ol>
+                  </article>
+                );
               })}
             </div>
           </>}
