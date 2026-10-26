@@ -40,7 +40,6 @@ import { useAuth } from '../../context/AuthContext';
 import { REIMBURSEMENT_STEPS, workflowCode, workflowLabel, legacyFinanceStatus, formatEmployeeName, reimbursementNikKey } from '../../utils/reimbursementWorkflow';
 import CustomSelect from '../../components/ui/CustomSelect';
 import { parseReimbursementCSV } from '../../utils/reimbursementSource';
-import initialReimbursementData from '../../data/initialReimbursementData.json';
 import {
   compileReimbursementPdf,
   openReimbursementPrintWindow,
@@ -80,7 +79,7 @@ export default function ReimbursementPage() {
       const saved = localStorage.getItem('garda_reimbursements_data');
       if (saved) return JSON.parse(saved);
     } catch {}
-    return initialReimbursementData;
+    return [];
   });
   const [documentEdits,setDocumentEdits]=useState({});
   const [editingAttachment,setEditingAttachment]=useState(null);

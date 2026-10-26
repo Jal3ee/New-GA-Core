@@ -199,10 +199,7 @@ export default function DashboardPage() {
         if (localReimb.length > 0) {
           setReimbursements(localReimb);
         } else {
-          try {
-            const fallbackMod = await import('../data/initialReimbursementData.json');
-            setReimbursements(fallbackMod.default || []);
-          } catch {}
+          setReimbursements([]);
         }
       }
 
@@ -214,10 +211,7 @@ export default function DashboardPage() {
         if (localTkt.length > 0) {
           setTicketingRecords(localTkt);
         } else {
-          try {
-            const fallbackTkt = await import('../data/initialTicketingData.json');
-            setTicketingRecords(fallbackTkt.default || []);
-          } catch {}
+          setTicketingRecords([]);
         }
       }
 

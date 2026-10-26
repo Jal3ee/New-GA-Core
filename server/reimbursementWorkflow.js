@@ -18,32 +18,16 @@ export function registerReimbursementWorkflow(app, { query, authenticateToken, r
     return initialized;
   };
   const protect = [authenticateToken, requireRole('admin', 'ga_admin', 'ga_gl', 'ga_sh', 'finance')];
-  const optionalAuth = (req, _res, next) => {
-    const authHeader = req.headers['authorization'];
-    const token = authHeader && authHeader.startsWith('Bearer ') ? authHeader.split(' ')[1] : (req.body?.token || req.query?.token);
-    if (token && typeof verifySessionToken === 'function') {
-      const result = verifySessionToken(token, req);
-      if (result?.valid) req.user = result.user;
-    }
-    next();
-  };
   const errors = res => error => {
     console.error('[Reimbursement workflow]', error.message);
     res.status(503).json({ ok: false, error: 'Data reimbursement belum dapat diakses. Silakan coba lagi.' });
   };
-  const rate = new Map();
 
   app.post('/api/public/reimbursements/lookup', async (req, res) => {
     res.set({ 'Cache-Control': 'no-store', 'X-Robots-Tag': 'noindex, nofollow' });
     const nik = typeof req.body?.nik === 'string' ? req.body.nik.trim() : '';
     const nikKey = reimbursementNikKey(nik);
     if (!/^\d{4,24}$/.test(nik) || !nikKey) return res.status(400).json({ ok: false, error: 'Masukkan NIK lengkap sesuai data karyawan.' });
-    const ip = String(req.headers['x-forwarded-for'] || req.ip).split(',')[0].trim();
-    const now = Date.now();
-    for (const [key, entry] of rate) if (entry.until < now) rate.delete(key);
-    const entry = rate.get(ip) || { count: 0, until: now + 60000 };
-    rate.set(ip, entry);
-    if (++entry.count > 30) return res.status(429).json({ ok: false, error: 'Terlalu banyak pencarian. Coba kembali dalam satu menit.' });
     try {
       const matches = (await loadRecords()).filter(record => reimbursementNikKey(record.nik) === nikKey);
       if (!matches.length) return res.json({ ok: true, employee: null, periods: [] });
@@ -66,7 +50,7 @@ export function registerReimbursementWorkflow(app, { query, authenticateToken, r
     } catch (error) { errors(res)(error); }
   });
 
-  app.get('/api/reimbursements/period-status', optionalAuth, async (_req, res) => {
+  app.get('/api/reimbursements/period-status', authenticateToken, async (_req, res) => {
     res.set('Cache-Control', 'no-store');
     try {
       await ensureTable();

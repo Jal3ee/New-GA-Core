@@ -41,43 +41,17 @@ export function AuthProvider({ children }) {
         localStorage.removeItem('garda_jwt_token');
       } catch {}
     }
-    // Fallback legacy session
-    const raw = (typeof sessionStorage !== 'undefined' && sessionStorage.getItem('garda_session')) ||
-      (typeof localStorage !== 'undefined' && localStorage.getItem('garda_session'));
-    if (raw) {
-      try {
-        const parsed = JSON.parse(raw);
-        if (parsed && (!parsed._exp || Date.now() < parsed._exp)) return parsed;
-      } catch {}
-    }
     return null;
   });
 
-  // Auto-renew token jika user session aktif tetapi token JWT kosong
-  useEffect(() => {
-    if (user && !token && user.nik) {
-      fetch('/api/auth/token', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ nik: user.nik })
-      })
-        .then(res => res.json())
-        .then(data => {
-          if (data?.ok && data.token) {
-            sessionStorage.setItem('garda_jwt_token', data.token);
-            localStorage.setItem('garda_jwt_token', data.token);
-            setToken(data.token);
-            if (data.user) {
-              const fullUser = { ...user, ...data.user };
-              sessionStorage.setItem('garda_session', JSON.stringify(fullUser));
-              localStorage.setItem('garda_session', JSON.stringify(fullUser));
-              setUser(fullUser);
-            }
-          }
-        })
-        .catch(() => {});
-    }
-  }, [user, token]);
+  useEffect(()=>{
+    if(!token)return;
+    let active=true;
+    fetch('/api/auth/me',{headers:{Authorization:'Bearer '+token},cache:'no-store'})
+      .then(response=>{if(active&&response.status===401){sessionStorage.removeItem('garda_jwt_token');sessionStorage.removeItem('garda_session');localStorage.removeItem('garda_jwt_token');localStorage.removeItem('garda_session');setToken(null);setUser(null);}})
+      .catch(()=>{});
+    return()=>{active=false;};
+  },[token]);
 
   const login = useCallback((userData, jwtToken = null) => {
     if (jwtToken) {

@@ -3,6 +3,7 @@
  * Mendukung Transaction Pooler, Session Pooler, dan Direct Session.
  */
 
+const authHeaders=()=>{const token=sessionStorage.getItem('garda_jwt_token')||localStorage.getItem('garda_jwt_token');return {'Content-Type':'application/json',...(token?{Authorization:'Bearer '+token}:{})};};
 const PG_API_BASE = import.meta.env.VITE_PG_API_URL || '/api';
 async function checkedBhpResponse(res) {
   const result = await res.json();
@@ -17,7 +18,7 @@ export async function checkPgHealth() {
   try {
     const res = await fetch(`${PG_API_BASE}/health`, {
       method: 'GET',
-      headers: { 'Content-Type': 'application/json' },
+      headers: authHeaders(),
     });
     if (!res.ok) throw new Error(`HTTP ${res.status}`);
     return await res.json();
@@ -35,7 +36,7 @@ export async function checkPgHealth() {
  */
 export async function getPoolerModes() {
   try {
-    const res = await fetch(`${PG_API_BASE}/modes`);
+    const res = await fetch(`${PG_API_BASE}/modes`,{headers:authHeaders()});
     if (!res.ok) throw new Error(`HTTP ${res.status}`);
     return await res.json();
   } catch {
@@ -55,7 +56,7 @@ export async function getPoolerModes() {
  */
 export async function fetchPgBhpData() {
   try {
-    const res = await fetch(`${PG_API_BASE}/bhp/data`);
+    const res = await fetch(`${PG_API_BASE}/bhp/data`,{headers:authHeaders()});
     const json = await res.json();
     if (!json.success) throw new Error(json.error);
     return json.data;
@@ -71,7 +72,7 @@ export async function fetchPgBhpData() {
 export async function savePgBhpUsage(payload) {
   const res = await fetch(`${PG_API_BASE}/bhp/usage`, {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
+    headers: authHeaders(),
     body: JSON.stringify(payload)
   });
   return checkedBhpResponse(res);
@@ -83,7 +84,7 @@ export async function savePgBhpUsage(payload) {
 export async function savePgBhpStockIn(payload) {
   const res = await fetch(`${PG_API_BASE}/bhp/stock-in`, {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
+    headers: authHeaders(),
     body: JSON.stringify(payload)
   });
   return checkedBhpResponse(res);
@@ -95,7 +96,7 @@ export async function savePgBhpStockIn(payload) {
 export async function savePgBhpTransfer(payload) {
   const res = await fetch(`${PG_API_BASE}/bhp/transfer`, {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
+    headers: authHeaders(),
     body: JSON.stringify(payload)
   });
   return checkedBhpResponse(res);
@@ -107,7 +108,7 @@ export async function savePgBhpTransfer(payload) {
 export async function savePgBhpOpname(payload) {
   const res = await fetch(`${PG_API_BASE}/bhp/opname`, {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
+    headers: authHeaders(),
     body: JSON.stringify(payload)
   });
   return checkedBhpResponse(res);
@@ -119,7 +120,7 @@ export async function savePgBhpOpname(payload) {
 export async function savePgBhpPdfHistory(payload) {
   const res = await fetch(`${PG_API_BASE}/bhp/pdf-history`, {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
+    headers: authHeaders(),
     body: JSON.stringify(payload)
   });
   return checkedBhpResponse(res);

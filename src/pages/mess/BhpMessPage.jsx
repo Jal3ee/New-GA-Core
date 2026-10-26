@@ -161,7 +161,7 @@ export default function BhpMessPage() {
 
   // Canonical server ledger is the source of current stock for every browser.
   const refreshBhpData = async () => {
-    const response = await fetch('/api/bhp/data', { cache: 'no-store' });
+    const response = await fetch('/api/bhp/data', { cache:'no-store',headers:{Authorization:'Bearer '+(sessionStorage.getItem('garda_jwt_token')||localStorage.getItem('garda_jwt_token')||'')} });
     const result = await response.json();
     if (!response.ok || !result.success || !result.data?.currentStocks) throw new Error('Saldo server belum dapat dimuat.');
     const mapped = result.data.items.map(item => ({ ...item.catalog_details, id:item.code, code:item.code, name:item.name, category:item.category, unit:item.unit, pack_qty:Number(item.pack_size)||1, pack_unit:item.unit, price_est:item.price_est == null ? null : Number(item.price_est), default_abc:item.abc_class, coa:item.coa, remarks:item.remarks }));

@@ -3,13 +3,14 @@ import { LOGIN_NIK_MATCH, LOGIN_ACCOUNT_ORDER, loginIdentifier } from './loginId
 import { registerReimbursementWorkflow } from './reimbursementWorkflow.js';
 import { registerReimbursementAttachments } from './reimbursementAttachments.js';
 import { registerReimbursementEdits } from './reimbursementEdits.js';
+import { createPublicRateLimit } from './publicRateLimit.js';
+import { registerSecurityBoundary } from './securityBoundary.js';
 import express from 'express';
 import { createInvoiceService, InvoiceInputError } from './invoiceService.js';
 import { registerBhpForecast, readBhpLedger } from './bhpForecastService.js';
 import { registerMessDrafts } from './messDraftService.js';
 import { validBhpQuantity } from '../src/utils/bhpQuantity.js';
 import { calculateBhpStocks, todayMakassar } from '../src/utils/bhpForecast.js';
-import cors from 'cors';
 import dotenv from 'dotenv';
 import path from 'path';
 import multer from 'multer';
@@ -34,10 +35,6 @@ const upload = multer({
   storage: multer.memoryStorage()
 });
 
-app.use(cors());
-app.use(express.json({ limit: '10mb' }));
-app.use(express.urlencoded({ extended: true, limit: '10mb' }));
-
 // Normalizer middleware untuk Vercel Serverless Function rewrites
 app.use((req, res, next) => {
   if (req.url && !req.url.startsWith('/api') && !req.url.startsWith('/uploads')) {
@@ -46,13 +43,24 @@ app.use((req, res, next) => {
   next();
 });
 
+app.use('/api/public',express.json({limit:'2kb',strict:true}));
+app.use(express.json({ limit: '10mb' }));
+app.use(express.urlencoded({ extended: true, limit: '10mb' }));
+
+
+registerSecurityBoundary(app,{authenticateToken,requireRole});
+app.get('/api/security/config-status',requireRole('admin'),(_req,res)=>res.json({ok:true,databaseEnvironmentConfigured:Boolean(process.env.DATABASE_URL || process.env.DATABASE_URL_TRANSACTION || process.env.DB_HOST&&process.env.DB_USER&&process.env.DB_PASSWORD),customJwtSecretConfigured:Boolean(process.env.JWT_SECRET)}));
+const publicRateLimit=createPublicRateLimit(query);
+app.post('/api/public/reimbursements/lookup',publicRateLimit);
+app.post('/api/auth/login',publicRateLimit);
+app.post('/api/action',(req,res,next)=>req.body?.action==='LOGIN'?publicRateLimit(req,res,next):next());
 registerReimbursementAttachments(app, authenticateToken);
 registerReimbursementEdits(app, { query, authenticateToken, requireRole });
 registerReimbursementWorkflow(app, { query, authenticateToken, requireRole, verifySessionToken });
 registerBhpForecast(app, { query, authenticateToken });
 registerMessDrafts(app, { query, pool, authenticateToken });
 
-app.use('/uploads', express.static(path.resolve(__dirname, '../public/uploads')));
+app.use('/uploads', authenticateToken, express.static(path.resolve(__dirname, '../public/uploads')));
 
 // ====================================================================
 // HEALTH & DIAGNOSTIC ENDPOINTS
@@ -302,12 +310,12 @@ app.post('/api/auth/login', async (req, res) => {
     });
   } catch (err) {
     console.error('[Auth Error]:', err.message);
-    return res.status(500).json({ ok: false, error: err.message });
+    return res.status(500).json({ok:false,error:'Permintaan belum dapat diproses.'});
   }
 });
 
 app.post('/api/auth/token', async (req, res) => {
-  const nik = typeof req.body?.nik === 'string' ? req.body.nik.trim() : '';
+  const nik = req.user.nik;
   if (!nik) return res.status(400).json({ ok: false, error: 'NIK wajib disertakan' });
   try {
     const result = await query(
@@ -320,7 +328,7 @@ app.post('/api/auth/token', async (req, res) => {
     return res.json({ ok: true, token, user });
   } catch (err) {
     console.error('[Token Issue Error]:', err.message);
-    return res.status(500).json({ ok: false, error: err.message });
+    return res.status(500).json({ok:false,error:'Permintaan belum dapat diproses.'});
   }
 });
 
@@ -897,14 +905,14 @@ app.post('/api/action', async (req, res) => {
   } catch (err) {
     if (err instanceof InvoiceInputError) return res.status(err.status).json({ ok: false, error: err.message });
     console.error(`[PG-Action-Error] ${action}:`, err.message);
-    return res.status(500).json({ ok: false, error: err.message });
+    return res.status(500).json({ok:false,error:'Permintaan belum dapat diproses.'});
   }
 });
 
 // Global Error Handler agar function tidak crash di Vercel
 app.use((err, req, res, next) => {
   console.error('[Global-API-Error]:', err.message || err);
-  res.status(500).json({ ok: false, error: err.message || 'Internal Server Error' });
+  res.status(err.type==='entity.too.large'?413:err.type==='entity.parse.failed'?400:500).json({ok:false,error:err.type==='entity.too.large'?'Permintaan terlalu besar.':err.type==='entity.parse.failed'?'Format permintaan tidak valid.':'Terjadi kesalahan server.'});
 });
 
 // Start Server if not running on Vercel Serverless

@@ -5,27 +5,7 @@ async function getAuthToken(forceRefresh = false) {
     if (existing) return existing;
   }
 
-  // Coba perbarui token secara otomatis jika session aktif tersedia
-  try {
-    const sessionRaw = sessionStorage.getItem('garda_session') || localStorage.getItem('garda_session');
-    if (sessionRaw) {
-      const parsed = JSON.parse(sessionRaw);
-      const nik = parsed?.nik;
-      if (nik) {
-        const res = await fetch('/api/auth/token', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ nik })
-        });
-        const json = await res.json().catch(() => null);
-        if (json?.ok && json.token) {
-          sessionStorage.setItem('garda_jwt_token', json.token);
-          localStorage.setItem('garda_jwt_token', json.token);
-          return json.token;
-        }
-      }
-    }
-  } catch {}
+
   return null;
 }
 

@@ -9,7 +9,8 @@ const __dirname = path.dirname(__filename);
 dotenv.config({ path: path.resolve(__dirname, '../.env') });
 
 // Secret Server Key untuk menandatangani JWT (HANYA ADA DI SERVER)
-const JWT_SECRET = process.env.JWT_SECRET || 'garda-super-secure-jwt-secret-agm-2026-key-x901';
+const JWT_SECRET = process.env.JWT_SECRET || (process.env.GOOGLE_PRIVATE_KEY ? crypto.createHash('sha256').update('ga-core-jwt-v2:' + process.env.GOOGLE_PRIVATE_KEY.replace(/\\n/g, '\n')).digest('hex') : null);
+if (!JWT_SECRET) throw new Error('Configure JWT_SECRET before starting the API.');
 const PEPPER = process.env.PASSWORD_PEPPER || 'garda-pepper-internal-secure-2026';
 const TOKEN_EXPIRY = process.env.JWT_EXPIRY || '8h';
 
@@ -135,7 +136,7 @@ export function hashPassword(plainPassword, salt = null) {
  * Verifikasi Password dengan Constant-Time Compare (Anti-Timing Attack)
  */
 export function verifyPassword(plainPassword, storedHash) {
-  if (!storedHash) return false;
+  if (typeof storedHash !== 'string' || typeof plainPassword !== 'string' || !plainPassword || plainPassword.length > 500) return false;
 
   // Cek apakah password tersimpan dalam format baru salt:hash
   if (storedHash.includes(':')) {
@@ -152,7 +153,7 @@ export function verifyPassword(plainPassword, storedHash) {
   }
 
   // Dukungan backward compatibility untuk plain default seed 'demo_hash_agm' atau legacy SHA-256
-  if (storedHash === plainPassword || storedHash === 'demo_hash_agm') {
+  if (typeof plainPassword === 'string' && plainPassword.length > 0 && storedHash !== 'demo_hash_agm' && storedHash === plainPassword) {
     return true;
   }
 
