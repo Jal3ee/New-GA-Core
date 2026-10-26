@@ -26,3 +26,11 @@ uploads/
 *.njsproj
 *.sln
 *.sw?
+
+# Private operational exports are never source-code fixtures.
+/Form Order Kebutuhan Tiket Karyawan PT. Antang Gunung Meratus (Jawaban) - All.csv
+/src/data/initialReimbursementData.json
+/src/data/initialTicketingData.json
+/file cuti approval - Febi Ibrena Ginting.pdf
+/transport_cuti - Febi Ibrena Ginting.pdf
+/public/samples/*.pdf

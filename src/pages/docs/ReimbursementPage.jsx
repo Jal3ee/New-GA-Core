@@ -202,25 +202,6 @@ export default function ReimbursementPage() {
       console.warn('Backend sync failed, trying direct Google Sheet fetch:', err);
     }
 
-    // 2. Direct browser fetch ke export CSV Google Spreadsheet
-    try {
-      const resp = await fetch(SPREADSHEET_CSV_URL, { signal: AbortSignal.timeout(20000) });
-      if (resp.ok && resp.headers.get('content-type')?.includes('csv')) {
-        const text = await resp.text();
-        const parsed = parseReimbursementCSV(text);
-        if (Array.isArray(parsed)) {
-          setRecords(parsed);
-          localStorage.setItem('garda_reimbursements_data', JSON.stringify(parsed));
-          toast.success(`Berhasil menarik ${parsed.length} data reimbursement langsung dari Google Spreadsheet!`);
-          setSyncStatus('Tersinkron dari spreadsheet sumber');
-          setIsLoading(false);
-          return;
-        }
-      }
-    } catch (directErr) {
-      console.warn('Direct fetch failed:', directErr);
-    }
-
     // Keep the last known data if synchronization fails.
     setSyncStatus('Sinkronisasi gagal; menampilkan data terakhir');
     toast.error('Sinkronisasi spreadsheet gagal. Data terakhir tetap ditampilkan; coba sinkronkan kembali.');

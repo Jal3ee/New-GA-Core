@@ -1,32 +1,9 @@
-import crypto from 'node:crypto';
-import { parseReimbursementCSV, SPREADSHEET_CSV_URL } from '../src/utils/reimbursementSource.js';
-
-let tokenCache;
+import { googleDriveToken } from './googleAuth.js';
+import { loadReimbursementRecords } from './reimbursementRecords.js';
 let allowedCache;
-async function driveToken() {
-  if (tokenCache?.expires > Date.now()) return tokenCache.value;
-  const email = process.env.GOOGLE_SERVICE_ACCOUNT_EMAIL;
-  const key = process.env.GOOGLE_PRIVATE_KEY;
-  if (!email || !key) return null;
-  const now = Math.floor(Date.now() / 1000);
-  const encode = value => Buffer.from(JSON.stringify(value)).toString('base64url');
-  const unsigned = `${encode({ alg: 'RS256', typ: 'JWT' })}.${encode({ iss: email, scope: 'https://www.googleapis.com/auth/drive.readonly', aud: 'https://oauth2.googleapis.com/token', iat: now, exp: now + 3600 })}`;
-  const signature = crypto.sign('RSA-SHA256', Buffer.from(unsigned), key.replace(/\\n/g, '\n')).toString('base64url');
-  const response = await fetch('https://oauth2.googleapis.com/token', {
-    method: 'POST', signal: AbortSignal.timeout(15000),
-    body: new URLSearchParams({ grant_type: 'urn:ietf:params:oauth:grant-type:jwt-bearer', assertion: `${unsigned}.${signature}` })
-  });
-  const data = await response.json();
-  if (!response.ok || !data.access_token) throw new Error('Kredensial Google Drive belum valid.');
-  tokenCache = { value: data.access_token, expires: Date.now() + 3300000 };
-  return tokenCache.value;
-}
-
 async function allowedFiles() {
   if (allowedCache?.expires > Date.now()) return allowedCache.ids;
-  const response = await fetch(SPREADSHEET_CSV_URL, { signal: AbortSignal.timeout(20000) });
-  if (!response.ok || !response.headers.get('content-type')?.includes('csv')) throw new Error('Spreadsheet sumber tidak tersedia.');
-  const records = parseReimbursementCSV(await response.text());
+  const records=await loadReimbursementRecords();
   const ids = new Set();
   for (const record of records) {
     for (const field of ['url_boarding_pass', 'url_bukti_cuti', 'url_nota_berangkat', 'url_nota_pulang']) {
@@ -45,7 +22,7 @@ export function registerReimbursementAttachments(app, authenticate) {
       if (!/^[\w-]{10,200}$/.test(id) || !(await allowedFiles()).has(id)) {
         return res.status(403).json({ error: 'Berkas tidak tercantum pada spreadsheet reimbursement.' });
       }
-      const token = await driveToken();
+      const token = await googleDriveToken();
       const resourceKey = /^[\w-]+$/.test(req.query.resourcekey || '') ? req.query.resourcekey : '';
       const url = token
         ? `https://www.googleapis.com/drive/v3/files/${id}?alt=media&supportsAllDrives=true`

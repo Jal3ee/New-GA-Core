@@ -1,3 +1,4 @@
+import { loadReimbursementRecords } from '../server/reimbursementRecords.js';
 import assert from 'node:assert/strict';
 import express from 'express';
 import { registerReimbursementAttachments } from '../server/reimbursementAttachments.js';
@@ -12,8 +13,7 @@ try {
  const token=createSessionToken({id:'verification',nik:'TEST',name:'Test',role:'admin',site:'ALL'});
  const headers={Authorization:'Bearer '+token};
  const unlisted=await fetch(base+'/api/reimbursements/attachment/unlisted_file_123',{headers}); assert.equal(unlisted.status,403);
- const response=await fetch(SPREADSHEET_CSV_URL,{signal:AbortSignal.timeout(20000)});
- const record=parseReimbursementCSV(await response.text())[0];
+ const record=(await loadReimbursementRecords())[0];
  const id=record.url_bukti_cuti.match(/id=([\w-]+)/)[1];
  const real=await fetch(base+'/api/reimbursements/attachment/'+id,{headers});
  assert([200,422,503].includes(real.status));
