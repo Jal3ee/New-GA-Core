@@ -142,6 +142,15 @@ export default function MessTransferPage() {
   }, [siteBuildings, selectedBuildingId, currentState, pendingActions]);
 
 
+  const closeModal = () => {
+    setModalMode(null);
+    setSelectedBed(null);
+    setGuestName('');
+    setGuestStatus('Onsite');
+    setLeaveStart('');
+    setLeaveEnd('');
+  };
+
   // Action Handlers
   const handleCheckInSubmit = (e) => {
     e.preventDefault();
@@ -252,15 +261,6 @@ export default function MessTransferPage() {
     const retained = messDraftBaseline(remaining, baselineStays);
     setPendingActions(remaining);
     setBaselineStays([...retained, ...stays.filter(s => !retained.some(b => sameMessId(b.id, s.id)))]);
-  };
-
-  const closeModal = () => {
-    setModalMode(null);
-    setSelectedBed(null);
-    setGuestName('');
-    setGuestStatus('Onsite');
-    setLeaveStart('');
-    setLeaveEnd('');
   };
 
   const resetDraft = () => {

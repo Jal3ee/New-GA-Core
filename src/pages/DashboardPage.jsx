@@ -61,22 +61,56 @@ const DEFAULT_TASKS = [
   { id: 'task-5', title: 'Audit fisik ketersediaan ranjang mess & verifikasi roster cuti', category: 'Mess', due: '21 Sep 2026', completed: false }
 ];
 
+// Clean date and time helper for flights and events
+const cleanFlightDate = (val) => {
+  if (!val) return '-';
+  if (typeof val === 'string' && val.includes('T')) {
+    const d = new Date(val);
+    if (!isNaN(d.getTime())) {
+      return d.toLocaleDateString('id-ID', { day: '2-digit', month: 'short', year: 'numeric' });
+    }
+  }
+  return val;
+};
+
+const cleanFlightTime = (val) => {
+  if (!val) return '';
+  if (typeof val === 'string' && (val.includes('1899-') || val.includes('T'))) {
+    const d = new Date(val);
+    if (!isNaN(d.getTime())) {
+      return d.toLocaleTimeString('id-ID', { hour: '2-digit', minute: '2-digit' });
+    }
+  }
+  return String(val).slice(0, 5);
+};
+
+const cleanEventDate = (val) => {
+  if (!val) return 'Jadwal Mendatang';
+  try {
+    const d = new Date(val);
+    if (!isNaN(d.getTime())) {
+      return d.toLocaleDateString('id-ID', { day: '2-digit', month: 'short', year: 'numeric' });
+    }
+  } catch {}
+  return String(val);
+};
+
+// Helper to read initial state from real local cache (persisted by gasClient / modules)
+const getCache = (key, fallback = []) => {
+  try {
+    const raw = localStorage.getItem(key);
+    if (raw) {
+      const parsed = JSON.parse(raw);
+      if (Array.isArray(parsed)) return parsed;
+      if (parsed?.data && Array.isArray(parsed.data)) return parsed.data;
+    }
+  } catch {}
+  return fallback;
+};
+
 export default function DashboardPage() {
   const [selectedSite, setSelectedSite] = useState('Semua');
   const [currentTime, setCurrentTime] = useState(new Date());
-
-  // Helper to read initial state from real local cache (persisted by gasClient / modules)
-  const getCache = (key, fallback = []) => {
-    try {
-      const raw = localStorage.getItem(key);
-      if (raw) {
-        const parsed = JSON.parse(raw);
-        if (Array.isArray(parsed)) return parsed;
-        if (parsed?.data && Array.isArray(parsed.data)) return parsed.data;
-      }
-    } catch {}
-    return fallback;
-  };
 
   // Real data states initialized from cache for instant zero-latency render
   const [invoices, setInvoices] = useState(() => getCache('garda_cache_GET_INVOICES', getCache('garda_invoices_data')));
@@ -442,40 +476,6 @@ export default function DashboardPage() {
       subStandardList: subStandard
     };
   }, [filteredCatering, cateringVendors]);
-
-  // Clean date and time helper for flights and events
-  const cleanFlightDate = (val) => {
-    if (!val) return '-';
-    if (typeof val === 'string' && val.includes('T')) {
-      const d = new Date(val);
-      if (!isNaN(d.getTime())) {
-        return d.toLocaleDateString('id-ID', { day: '2-digit', month: 'short', year: 'numeric' });
-      }
-    }
-    return val;
-  };
-
-  const cleanFlightTime = (val) => {
-    if (!val) return '';
-    if (typeof val === 'string' && (val.includes('1899-') || val.includes('T'))) {
-      const d = new Date(val);
-      if (!isNaN(d.getTime())) {
-        return d.toLocaleTimeString('id-ID', { hour: '2-digit', minute: '2-digit' });
-      }
-    }
-    return String(val).slice(0, 5);
-  };
-
-  const cleanEventDate = (val) => {
-    if (!val) return 'Jadwal Mendatang';
-    try {
-      const d = new Date(val);
-      if (!isNaN(d.getTime())) {
-        return d.toLocaleDateString('id-ID', { day: '2-digit', month: 'short', year: 'numeric' });
-      }
-    } catch {}
-    return String(val);
-  };
 
   // Upcoming Flights (Sorted by Departure Date from real ticketing records)
   const upcomingDepartures = useMemo(() => {

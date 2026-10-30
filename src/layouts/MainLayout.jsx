@@ -47,7 +47,7 @@ export function MainLayout() {
 
   if (!user) return null;
 
-  const getNavItems = (admin) => {
+  function getNavItems(admin) {
     const items = [
       { label: 'Dashboard', path: '/', icon: Home },
       {

@@ -83,6 +83,15 @@ export default function CustomSelect({
     }
   }, [isOpen]);
 
+  const scrollToIndex = (index) => {
+    if (optionsListRef.current) {
+      const items = optionsListRef.current.querySelectorAll('[data-select-option]');
+      if (items[index]) {
+        items[index].scrollIntoView({ block: 'nearest' });
+      }
+    }
+  };
+
   // Keyboard navigation handler
   const handleKeyDown = (e) => {
     if (!isOpen) {
@@ -120,15 +129,6 @@ export default function CustomSelect({
         const chosen = filteredOptions[activeIndex];
         onChange(chosen.value, chosen);
         setIsOpen(false);
-      }
-    }
-  };
-
-  const scrollToIndex = (index) => {
-    if (optionsListRef.current) {
-      const items = optionsListRef.current.querySelectorAll('[data-select-option]');
-      if (items[index]) {
-        items[index].scrollIntoView({ block: 'nearest' });
       }
     }
   };
